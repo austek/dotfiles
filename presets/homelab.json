@@ -1,0 +1,6 @@
+{
+  "description": "Headless homelab machine — common packages only, no desktop/GUI.",
+  "package_files": ["apt_common.txt", "apt_homelab.txt"],
+  "backend_overrides": {},
+  "claude_settings": "claude_homelab.json"
+}

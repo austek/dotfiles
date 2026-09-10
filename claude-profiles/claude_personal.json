@@ -1,0 +1,48 @@
+{
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "proficiently@proficiently": true,
+    "python-clean-architecture@python-clean-architecture": true,
+    "sonarqube@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/sonar-secrets/build-scripts/pretool-secrets.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/sonar-secrets/build-scripts/prompt-secrets.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "proficiently": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/proficientlyjobs/proficiently-claude-skills.git"
+      }
+    },
+    "python-clean-architecture": {
+      "source": {
+        "source": "github",
+        "repo": "MKToronto/python-clean-architecture"
+      }
+    }
+  }
+}

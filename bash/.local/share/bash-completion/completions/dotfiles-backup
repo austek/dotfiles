@@ -1,0 +1,7 @@
+_dotfiles_backup_completions() {
+    local cur
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    COMPREPLY=($(compgen -W "save -h --help" -- "$cur"))
+}
+complete -F _dotfiles_backup_completions dotfiles-backup

@@ -1,0 +1,6 @@
+Types: deb
+URIs: https://apt.releases.teleport.dev/ubuntu
+Suites: noble
+Components: stable/v18
+Architectures: amd64
+Signed-By: /usr/share/keyrings/teleport-archive-keyring.gpg

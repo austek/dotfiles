@@ -1,0 +1,14 @@
+#!/bin/zsh
+
+if [[ -z "$1" ]]; then
+  echo "Usage: gradle_prop <property_name>" >&2
+  exit 1
+fi
+
+val=$(awk -F'=' '/^'"$1"'=/ {print $2}' ~/.gradle/gradle.properties)
+
+if [[ -z "$val" ]]; then
+   val=$(awk -F'=' '/'"$1"'/ {print $2}' ~/.gradle/gradle.properties | head -n 1)
+fi
+
+echo "$val" | tr -d '[:space:]'

@@ -1,0 +1,162 @@
+= Developer Workstation Setup Guide for Ubuntu (Snap-Free Edition)
+:encoding: utf-8
+:lang: en
+ifdef::env-github[]
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+:toc:
+:toc-placement!:
+
+toc::[]
+
+This repository contains my personal configuration files (dotfiles) for my Ubuntu-based development environment.
+It is designed to be automated, preset-aware, and easily deployed on a new machine.
+
+The core of this setup uses *GNU Stow* to manage symlinks and a custom `setup.sh` script to orchestrate the entire installation, including applications, repositories, and preset-specific settings.
+
+== Key Features
+
+* *GNU Stow*: Uses `stow` to manage all dotfiles, keeping them neatly organized in this repo and symlinked to their correct locations in `$HOME` or `/`.
+* *Preset-Aware Setup*: The `setup.sh` script requires a `--preset work`, `--preset personal`, or `--preset homelab` argument.
+It then installs the correct applications and builds the right configuration files based on this preset (see "Presets and the Private Overlay" below for how presets are resolved and extended).
+* *Declarative `apt` Sources*: All third-party `apt` repositories (like Google Chrome, VS Code, 1Password) are declaratively managed using `.sources` files in the `apt/` package.
+The setup script securely downloads the latest GPG keys during installation.
+* *Snap-Free*: `snapd` is automatically removed and blocked via an `apt` preference file (`system/` package) for a cleaner system.
+* *Zsh Function Autoloading*: Custom Zsh functions are stored in `~/.config/zsh/functions` and loaded efficiently using `fpath` and `autoload`.
+* *Zsh Completions*: Tab-completion scripts for custom commands live in `$ZSH_CUSTOM/completions` (`omz/.oh-my-zsh/custom/completions/`), which oh-my-zsh adds to `fpath` before `compinit` — e.g. `_flaky-it` and `_kdev`.
+* *Automated Binary Installation*: Downloads and installs specific `.deb` packages from GitHub releases (like `lsd` and `bat`) based on a text list.
+* *Secure & Separate Configs*:
+** *Claude Code Profiles*: Per-preset Claude Code settings (`claude_work.json`, `claude_personal.json`, `claude_homelab.json`) live in `~/.dotfiles/claude-profiles/` and are *built* by `setup.sh` into Claude aliases in `~/.zshrc.profile`.
+** *Secret Configs*: True secrets (API keys, tokens) are ignored by Git.
+They should be manually placed in `~/.zshrc.secret`, which is sourced by `.zshrc`.
+
+== Installation on a New Machine
+
+=== Clone the Repository
+
+[source,bash]
+.Install git first
+----
+sudo apt update && sudo apt install git -y
+----
+
+[source,bash]
+.Then, clone this repository to your home directory as `.dotfiles`.
+----
+git clone <your-repo-url> ~/.dotfiles
+----
+
+=== Run the Setup Script
+
+[source,bash]
+.Bootstrap this machine from your home directory, specifying the machine preset.
+----
+~/.dotfiles/bin/dotfiles-setup install --preset work
+# or
+~/.dotfiles/bin/dotfiles-setup install --preset personal
+# or
+~/.dotfiles/bin/dotfiles-setup install --preset homelab
+----
+
+Run `dotfiles-setup install`, not `setup.sh` directly. The first time you run it for a preset on this
+machine it prompts for your git name, email, and (optionally) an SSH signing key, and writes them to
+`~/.gitconfig.local`; it resolves the preset's package lists and forks the result to
+`~/.config/dotfiles/packages/<preset>.txt`; and it detects any `~/.dotfiles-private` overlay and layers
+it in (see "Presets and the Private Overlay" below for all three). It then invokes `bin/setup.sh` itself
+to actually install packages, stow the dotfiles, and configure your Claude Code profile — which is where
+the `sudo` password prompt and the rest of the guided process come from.
+
+[NOTE]
+You can run `~/.dotfiles/bin/setup.sh --preset <name>` directly instead, but on its own it does *none* of
+the git-identity, package-fork, or overlay work above — no identity prompt, no forked/reconciled package
+list, `~/.dotfiles-private` never consulted. It just installs straight from this repo's `packages/` files
+every time. Prefer `dotfiles-setup install` unless you have a specific reason to bypass it.
+
+[NOTE]
+If you get a "Permission denied" error, your clone may not have preserved the executable bits.
+Run `chmod +x ~/.dotfiles/bin/setup.sh ~/.dotfiles/bin/dotfiles-setup ~/.dotfiles/bin/dotfiles-backup` and try again.
+
+=== Manual Steps
+
+==== Add Secrets
+If you have any secret keys, tokens, or private environment variables, add them to `~/.zshrc.secret`:
+
+[source,bash]
+.Example:
+----
+echo "export GITHUB_TOKEN='your-secret-token'" >> ~/.zshrc.secret
+----
+
+==== Git Configuration
+
+The setup stows `~/.dotfiles/git/.gitconfig` to `~/.gitconfig`, which carries no identity of its own. Running `dotfiles-setup install --preset <name>` (above) is what supplies it: the first time you run it on a machine, it prompts for your git name, email, and (optionally) an SSH signing key, and writes them to `~/.gitconfig.local`, which `.gitconfig` includes unconditionally. `.gitconfig` also conditionally includes `~/.dotfiles-private/git/gitconfig-work` — from the optional private overlay described below — to override `user.email` when your remote points at a Collibra `github.com` repo.
+
+=== Restart Your Shell
+
+Open a new terminal or run `zsh` to load your new environment.
+
+== How to Maintain This Repo
+
+=== Updating Applications
+
+To add or remove applications, *do not* use `apt-get install` directly.
+Instead, edit the package lists in the `~/.dotfiles/packages/` directory:
+
+* `apt_common.txt` — all presets
+* `apt_desktop.txt` — GUI packages, only pulled in by `work`/`personal`
+* `apt_work.txt`
+* `apt_personal.txt`
+* `apt_homelab.txt`
+* `github_bins.txt`
+
+Re-run `dotfiles-setup install --preset <name>` (the recommended command — see "Run the Setup Script" above) to pick up the change: it re-resolves the preset, appends any genuinely new package names to your machine's forked list at `~/.config/dotfiles/packages/<name>.txt`, and installs whatever's missing — see "Presets and the Private Overlay" below for exactly how that reconciliation works. Running `~/.dotfiles/bin/setup.sh` directly instead re-reads the package files fresh every time and skips that forked-file bookkeeping entirely.
+
+=== Updating Configuration Files
+
+. *Change Configs*: Edit the files directly in their `stow` packages (e.g., `~/.dotfiles/zsh/.zshrc` or `~/.dotfiles/claude-profiles/claude_work.json`).
+
+. *Run `dotfiles-backup save`*: This helper script will automatically add all changes, commit them with a standard message, and push them to your remote repository.
++
+[source,bash]
+.Run the backup script to commit and push changes.
+----
+dotfiles-backup save
+----
+
+=== Stowing and Unstowing Packages
+
+To manually manage packages, you can run `stow <package-name>` or `stow -D <package-name>` from the `~/.dotfiles` directory.
+
+* `stow <package-name>`: Creates the symlinks for the package.
+* `stow -D <package-name>`: Deletes the symlinks for the package.
+
+[NOTE]
+The `setup.sh` script handles stowing automatically. This manual method is only for quick adjustments or troubleshooting.
+
+Packages listed in `.stow-packages` are stowed unfolded (one symlink per file) so that new files appear without a restow.
+`claude` and `gradle` are exceptions and stay folded — `gradle/.gradle` is the live Gradle home, and unfolding its ~1.1M cache files would exhaust `stow` before it wrote anything.
+`setup.sh` refuses to unfold any package over 1000 files rather than attempting it.
+
+== Presets and the Private Overlay
+
+=== Presets
+
+A *preset* is a manifest at `presets/<name>.json` that lists which package files (from `packages/`) to install, any backend-specific package-name overrides (e.g. for `apt`), and which `claude-profiles/*.json` file supplies Claude Code settings. This repo ships three — `work`, `personal`, `homelab` — and the set is extensible: drop in a new `presets/<name>.json` to add a machine type, no code changes required.
+
+Running `dotfiles-setup install --preset <name>` resolves the preset's package files into a flat package list and, the *first time* it runs for that preset on a machine, forks the result to `~/.config/dotfiles/packages/<name>.txt`. From that point on, the forked file is yours: hand-edit it to add or remove packages for this one machine, independently of what the preset says.
+
+Every later `dotfiles-setup install --preset <name>` re-resolves the preset and compares it against what it produced last time. Only package names the preset has genuinely gained since then get appended to your forked file; anything you deleted from it stays deleted, regardless of what else about the preset changed in the meantime. The forked file is never regenerated wholesale.
+
+=== The Private Overlay
+
+An optional sibling clone at `~/.dotfiles-private` (or a path given via `DOTFILES_PRIVATE_ROOT`) is auto-detected and layered on top of this public repo for anything that shouldn't live here:
+
+* *Git identity* — `~/.dotfiles-private/git/gitconfig-work` is conditionally included by `git/.gitconfig` on Collibra remotes (see "Git Configuration" above).
+* *Extra packages* — `~/.dotfiles-private/packages/<preset>_extra.txt` is unioned into the resolved package list for that preset before it's forked/reconciled into `~/.config/dotfiles/packages/<name>.txt`.
+* *Extra Claude settings* — `~/.dotfiles-private/claude-profiles/<preset>.json` is deep-merged over this repo's own `claude-profiles/<preset>.json`.
+
+If `~/.dotfiles-private` doesn't exist, none of the above applies — a plain fork of this repo runs off its public defaults alone.

@@ -1,0 +1,37 @@
+# Ignore machine-specific local overrides
+*.local.gitconfig.work
+
+.idea/
+.serena/
+
+.DS_Store
+Thumbs.db
+
+id_rsa*
+id_ed25519*
+*.pem
+*.key
+
+# Claude CLI binary (managed by Claude's own updater, not dotfiles)
+local/.local/bin/claude
+
+__pycache__/
+
+# rtk binary (managed by its own installer, not dotfiles)
+local/.local/bin/rtk
+
+gradle/.gradle/*
+!gradle/.gradle/init.d/
+!gradle/.gradle/init.d/build-health.gradle
+!gradle/.gradle/rewrite/
+!gradle/.gradle/my.init.d/
+
+# Scratch git worktrees for isolated implementation work
+.worktrees/
+
+# Subagent-driven-development scratch workspace (ledgers, briefs, review packages)
+.superpowers/
+
+.pytest_cache/
+.coverage
+/.venv/

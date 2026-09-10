@@ -1,0 +1,15 @@
+# Clean up worktree when done
+# Usage: cspike-clean spike-name
+cspike-clean() {
+  if [[ -z "$1" ]]; then
+    echo "Usage: cspike-clean <spike-branch-name>" >&2
+    return 1
+  fi
+
+  local name="$1"
+  local target_dir="$HOME/.claude/scratches/spikes/spike-${name}"
+
+  git worktree remove "$target_dir" --force 2>/dev/null
+  git branch -D "$name" 2>/dev/null
+  echo -e "\033[1;32mWorktree and spike branch '$name' deleted.\033[0m"
+}

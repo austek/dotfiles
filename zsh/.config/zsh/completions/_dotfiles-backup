@@ -1,0 +1,16 @@
+#compdef dotfiles-backup
+
+local -a commands
+commands=(
+  'save:stage, commit, and push dotfiles changes'
+)
+
+_arguments -C \
+  '(-h --help)'{-h,--help}'[show help message]' \
+  '1: :->command'
+
+case $state in
+  command)
+    _describe 'command' commands
+    ;;
+esac

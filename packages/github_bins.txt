@@ -1,0 +1,4 @@
+# Format: <github-user>/<repo> <version> <deb-filename>
+# e.g. sharkdp/bat 0.26.0 bat_0.26.0_amd64.deb
+derailed/k9s 0.51.0 k9s_linux_amd64.deb
+fullstorydev/grpcurl 1.9.3 grpcurl_1.9.3_linux_amd64.deb

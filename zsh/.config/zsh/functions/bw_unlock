@@ -1,0 +1,29 @@
+# Checks Bitwarden status and exports the session key to the current shell
+# Usage: bw_unlock
+
+if ! command -v bw &> /dev/null; then
+    echo "⚠️  Error: 'bw' CLI is not installed."
+    return 1
+fi
+
+if bw status | grep -q '"status":"unlocked"'; then
+    if [[ -z "$BW_SESSION" ]]; then
+        echo "🔓 Vault is unlocked but BW_SESSION is missing."
+        echo "   Re-authenticating to capture session key..."
+    else
+        # Silent success to keep terminal clean
+        return 0
+    fi
+fi
+
+echo "🔐 Unlocking Bitwarden..."
+local session_key
+session_key=$(bw unlock --raw)
+
+if [[ $? -eq 0 && -n "$session_key" ]]; then
+    export BW_SESSION="$session_key"
+    echo "✅ Bitwarden Unlocked."
+else
+    echo "❌ Unlock failed."
+    return 1
+fi

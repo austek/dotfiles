@@ -1,0 +1,34 @@
+# Function to find where PATH is modified
+# Usage:
+#   find_path_mod           (searches for all 'PATH=' lines)
+#   find_path_mod "/my/path"  (searches for the string "/my/path")
+find_path_mod() {
+  local files=(
+    /etc/environment
+    /etc/profile
+    /etc/bash.bashrc
+    /etc/zshenv
+    /etc/zprofile
+    /etc/zshrc
+    /etc/zlogin
+    /etc/profile.d/*.sh
+
+    ~/.profile
+    ~/.bashrc
+    ~/.bash_profile
+    ~/.bash_login
+    ~/.zshenv
+    ~/.zprofile
+    ~/.zshrc
+    ~/.zlogin
+  )
+
+  if [[ $# -eq 0 ]]; then
+    echo "Searching for all 'PATH=' modifications..."
+    # Use noglob to prevent zsh from expanding paths with *
+    noglob grep -H --color=auto 'PATH=' $files
+  else
+    echo "Searching for '$1' in config files..."
+    noglob grep -H --color=auto "$1" $files
+  fi
+}

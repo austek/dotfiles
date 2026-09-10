@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Runs the same checks as .github/workflows/shell-validation.yml, so a bad
+# commit fails locally in seconds instead of after a CI round-trip.
+# Bypass with `git commit --no-verify` when intentionally committing a WIP.
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+bash scripts/validate-shell.sh
+bash scripts/validate-no-machine-paths.sh
+bash scripts/test-install-functions.sh

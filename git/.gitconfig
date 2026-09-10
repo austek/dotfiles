@@ -1,0 +1,48 @@
+[core]
+	editor = nano
+	autocrlf = input
+	hooksPath = ~/.git-hooks
+
+[include]
+	path = ~/.gitconfig.local
+
+[init]
+	defaultBranch = main
+
+[http]
+	postBuffer = 157286400
+
+[push]
+	autoSetupRemote = true
+
+[pull]
+	rebase = true
+
+[gpg "ssh"]
+    allowedSignersFile = ~/.ssh/allowed_signers
+
+[gpg]
+    format = ssh
+
+[commit]
+    gpgsign = true
+
+[tag]
+    gpgSign = true
+
+[includeIf "hasconfig:remote.*.url:https://github.com/collibra/**"]
+    path = ~/.dotfiles-private/git/gitconfig-work
+
+[includeIf "hasconfig:remote.*.url:git@github.com:collibra/**"]
+    path = ~/.dotfiles-private/git/gitconfig-work
+
+[includeIf "hasconfig:remote.*.url:ssh://git@github.com/collibra/**"]
+    path = ~/.dotfiles-private/git/gitconfig-work
+
+[credential "https://github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential

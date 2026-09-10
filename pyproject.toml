@@ -1,0 +1,17 @@
+[project]
+name = "dotfiles"
+version = "0.1.0"
+requires-python = ">=3.13"
+
+[tool.ruff.lint]
+# G010 assumes any .warn() call is stdlib logging.Logger.warn() (deprecated
+# alias for .warning()). This codebase's Logger (bin/dotfiles_setup/log.py)
+# is not stdlib logging and never will be; .warn() matches the ported bash
+# log_warn function name deliberately.
+ignore = ["G010"]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.6",
+]

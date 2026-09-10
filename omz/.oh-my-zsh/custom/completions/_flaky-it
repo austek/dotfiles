@@ -1,0 +1,13 @@
+#compdef flaky-it
+
+_flaky-it() {
+    _arguments -s -S \
+        '(-h --help)'{-h,--help}'[show help and exit]' \
+        '(-n --times)'{-n,--times}'[number of runs (default: 10)]:runs:(5 10 15 20 30 50)' \
+        '(-s --suite)'{-s,--suite}'[test suite: a preset name or a raw gradle task spec]:suite:(identity iam springsec)' \
+        '(-c --cpus)'{-c,--cpus}'[pin build to a CPU set via taskset]:cpu list:' \
+        '(-o --order)'{-o,--order}'[force JUnit class-execution order (iam suites only)]:order:(random classname displayname orderannotation)' \
+        '(-j --jvm-args)'{-j,--jvm-args}'[extra JVM args appended to every test-worker JVM]:jvm args:' \
+        '*'{-p,--scope-prop}'[systemd scope property KEY=VALUE, applied per-run (repeatable)]:scope prop:(MemoryMax= MemoryHigh= MemorySwapMax= CPUQuota= AllowedCPUs= TasksMax=)' \
+        '*::gradle args:_files'
+}

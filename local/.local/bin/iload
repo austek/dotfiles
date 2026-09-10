@@ -1,0 +1,17 @@
+#!/bin/zsh
+
+iload () {
+  local PREFIX=~/Workspace/
+  local PROJECT
+
+  PROJECT=$(find "$PREFIX" -maxdepth 2 -type d -name "$1" | head -n 1)
+
+  if [[ -z "$PROJECT" ]]; then
+    echo "Project '$1' not found in $PREFIX."
+    return 1
+  fi
+
+  idea "$PROJECT"
+}
+
+iload "$@"

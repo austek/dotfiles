@@ -1,0 +1,15 @@
+#compdef claude-with
+
+function _claude-with {
+    # Keep in sync with restore_commands keys in
+    # zsh/.config/zsh/functions/claude-with
+    local -a names=(develocity develocity-analytics idea sonarqube datadog)
+
+    if (( ${words[(I)--]} )); then
+        _files
+        return
+    fi
+
+    # Direct compadd bypasses the broken _describe function
+    compadd "${names[@]}" --
+}

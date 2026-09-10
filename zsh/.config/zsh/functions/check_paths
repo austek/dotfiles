@@ -1,0 +1,6 @@
+check_paths() {
+    local dir
+    for dir in $path; do
+        [[ -d $dir ]] || echo "bad PATH: dir does not exist: $dir" >&2
+    done
+}

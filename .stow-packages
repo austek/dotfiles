@@ -1,0 +1,15 @@
+# Packages to be stowed to $HOME
+# Add one package name per line.
+# Lines starting with # are ignored.
+
+bash
+claude
+git
+githooks
+gradle
+k8s
+local
+omz
+ssh
+tmux
+zsh

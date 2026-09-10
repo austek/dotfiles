@@ -1,0 +1,8 @@
+1password
+awscli
+istioctl
+pgadmin4-desktop
+postgresql-17
+slack-desktop
+teleport
+teleport-connect

@@ -1,0 +1,27 @@
+# Patch Applier & Verification
+# Applies a unified diff patch string from clipboard, runs git status to verify
+apply-patch() {
+  local patch_content
+  if command -v wl-paste >/dev/null 2>&1; then
+    patch_content=$(wl-paste)
+  elif command -v xclip >/dev/null 2>&1; then
+    patch_content=$(xclip -selection clipboard -o)
+  elif command -v pbpaste >/dev/null 2>&1; then
+    patch_content=$(pbpaste)
+  fi
+
+  if [[ -z "$patch_content" ]]; then
+    echo "Clipboard is empty or clipboard tool not installed." >&2
+    return 1
+  fi
+
+  echo "$patch_content" | git apply --check 2>/dev/null
+  if [[ $? -ne 0 ]]; then
+    echo -e "\033[1;31mPatch does not apply cleanly with 'git apply'.\033[0m" >&2
+    return 1
+  fi
+
+  echo "$patch_content" | git apply
+  echo -e "\033[1;32mPatch applied cleanly.\033[0m"
+  git status --short
+}

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "defaultMode": "auto",
+    "allow": [
+      "Bash(rtk *)"
+    ]
+  },
+  "theme": "dark-daltonized",
+  "skipAutoPermissionPrompt": true
+}

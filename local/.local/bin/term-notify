@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# OSC 9 desktop notification (supported by Ghostty/Kitty/WezTerm/iTerm2). Wrapped in
+# tmux's DCS passthrough so it reaches the terminal over SSH instead of being
+# swallowed by tmux — requires `allow-passthrough on` in tmux.conf.
+set -euo pipefail
+
+message="${1:-Claude Code}"
+osc9=$'\e]9;'"$message"$'\a'
+
+if [ -n "${TMUX:-}" ]; then
+    printf '\ePtmux;\e%s\e\\' "$osc9"
+else
+    printf '%s' "$osc9"
+fi

@@ -1,0 +1,79 @@
+name: Shell Script Validation
+
+on:
+  push:
+    branches: [ main, develop, refactor/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  shellcheck:
+    name: Validate Shell Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run shell script validation
+        run: |
+          chmod +x scripts/validate-shell.sh
+          ./scripts/validate-shell.sh
+
+      - name: Check for machine-specific paths
+        run: |
+          chmod +x scripts/validate-no-machine-paths.sh
+          ./scripts/validate-no-machine-paths.sh
+
+      - name: Run install-function regression tests
+        run: bash scripts/test-install-functions.sh
+
+  python:
+    name: Validate Python CLI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: '3.13'
+          enable-cache: true
+
+      - name: Install dev dependencies
+        run: uv sync --dev
+
+      - name: Lint with ruff
+        run: uv run ruff check .
+
+      - name: Run pytest with coverage
+        run: uv run pytest --cov --cov-report=term-missing -v
+
+      - name: Smoke-test the CLI entry points
+        run: |
+          ./bin/dotfiles-setup install --profile work --dry-run
+          ./bin/dotfiles-backup --help
+
+      - name: Install zsh and shellcheck for completion checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh shellcheck
+
+      - name: Syntax-check zsh completions
+        run: |
+          zsh -n zsh/.config/zsh/completions/_dotfiles-setup
+          zsh -n zsh/.config/zsh/completions/_dotfiles-backup
+
+      - name: Syntax-check and lint bash completions
+        run: |
+          bash -n bash/.local/share/bash-completion/completions/dotfiles-setup
+          bash -n bash/.local/share/bash-completion/completions/dotfiles-backup
+          shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dotfiles-setup
+          shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dotfiles-backup

@@ -1,0 +1,21 @@
+{
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "proficiently@proficiently": true,
+    "python-clean-architecture@python-clean-architecture": true
+  },
+  "extraKnownMarketplaces": {
+    "proficiently": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/proficientlyjobs/proficiently-claude-skills.git"
+      }
+    },
+    "python-clean-architecture": {
+      "source": {
+        "source": "github",
+        "repo": "MKToronto/python-clean-architecture"
+      }
+    }
+  }
+}

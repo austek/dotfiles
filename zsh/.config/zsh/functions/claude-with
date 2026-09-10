@@ -1,0 +1,75 @@
+# Temporarily enables MCP servers/plugins (local scope) for one claude session,
+# reverting them on exit. Add your own entries to restore_commands/revert_commands
+# for org-specific MCP servers. Usage: claude-with <name> [<name> ...] [-- <claude-args...>]
+claude-with() {
+  local -A restore_commands=(
+    idea                 "claude mcp add --transport http idea http://127.0.0.1:64342/stream -s local"
+    sonarqube            "claude mcp add sonarqube -s local -- sonar run mcp"
+    datadog              "claude plugin enable datadog@claude-plugins-official -s local"
+  )
+  local -A revert_commands=(
+    idea                 "claude mcp remove idea -s local"
+    sonarqube            "claude mcp remove sonarqube -s local"
+    datadog              "claude plugin disable datadog@claude-plugins-official -s local"
+  )
+
+  if [[ $# -eq 0 ]]; then
+    echo "Usage: claude-with <name> [<name> ...] [-- <claude-args>]" >&2
+    return 1
+  fi
+
+  local -a names=() claude_args=()
+  local seen_sep=0 arg
+  for arg in "$@"; do
+    if [[ "$arg" == "--" ]]; then
+      seen_sep=1
+      continue
+    fi
+    if (( seen_sep )); then
+      claude_args+=("$arg")
+    else
+      names+=("$arg")
+    fi
+  done
+
+  local -a added=() already=()
+  local name line add_output
+  for name in "${names[@]}"; do
+    line="${restore_commands[$name]}"
+    if [[ -z "$line" ]]; then
+      echo "claude-with: no restore entry for '$name'" >&2
+      continue
+    fi
+    if [[ "$line" == *'DEVELOCITY_MCP_TOKEN'* && -z "$DEVELOCITY_MCP_TOKEN" ]]; then
+      echo "claude-with: \$DEVELOCITY_MCP_TOKEN is not set (check ~/.zshrc.secret)" >&2
+      continue
+    fi
+    echo "claude-with: enabling $name (local scope)..."
+    add_output=$(eval "$line" 2>&1)
+    if [[ $? -eq 0 ]]; then
+      echo "$add_output"
+      added+=("$name")
+    elif [[ "$add_output" == *"already"* ]]; then
+      echo "claude-with: $name already enabled in local scope, leaving as-is"
+      already+=("$name")
+    else
+      echo "claude-with: failed to add $name" >&2
+      echo "$add_output" >&2
+    fi
+  done
+
+  if [[ ${#added[@]} -eq 0 && ${#already[@]} -eq 0 ]]; then
+    echo "claude-with: nothing enabled, aborting" >&2
+    return 1
+  fi
+
+  claude "${claude_args[@]}"
+  local exit_status=$?
+
+  local n
+  for n in "${added[@]}"; do
+    eval "${revert_commands[$n]}" >/dev/null 2>&1
+  done
+
+  return $exit_status
+}

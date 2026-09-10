@@ -1,0 +1,6 @@
+{
+  "description": "Work machine — generic packages only; org-specific extras come from an optional ~/.dotfiles-private overlay.",
+  "package_files": ["apt_common.txt", "apt_desktop.txt", "apt_work.txt"],
+  "backend_overrides": {},
+  "claude_settings": "claude_work.json"
+}

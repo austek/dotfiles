@@ -1,0 +1,23 @@
+# Safe Temporary Worktree for Claude Code Spikes
+# Creates a disposable branch and worktree directory so Claude Code can experiment in isolation
+# Usage: cspike spike-name
+cspike() {
+  if [[ -z "$1" ]]; then
+    echo "Usage: cspike <spike-branch-name>" >&2
+    return 1
+  fi
+
+  local name="$1"
+  local target_dir="$HOME/.claude/scratches/spikes/spike-${name}"
+
+  if [[ -d "$target_dir" ]]; then
+    echo "Directory $target_dir already exists. Switching..."
+    cd "$target_dir" || return 1
+    return 0
+  fi
+
+  echo "Creating isolated worktree at $target_dir on branch $name..."
+  git worktree add -b "$name" "$target_dir" HEAD
+  cd "$target_dir" || return 1
+  echo -e "\033[1;32mNow in isolated worktree. Run Claude Code here safely.\033[0m"
+}

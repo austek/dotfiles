@@ -1,0 +1,9 @@
+# Append directories to $PATH, skipping any that do not exist.
+path_append() {
+    local -a add
+    local dir
+    for dir in "$@"; do
+        [[ -d $dir ]] && add+=( $dir )
+    done
+    path=( $path $add )
+}

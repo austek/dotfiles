@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Chains to the local .git/hooks/pre-commit first (still on disk, just not
+# invoked directly once core.hooksPath is global). Reads the index via
+# `git show`, not the working tree, so partial `git add -p` staging is safe.
+set -euo pipefail
+
+git_dir=$(git rev-parse --git-dir)
+local_hook="$git_dir/hooks/pre-commit"
+if [[ -f "$local_hook" && -x "$local_hook" ]]; then
+    "$local_hook" "$@"
+fi
+
+found=0
+while IFS= read -r -d '' file; do
+    [[ -f "$file" ]] || continue
+    if git show ":$file" 2>/dev/null | grep -qF "CLAUDENOTE:"; then
+        echo "pre-commit: $file has a leftover CLAUDENOTE: marker — resolve or remove it before committing." >&2
+        found=1
+    fi
+done < <(git diff --cached --name-only --diff-filter=ACM -z)
+
+if [[ "$found" -eq 1 ]]; then
+    exit 1
+fi

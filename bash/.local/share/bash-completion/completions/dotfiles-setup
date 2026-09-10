@@ -1,0 +1,21 @@
+_dotfiles_setup_completions() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD - 1]}"
+
+    if [[ "${COMP_WORDS[1]}" != "install" ]]; then
+        COMPREPLY=($(compgen -W "install -h --help" -- "$cur"))
+        return 0
+    fi
+
+    opts="--preset --dry-run -v --verbose -vv -vvv -h --help"
+
+    if [[ "$prev" == "--preset" ]]; then
+        COMPREPLY=($(compgen -W "work personal homelab" -- "$cur"))
+        return 0
+    fi
+
+    COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+}
+complete -F _dotfiles_setup_completions dotfiles-setup

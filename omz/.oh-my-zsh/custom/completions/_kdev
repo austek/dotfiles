@@ -1,0 +1,26 @@
+#compdef kdev
+
+function _kdev {
+    local context state line
+    typeset -A opt_args
+
+    _arguments -C \
+        '1: :->cmds' \
+        '*:: :->args'
+
+    case $state in
+        cmds)
+            # Direct compadd bypasses the broken _describe function
+            compadd up down bounce load repos status
+            ;;
+        args)
+            case $line[1] in
+                load)
+                    if (( $+functions[_docker_images] )); then
+                        _docker_images
+                    fi
+                    ;;
+            esac
+            ;;
+    esac
+}

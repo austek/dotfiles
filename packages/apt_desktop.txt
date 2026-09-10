@@ -1,0 +1,13 @@
+# Desktop-only packages (GUI machines: work, personal). Not installed on homelab.
+antigravity-ide
+code
+firefox
+ghostty
+gnome-shell-extension-gpaste
+gnome-shell-extension-manager
+google-chrome-stable
+jetbrains-toolbox
+ubuntu-desktop
+ubuntu-desktop-minimal
+ubuntu-restricted-addons
+ubuntu-wallpapers

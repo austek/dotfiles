@@ -1,0 +1,30 @@
+#compdef dotfiles-setup
+
+local -a commands
+commands=(
+  'install:install packages and dotfiles for a machine profile'
+)
+
+_arguments -C \
+  '(-h --help)'{-h,--help}'[show help message]' \
+  '1: :->command' \
+  '*::arg:->args'
+
+case $state in
+  command)
+    _describe 'command' commands
+    ;;
+  args)
+    case ${words[1]} in
+      install)
+        _arguments \
+          '--profile[machine profile to set up]:profile:(work personal homelab)' \
+          '--dry-run[show what would be done without executing commands]' \
+          '(-v --verbose)'{-v,--verbose}'[show step-by-step progress]' \
+          '-vv[also show raw output from apt/stow/dpkg/etc]' \
+          '-vvv[full debug: also enable command tracing]' \
+          '(-h --help)'{-h,--help}'[show help message]'
+        ;;
+    esac
+    ;;
+esac

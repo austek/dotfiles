@@ -1,0 +1,446 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+REPO="${REPO:-$PWD}"
+GRADLEW="$REPO/gradlew"
+[[ -x "$GRADLEW" ]] || {
+    echo "flaky-it: no executable gradlew in '$REPO' — run from a Gradle repo root (or set REPO=<dir>)" >&2
+    exit 2
+}
+
+usage() {
+    cat <<'EOF'
+flaky-it — run a CI integration-test suite N times to hunt flakiness.
+
+Retry is OFF by default: CI retries 2×, so a test that only passes on retry is
+green in CI yet is exactly what we want to catch — here it counts as a FAILURE.
+Completion is read from the build log, not the launcher's exit (see script header).
+
+Usage:
+  flaky-it [-n|--times <N>] [-s|--suite <suite>] [options] [extra gradle args...]
+
+Arguments:
+  extra gradle args    forwarded verbatim to gradle. The main lever here is
+                       -Dtest.parallelism=<N>: it raises the number of Gradle worker
+                       forks — the ONLY parallelism the dgc-core/dgc-rest suites have
+                       (they run tests sequentially within a JVM), so it's how you
+                       stress their cross-fork DB/ordering/timing races. Also
+                       --tests "..." to narrow to one class/method.
+
+Options:
+  -n, --times <N>      number of runs (default: 10).
+  -s, --suite <suite>  which CI stage to reproduce (default: identity). A preset, or a
+                       raw gradle task spec for a custom suite:
+                         identity   :dgc-core:integrationTestIdentityManagement
+                         iam        (in iam/) integrationTest  [CI also runs contractTest]
+                         springsec  :dgc-rest:integrationTest -Dtest.includeTags=ShiroMigrationSpringStack
+                         <tasks>    e.g. ":dgc-foo:cleanIntegrationTest :dgc-foo:integrationTest"
+                       The iam preset runs integrationTest only; CI also runs
+                       contractTest in its own JVM (the DEV-201730 isolation split).
+                       For an exact CI mirror use a custom suite:
+                         --suite "--project-dir iam cleanIntegrationTest integrationTest contractTest"
+  -c, --cpus <list>    pin the whole build to a CPU set via taskset (e.g. 0-3, 0,2,4).
+                       The single biggest flakiness lever: starving cores makes
+                       threads/forks preempt constantly and surfaces races (repro'd the
+                       UserAuthorizer static-state clobber ~100% at --cpus 0). Children
+                       inherit the mask, so the daemon and every worker stay bound.
+                       For a CI-faithful envelope instead of one core, use --scope-prop
+                       (limits apply per-run; do NOT wrap flaky-it in systemd-run — its
+                       per-run scopes would sit outside your wrapper's cgroup):
+                         flaky-it -n 30 --suite iam --scope-prop CPUQuota=200% --scope-prop MemoryMax=6G
+  -o, --order <val>    force the JUnit class-execution order. Only the iam suites run
+                       classes concurrently in random order, so this is a no-op for
+                       dgc-core/dgc-rest (they run classes sequentially). Random order
+                       means an "A-before-B" race only fires on unlucky seeds; pinning
+                       the order turns a 1/50 flake into all-or-nothing:
+                         random        ClassOrderer$Random  (the convention default)
+                         classname     ClassOrderer$ClassName    (deterministic A→Z)
+                         displayname   ClassOrderer$DisplayName
+                         orderannotation  ClassOrderer$OrderAnnotation
+                         <a.b.C>       a fully-qualified ClassOrderer
+  -j, --jvm-args <str> extra JVM args appended to EVERY test-worker JVM (space-
+                       separated), via a generated init script so the 8g Gradle daemon
+                       is untouched (do NOT put -Xmx in JAVA_TOOL_OPTIONS — it shrinks
+                       the daemon). Lever families:
+                         '-Xint'                    interpreted mode, ~5-10× slower —
+                                                    widens startup / feature-flag-readiness
+                                                    and context races (hang/deadlock flakes)
+                         '-XX:TieredStopAtLevel=1'  milder slowdown than -Xint
+                         '-Djdk.virtualThreadScheduler.parallelism=1 -Djdk.virtualThreadScheduler.maxPoolSize=1 -Djdk.tracePinnedThreads=full'
+                                                    squeeze all vthreads onto one carrier and
+                                                    print pinning stacks (Infinispan
+                                                    synchronized-deadlock family)
+                         '-Xmx768m'                 heap squeeze for OOM / GC-pause timing
+                                                    (the branch caps iam workers at 2048m)
+  -p, --scope-prop <K=V>  systemd scope property applied to every run's transient
+                       scope (repeatable), e.g. MemoryMax=6G, CPUQuota=200%. Use this
+                       for a CI-faithful resource envelope — each run's daemon and
+                       workers live in that cgroup and are constrained by it.
+  -h, --help           show this help and exit
+
+Each run executes inside a transient systemd --user scope; teardown stops the scope,
+which reaps the whole cgroup (daemon + workers) regardless of session/fork tricks — so
+no process-matching substring is needed. Requires a systemd user session.
+
+Environment (the flag wins if both are set):
+  SUITE / CPUS / ORDER / JVM_ARGS / SCOPE_PROPS   same as the matching flag
+                       (SCOPE_PROPS is space-separated, e.g. 'MemoryMax=6G CPUQuota=200%')
+  REPO=<dir>           Gradle repo root to run in (default: current working directory)
+  RUN_TIMEOUT=<sec>    per-run wall-clock backstop for a wedged build (default: 1800)
+  RETRY=1              keep the build's retry config (default: retry disabled)
+  OUT_BASE=<dir>       base dir for logs (default: /tmp)
+
+Workflow — discover, then classify:
+  1. Discover (retry OFF). The end-of-run summary tallies failing methods across
+     runs — that is your flaky list:
+       flaky-it -n 30 --suite iam       --cpus 0
+       flaky-it -n 30 --suite identity  --cpus 0-3 -Dtest.parallelism=4
+       flaky-it -n 30 --suite springsec --cpus 0-3 -Dtest.parallelism=4
+  2. Classify each hit by running it alone:
+       flaky-it -n 20 --suite iam --tests "*JwtAuthIntegrationTest"
+     green alone but red in-suite → order / shared-state race → fix by isolation/ordering
+     red even alone               → genuine per-test race/timing → fix the product/test code
+
+Why the suites flake differently (which lever to reach for):
+  iam modules run JUnit with parallel.enabled + concurrent mode + random class order →
+  real in-JVM method/class concurrency; home of SecurityContextHolder strategy races and
+  multi-context static-state clobbers. Levers: --order classname, --cpus 0, high in-JVM
+  parallelism. dgc-core/dgc-rest set none of that → tests run sequentially within a JVM;
+  their only parallelism is Gradle worker forks sharing one Postgres testcontainer.
+  Levers: -Dtest.parallelism=N + --cpus. (--order is a no-op there.)
+
+Examples:
+  flaky-it -n 20
+  flaky-it -n 20 --suite iam --cpus 0 --order classname
+  SUITE=springsec flaky-it -n 15 -Dtest.parallelism=4
+  flaky-it -n 20 --suite iam --jvm-args '-Xint'
+  flaky-it -n 20 --suite iam --cpus 0 --jvm-args '-Djdk.virtualThreadScheduler.parallelism=1 -Djdk.tracePinnedThreads=full'
+  RUN_TIMEOUT=700 flaky-it -n 10 -Dtest.parallelism=4
+  flaky-it -n 20 --suite iam --scope-prop CPUQuota=200% --scope-prop MemoryMax=6G
+  flaky-it -n 20 --suite ":dgc-foo:cleanIntegrationTest :dgc-foo:integrationTest"
+
+Logs (and the generated flaky-it-init.gradle) land in
+  $OUT_BASE/dgc-it-flaky-<STAGE>-<timestamp>/   (OUT_BASE defaults to /tmp).
+EOF
+}
+
+SUITE="${SUITE:-identity}"
+CPUS="${CPUS:-}"
+ORDER="${ORDER:-}"
+JVM_ARGS="${JVM_ARGS:-}"
+RUNS=10
+EXTRA_ARGS=()
+SCOPE_PROPS_LIST=()
+if [[ -n "${SCOPE_PROPS:-}" ]]; then
+    read -ra SCOPE_PROPS_LIST <<<"$SCOPE_PROPS"
+fi
+while (($#)); do
+    case "$1" in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        -n | --times)
+            [[ "${2:-}" =~ ^[0-9]+$ ]] || {
+                echo "flaky-it: --times requires a non-negative integer" >&2
+                exit 2
+            }
+            RUNS="$2"
+            shift 2
+            ;;
+        --times=*)
+            [[ "${1#*=}" =~ ^[0-9]+$ ]] || {
+                echo "flaky-it: --times requires a non-negative integer" >&2
+                exit 2
+            }
+            RUNS="${1#*=}"
+            shift
+            ;;
+        -s | --suite)
+            [[ -n "${2:-}" ]] || {
+                echo "flaky-it: --suite requires a value" >&2
+                exit 2
+            }
+            SUITE="$2"
+            shift 2
+            ;;
+        --suite=*)
+            SUITE="${1#*=}"
+            shift
+            ;;
+        -p | --scope-prop)
+            [[ "${2:-}" == *=* ]] || {
+                echo "flaky-it: --scope-prop requires a KEY=VALUE argument" >&2
+                exit 2
+            }
+            SCOPE_PROPS_LIST+=("$2")
+            shift 2
+            ;;
+        --scope-prop=*)
+            [[ "${1#*=}" == *=* ]] || {
+                echo "flaky-it: --scope-prop requires a KEY=VALUE argument" >&2
+                exit 2
+            }
+            SCOPE_PROPS_LIST+=("${1#*=}")
+            shift
+            ;;
+        -c | --cpus)
+            [[ -n "${2:-}" ]] || {
+                echo "flaky-it: --cpus requires a value" >&2
+                exit 2
+            }
+            CPUS="$2"
+            shift 2
+            ;;
+        --cpus=*)
+            CPUS="${1#*=}"
+            shift
+            ;;
+        -o | --order)
+            [[ -n "${2:-}" ]] || {
+                echo "flaky-it: --order requires a value" >&2
+                exit 2
+            }
+            ORDER="$2"
+            shift 2
+            ;;
+        --order=*)
+            ORDER="${1#*=}"
+            shift
+            ;;
+        -j | --jvm-args)
+            [[ -n "${2:-}" ]] || {
+                echo "flaky-it: --jvm-args requires a value" >&2
+                exit 2
+            }
+            JVM_ARGS="$2"
+            shift 2
+            ;;
+        --jvm-args=*)
+            JVM_ARGS="${1#*=}"
+            shift
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+case "${SUITE,,}" in
+    identity | identitymanagement | im)
+        SUITE_LABEL="IdentityManagement"
+        SUITE_ARGS=(:dgc-core:cleanIntegrationTestIdentityManagement :dgc-core:integrationTestIdentityManagement)
+        ;;
+    iam)
+        SUITE_LABEL="IAM"
+        SUITE_ARGS=(--project-dir iam cleanIntegrationTest integrationTest)
+        ;;
+    springsec | springsecuritymigration | ssm)
+        SUITE_LABEL="SpringSecurityMigration"
+        SUITE_ARGS=(:dgc-rest:cleanIntegrationTest :dgc-rest:integrationTest -Dtest.includeTags=ShiroMigrationSpringStack)
+        ;;
+    *)
+        SUITE_LABEL="Custom"
+        read -ra SUITE_ARGS <<<"$SUITE"
+        [[ ${#SUITE_ARGS[@]} -gt 0 ]] || {
+            echo "flaky-it: custom suite is empty" >&2
+            exit 2
+        }
+        ;;
+esac
+
+RUN_TIMEOUT="${RUN_TIMEOUT:-1800}"
+
+# Fail fast here (not mid-run) if systemd-run isn't available.
+if ! command -v systemd-run >/dev/null 2>&1 || ! systemd-run --user --scope --quiet -- true >/dev/null 2>&1; then
+    echo "flaky-it: requires a systemd user session (systemd-run --user --scope). Not available here." >&2
+    exit 2
+fi
+
+SCOPE_PROP_ARGS=()
+for _p in "${SCOPE_PROPS_LIST[@]}"; do
+    SCOPE_PROP_ARGS+=(--property="$_p")
+done
+
+# Children inherit the CPU affinity mask via exec, so the daemon and every
+# worker JVM stay bound to this set.
+TASKSET_PREFIX=()
+if [[ -n "$CPUS" ]]; then
+    command -v taskset >/dev/null 2>&1 || {
+        echo "flaky-it: --cpus given but taskset not found (install util-linux)" >&2
+        exit 2
+    }
+    TASKSET_PREFIX=(taskset -c "$CPUS")
+fi
+
+RETRY_ARGS=()
+if [[ "${RETRY:-0}" != "1" ]]; then
+    RETRY_ARGS=(-Dretry.maxRetries=0 -Dretry.failOnPassedAfterRetry=true)
+fi
+
+TS="$(date +%Y%m%d-%H%M%S)"
+OUT_DIR="${OUT_BASE:-/tmp}/dgc-it-flaky-${SUITE_LABEL}-$TS"
+mkdir -p "$OUT_DIR"
+
+# --- resolve --order to a ClassOrderer FQN --------------------------------
+ORDER_FQN=""
+if [[ -n "$ORDER" ]]; then
+    case "${ORDER,,}" in
+        random) ORDER_FQN='org.junit.jupiter.api.ClassOrderer$Random' ;;
+        classname) ORDER_FQN='org.junit.jupiter.api.ClassOrderer$ClassName' ;;
+        displayname) ORDER_FQN='org.junit.jupiter.api.ClassOrderer$DisplayName' ;;
+        orderannotation) ORDER_FQN='org.junit.jupiter.api.ClassOrderer$OrderAnnotation' ;;
+        *.*) ORDER_FQN="$ORDER" ;;
+        *)
+            echo "flaky-it: unknown --order '$ORDER' (use random|classname|displayname|orderannotation|<a.b.C>)" >&2
+            exit 2
+            ;;
+    esac
+fi
+
+# jvmArgs is additive; the class-orderer systemProperty applies under
+# projectsEvaluated so it runs after (and overrides) the module convention's
+# per-Test setting. Worker-only — the 8g daemon is untouched.
+INIT_ARGS=()
+if [[ -n "$ORDER_FQN" || -n "$JVM_ARGS" ]]; then
+    INIT_FILE="$OUT_DIR/flaky-it-init.gradle"
+    jvmargs_groovy=""
+    if [[ -n "$JVM_ARGS" ]]; then
+        read -ra _ja <<<"$JVM_ARGS"
+        for a in "${_ja[@]}"; do jvmargs_groovy+="'${a}', "; done
+        jvmargs_groovy="${jvmargs_groovy%, }"
+    fi
+    {
+        echo "// generated by flaky-it $(date +%FT%T) — order='${ORDER_FQN:-<default>}' jvmArgs='${JVM_ARGS:-<none>}'"
+        echo "gradle.projectsEvaluated {"
+        echo "    rootProject.allprojects { p ->"
+        echo "        p.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach { t ->"
+        [[ -n "$ORDER_FQN" ]] && echo "            t.systemProperty 'junit.jupiter.testclass.order.default', '${ORDER_FQN}'"
+        [[ -n "$jvmargs_groovy" ]] && echo "            t.jvmArgs ${jvmargs_groovy}"
+        echo "        }"
+        echo "    }"
+        echo "}"
+    } >"$INIT_FILE"
+    INIT_ARGS=(--init-script "$INIT_FILE")
+fi
+
+# Verdict is read from the log (a lingering worker JVM can hold the launcher's
+# pipe open past build end); teardown stops the systemd scope, not the
+# process group, since the daemon double-forks into its own session.
+run_one() {
+    local log="$1"
+    local unit
+    unit="flaky-it-$$-$(basename "$log" .log)"
+    systemctl --user stop "$unit.scope" >/dev/null 2>&1
+
+    # --no-build-cache: a cached run reports 0 tests as a false PASS. --rerun-tasks
+    # is avoided since it rebuilds the whole module graph, not just the target.
+    systemd-run --user --scope --quiet --unit="$unit" --working-directory="$REPO" \
+        "${SCOPE_PROP_ARGS[@]}" -- \
+        "${TASKSET_PREFIX[@]}" "$GRADLEW" --no-daemon --no-build-cache \
+        "${SUITE_ARGS[@]}" "${INIT_ARGS[@]}" "${RETRY_ARGS[@]}" "${EXTRA_ARGS[@]}" >"$log" 2>&1 &
+    local pid=$!
+
+    local deadline=$((SECONDS + RUN_TIMEOUT))
+    local verdict="TIMEOUT"
+    while :; do
+        if grep -qE '^BUILD SUCCESSFUL' "$log" 2>/dev/null; then
+            verdict="PASS"
+            break
+        elif grep -qE '^BUILD FAILED|^FAILURE: Build failed' "$log" 2>/dev/null; then
+            verdict="FAIL"
+            break
+        elif ! kill -0 "$pid" 2>/dev/null; then
+            grep -qE '^BUILD SUCCESSFUL' "$log" 2>/dev/null && verdict="PASS" || verdict="FAIL"
+            break
+        elif ((SECONDS >= deadline)); then
+            verdict="TIMEOUT"
+            break
+        fi
+        sleep 5
+    done
+
+    # Verdict known: wait only until the config-cache entry is persisted (the real
+    # last step; killing before it forces a full reconfigure next run), then stop the
+    # scope instead of waiting ~18min for the wedged launcher to exit.
+    if [[ "$verdict" != "TIMEOUT" ]]; then
+        local grace=$((SECONDS + 60))
+        while ((SECONDS < grace)); do
+            kill -0 "$pid" 2>/dev/null || break
+            grep -qE 'Configuration cache entry (stored|reused)' "$log" 2>/dev/null && break
+            sleep 2
+        done
+    fi
+    systemctl --user stop "$unit.scope" >/dev/null 2>&1
+    local hardstop=$((SECONDS + 10))
+    while kill -0 "$pid" 2>/dev/null && ((SECONDS < hardstop)); do sleep 1; done
+    wait "$pid" 2>/dev/null
+
+    printf '%s' "$verdict"
+}
+
+echo "Repo:    $REPO"
+echo "Suite:   $SUITE_LABEL"
+echo "Cmd:     gradlew ${SUITE_ARGS[*]}"
+echo "Runs:    $RUNS"
+echo "CPUs:    ${CPUS:-<all>}"
+echo "Scope:   ${SCOPE_PROPS_LIST[*]:-<none>}"
+echo "Order:   ${ORDER_FQN:-<convention default>}"
+echo "JvmArgs: ${JVM_ARGS:-<none>}"
+echo "Timeout: ${RUN_TIMEOUT}s per run"
+echo "Retry:   $([[ ${#RETRY_ARGS[@]} -eq 0 ]] && echo 'build default' || echo 'disabled')"
+echo "Extra:   ${EXTRA_ARGS[*]:-<none>}"
+echo "Logs:    $OUT_DIR"
+echo
+
+pass=0
+fail=0
+declare -a results
+
+for ((i = 1; i <= RUNS; i++)); do
+    n="$(printf '%02d' "$i")"
+    log="$OUT_DIR/run-$n.log"
+    printf '[%s] run %2d/%d ... ' "$(date +%H:%M:%S)" "$i" "$RUNS"
+    start=$SECONDS
+
+    verdict="$(run_one "$log")"
+
+    dur="$((SECONDS - start))"
+    case "$verdict" in
+        PASS)
+            printf 'PASS     (%ds)  %s\n' "$dur" "$log"
+            results+=("$n PASS ${dur}s")
+            ((pass++))
+            ;;
+        TIMEOUT)
+            printf 'TIMEOUT  (%ds)  %s\n' "$dur" "$log"
+            results+=("$n TIMEOUT ${dur}s")
+            ((fail++))
+            ;;
+        *)
+            printf 'FAIL     (%ds)  %s\n' "$dur" "$log"
+            results+=("$n FAIL ${dur}s")
+            ((fail++))
+            ;;
+    esac
+done
+
+echo
+echo "==================== SUMMARY ===================="
+echo "Suite:  $SUITE_LABEL"
+echo "Passed: $pass / $RUNS"
+echo "Failed: $fail / $RUNS"
+printf '%s\n' "${results[@]}"
+
+if ((fail > 0)); then
+    echo
+    echo "Failing test methods (count across runs):"
+    grep -hE '> .+ (FAILED|SKIPPED)$' "$OUT_DIR"/run-*.log 2>/dev/null \
+        | grep -E 'FAILED$' \
+        | sed -E 's/^[[:space:]]+//' \
+        | sort | uniq -c | sort -rn | head -40
+fi
+echo
+echo "All logs: $OUT_DIR"

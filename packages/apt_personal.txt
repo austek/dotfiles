@@ -1,0 +1,3 @@
+zizmor
+ruff
+coderabbit

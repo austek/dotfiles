@@ -1,0 +1,6 @@
+{
+  "description": "Personal machine — desktop packages plus personal-only extras.",
+  "package_files": ["apt_common.txt", "apt_desktop.txt", "apt_personal.txt"],
+  "backend_overrides": {},
+  "claude_settings": "claude_personal.json"
+}

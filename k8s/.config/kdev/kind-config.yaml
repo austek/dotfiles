@@ -1,0 +1,15 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - { containerPort: 80,    hostPort: 80,    protocol: TCP }  # ingress-nginx
+  - { containerPort: 443,   hostPort: 443,   protocol: TCP }  # ingress-nginx
+  - { containerPort: 30005, hostPort: 5005,  protocol: TCP }  # JVM remote debug
+  - { containerPort: 30080, hostPort: 30080, protocol: TCP }  # Istio ingress (main HTTP)
+  - { containerPort: 30410, hostPort: 30410, protocol: TCP }  # Keycloak
+  - { containerPort: 30300, hostPort: 30300, protocol: TCP }  # Grafana
+  - { containerPort: 30909, hostPort: 30909, protocol: TCP }  # Prometheus
+  - { containerPort: 30900, hostPort: 30900, protocol: TCP }  # Sonar
+  - { containerPort: 30025, hostPort: 30025, protocol: TCP }  # Mailpit UI
+  - { containerPort: 31230, hostPort: 31230, protocol: TCP }  # ArgoCD

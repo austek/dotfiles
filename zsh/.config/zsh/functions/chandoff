@@ -1,0 +1,10 @@
+# Usage: chandoff [optional note]
+# Prompts Claude to write a timestamped handoff summary under ~/.claude/scratches/, then hints running /clear
+
+chandoff() {
+  local note="${1:-Task checkpoint}"
+  echo "Generating session handoff summary..."
+  claude -p "Summarize our current session into a high-density 5-bullet handoff note: 1. Core objective, 2. What was completed, 3. Unresolved issues/bugs, 4. Modified files, 5. Immediate next step. Save it to \$HOME/.claude/scratches/handoff_${TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}.md."
+  echo ""
+  echo "Handoff saved! Run '/clear' to reset context, then resume with your saved handoff note."
+}

@@ -1,0 +1,44 @@
+# Global Claude Code ignore patterns to prevent context inflation
+
+# Dependencies & Package Managers
+node_modules/
+vendor/
+.gradle/
+target/
+dist/
+build/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Lockfiles (massive JSON/YAML bloat)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+Cargo.lock
+poetry.lock
+
+# Build & Test Artifacts
+*.log
+*.out
+*.tmp
+*.class
+*.jar
+*.war
+*.ear
+coverage/
+.coverage
+.bsp/
+.bloop/
+
+# IDE & OS Metadata
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+
+# Git & Cache
+.git/
+.cache/

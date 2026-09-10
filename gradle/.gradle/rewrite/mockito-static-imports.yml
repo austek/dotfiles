@@ -1,0 +1,8 @@
+type: specs.openrewrite.org/v1beta/recipe
+name: com.yourcompany.MockitoStaticImports
+displayName: Use static imports for Mockito
+recipeList:
+  - org.openrewrite.java.UseStaticImport:
+      methodPattern: org.mockito.Mockito *(..)
+  - org.openrewrite.java.UseStaticImport:
+      methodPattern: org.mockito.ArgumentMatchers *(..)
