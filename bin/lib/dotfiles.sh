@@ -6,6 +6,35 @@ set -euo pipefail
 configure_dotfiles() {
     log_step "Step 7: Configuring dotfiles..."
 
+    # Perl-regex-escapes a relative path for use in stow's --ignore/--override, whose
+    # patterns are otherwise interpreted as regexes (a literal '.' in a filename would
+    # match any character).
+    stow_regex_escape() {
+        # shellcheck disable=SC2016  # single-quoted on purpose: this is a literal sed
+        # pattern/replacement, not a shell expansion.
+        printf '%s' "$1" | sed -e 's/[.[\*^$()+?{}|\\]/\\&/g'
+    }
+
+    # Every path the private overlay would override (a file present in both a private
+    # package and the same-named public package — e.g. claude/.claude/CLAUDE.md) has to
+    # be excluded from the public stow below, or the two fight over it on every rerun:
+    # stow_private_to_home's override only clears the conflict once, but the next plain
+    # `stow --restow` of the public package tries to reclaim that path right back, since
+    # it has no notion that another source dir is now meant to own it.
+    local private_override_ignores=()
+    if [ -n "$PRIVATE_ROOT" ] && [ -f "$PRIVATE_ROOT/.stow-packages" ]; then
+        local priv_pkg
+        while IFS= read -r priv_pkg; do
+            [ -d "$DOTFILES_DIR/$priv_pkg" ] || continue
+            while IFS= read -r -d '' file; do
+                local rel="${file#"$PRIVATE_ROOT"/"$priv_pkg"/}"
+                if [ -f "$DOTFILES_DIR/$priv_pkg/$rel" ]; then
+                    private_override_ignores+=("--ignore=$(stow_regex_escape "$rel")")
+                fi
+            done < <(find "$PRIVATE_ROOT/$priv_pkg" -type f -print0)
+        done < <(grep -vE '^\s*#|^\s*$' "$PRIVATE_ROOT/.stow-packages")
+    fi
+
     stow_common_to_home() {
         local stow_file="$DOTFILES_DIR/.stow-packages"
         if [ ! -f "$stow_file" ]; then
@@ -56,10 +85,10 @@ configure_dotfiles() {
         else
             cd "$DOTFILES_DIR"
             if (( ${#nofold[@]} > 0 )); then
-                quiet_run stow --restow --no-folding --target="$HOME" --verbose=1 "${nofold[@]}"
+                quiet_run stow --restow --no-folding "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${nofold[@]}"
             fi
             if (( ${#folded[@]} > 0 )); then
-                quiet_run stow --restow --target="$HOME" --verbose=1 "${folded[@]}"
+                quiet_run stow --restow "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${folded[@]}"
             fi
             cd "$HOME"
             for pkg in "${packages_to_stow[@]}"; do
