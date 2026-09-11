@@ -1,9 +1,5 @@
 {
   "enabledPlugins": {
-    "atlassian@claude-plugins-official": true,
-    "jdtls-lsp@claude-plugins-official": true,
-    "kotlin-lsp@claude-plugins-official": true,
-    "slack@claude-plugins-official": true,
     "sonarqube@claude-plugins-official": true
   },
   "hooks": {
