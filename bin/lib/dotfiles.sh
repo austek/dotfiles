@@ -69,12 +69,31 @@ configure_dotfiles() {
         fi
     }
 
-    # Layers private-only files (e.g. Collibra-specific Claude skills or scripts) from
-    # the optional ~/.dotfiles-private overlay on top of the public stow above. The
+    # Layers private files from the optional ~/.dotfiles-private overlay on top of the
+    # public stow above — both files the public repo doesn't have at all (e.g. Collibra
+    # skills) and files that override a public one at the same path (e.g. a CLAUDE.md
+    # with org-specific instructions this machine's user isn't free to publish). The
     # private repo's own .stow-packages says which of its packages carry such files —
     # today that's 'claude' and 'local'. Always unfolded: the private repo distributes
     # a handful of files, never a bulk cache dir, so the fold/unfold split above doesn't
     # apply here.
+    clear_public_symlink_at_private_path() {
+        local pkg="$1" file="$2"
+        local rel="${file#"$PRIVATE_ROOT"/"$pkg"/}"
+        local target="$HOME/$rel"
+        [ -L "$target" ] || return 0
+        # stow --override only reclaims a file not owned by ANY package; it can't make one
+        # source dir win over a symlink stow already placed from a *different* source dir
+        # (it just sees "existing target is not owned by stow" and refuses either way). So
+        # a private file that's meant to replace a public one at the same path — not just
+        # add alongside it — has to have that public symlink cleared first, by hand, here.
+        local link_target
+        link_target=$(readlink -f "$target")
+        case "$link_target" in
+            "$DOTFILES_DIR"/*) rm -f -- "$target" ;;
+        esac
+    }
+
     stow_private_to_home() {
         if [ -z "$PRIVATE_ROOT" ]; then
             return
@@ -93,8 +112,13 @@ configure_dotfiles() {
 
         log_info "Stowing private-overlay packages to $HOME: ${private_packages[*]}..."
         if [ "$DRY_RUN" = true ]; then
-            log_dry_run "Would stow (unfolded, from $PRIVATE_ROOT) to $HOME: ${private_packages[*]}"
+            log_dry_run "Would stow (unfolded, from $PRIVATE_ROOT, overriding any public file at the same path) to $HOME: ${private_packages[*]}"
         else
+            for pkg in "${private_packages[@]}"; do
+                while IFS= read -r -d '' file; do
+                    clear_public_symlink_at_private_path "$pkg" "$file"
+                done < <(find "$PRIVATE_ROOT/$pkg" -type f -print0)
+            done
             cd "$PRIVATE_ROOT"
             quiet_run stow --restow --no-folding --target="$HOME" --verbose=1 "${private_packages[@]}"
             cd "$HOME"
