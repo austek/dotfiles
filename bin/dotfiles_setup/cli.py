@@ -122,7 +122,7 @@ def _run_install(args: argparse.Namespace) -> int:
 
     result = backend.install(
         package_file, preset_name=args.preset, claude_profile_dir=claude_dir,
-        dry_run=args.dry_run, run=subprocess.run,
+        dry_run=args.dry_run, private_root=overlay_root, run=subprocess.run,
     )
 
     state.save_state(state.MachineState(

@@ -173,6 +173,44 @@ def test_install_reports_backend_failure(isolated_dotfiles, monkeypatch):
     assert main(["install", "--preset", "homelab"]) == 1
 
 
+def test_install_passes_private_root_to_backend_when_overlay_present(isolated_dotfiles, monkeypatch, tmp_path):
+    calls = []
+
+    def recording_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = "installed"
+            stderr = ""
+        return _Result()
+
+    private_root = tmp_path / "dotfiles-private"
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
+
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert calls[0][-2:] == ["--private-root", str(private_root)]
+
+
+def test_install_omits_private_root_when_no_overlay(isolated_dotfiles, monkeypatch):
+    calls = []
+
+    def recording_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = "installed"
+            stderr = ""
+        return _Result()
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
+
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert "--private-root" not in calls[0]
+
+
 def test_install_raises_helpful_error_for_unknown_preset(isolated_dotfiles, capsys):
     assert main(["install", "--preset", "nonexistent"]) == 1
     assert "nonexistent" in capsys.readouterr().err

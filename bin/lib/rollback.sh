@@ -42,6 +42,12 @@ perform_rollback() {
                 stow --delete --target="$HOME" "$data" 2>/dev/null || log_warn "Failed to unstow $data"
                 cd "$HOME"
                 ;;
+            STOW_PRIVATE)
+                log_info "Unstowing private-overlay package from HOME: $data"
+                cd "$PRIVATE_ROOT"
+                stow --delete --target="$HOME" "$data" 2>/dev/null || log_warn "Failed to unstow $data"
+                cd "$HOME"
+                ;;
             STOW_ROOT)
                 log_info "Unstowing package from /: $data"
                 cd "$DOTFILES_DIR"

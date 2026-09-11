@@ -13,6 +13,7 @@ VERBOSITY=0
 MACHINE_PRESET=""
 PACKAGE_FILE_OVERRIDE=""
 CLAUDE_PROFILE_DIR_OVERRIDE=""
+PRIVATE_ROOT=""
 ROLLBACK_LOG="$HOME/.dotfiles-setup-rollback.log"
 SETUP_IN_PROGRESS=false
 TEMP_DIRS_TO_CLEAN=()
@@ -71,6 +72,10 @@ main() {
                 CLAUDE_PROFILE_DIR_OVERRIDE="$2"
                 shift 2
                 ;;
+            --private-root)
+                PRIVATE_ROOT="$2"
+                shift 2
+                ;;
             -h|--help)
                 echo "Usage: $0 --preset <work|personal|homelab> [OPTIONS]"
                 echo ""
@@ -78,6 +83,7 @@ main() {
                 echo "  --preset <work|personal|homelab>   Machine profile to set up (required)"
                 echo "  --package-file <path>               Use this pre-resolved package list instead of deriving one from --preset"
                 echo "  --claude-profile-dir <path>          Read claude-profiles/*.json from this directory instead of the repo's own"
+                echo "  --private-root <path>                Also stow packages listed in this dir's .stow-packages (the private overlay)"
                 echo "  --dry-run                   Show what would be done without executing commands"
                 echo "  -v, --verbose               Show step-by-step progress (INFO/SUCCESS messages)"
                 echo "  -vv                         Also show raw output from apt/stow/dpkg/etc."

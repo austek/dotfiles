@@ -22,9 +22,11 @@ configure_dotfiles() {
             return
         fi
 
-        # 'claude' stays folded so skills added to the repo appear without a restow.
         # 'gradle' must stay folded: its .gradle is the live Gradle home (~1.1M cache files).
-        local fold_packages="claude gradle"
+        # 'claude' is unfolded (unlike most packages, per-file rather than a convenience
+        # exception) so a private overlay can also contribute files under it below without
+        # two source dirs fighting over one top-level symlink.
+        local fold_packages="gradle"
         local folded=() nofold=()
         for pkg in "${packages_to_stow[@]}"; do
             case " $fold_packages " in
@@ -67,7 +69,44 @@ configure_dotfiles() {
         fi
     }
 
+    # Layers private-only files (e.g. Collibra-specific Claude skills or scripts) from
+    # the optional ~/.dotfiles-private overlay on top of the public stow above. The
+    # private repo's own .stow-packages says which of its packages carry such files —
+    # today that's 'claude' and 'local'. Always unfolded: the private repo distributes
+    # a handful of files, never a bulk cache dir, so the fold/unfold split above doesn't
+    # apply here.
+    stow_private_to_home() {
+        if [ -z "$PRIVATE_ROOT" ]; then
+            return
+        fi
+        local private_stow_file="$PRIVATE_ROOT/.stow-packages"
+        if [ ! -f "$private_stow_file" ]; then
+            log_info "No .stow-packages in the private overlay ($PRIVATE_ROOT). Skipping private stow."
+            return
+        fi
+
+        local private_packages=()
+        mapfile -t private_packages < <(grep -vE '^\s*#|^\s*$' "$private_stow_file")
+        if (( ${#private_packages[@]} == 0 )); then
+            return
+        fi
+
+        log_info "Stowing private-overlay packages to $HOME: ${private_packages[*]}..."
+        if [ "$DRY_RUN" = true ]; then
+            log_dry_run "Would stow (unfolded, from $PRIVATE_ROOT) to $HOME: ${private_packages[*]}"
+        else
+            cd "$PRIVATE_ROOT"
+            quiet_run stow --restow --no-folding --target="$HOME" --verbose=1 "${private_packages[@]}"
+            cd "$HOME"
+            for pkg in "${private_packages[@]}"; do
+                track_change "STOW_PRIVATE:$pkg"
+            done
+            log_success "All private-overlay packages stowed."
+        fi
+    }
+
     stow_common_to_home
+    stow_private_to_home
 
     log_info "Configuring pre-commit git hooks..."
     if [ "$DRY_RUN" = true ]; then

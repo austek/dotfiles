@@ -31,6 +31,7 @@ class AptBackend:
         preset_name: str,
         claude_profile_dir: Path,
         dry_run: bool,
+        private_root: Path | None = None,
         run=subprocess.run,
     ) -> InstallResult:
         argv = [
@@ -39,6 +40,8 @@ class AptBackend:
             "--package-file", str(package_file),
             "--claude-profile-dir", str(claude_profile_dir),
         ]
+        if private_root is not None:
+            argv += ["--private-root", str(private_root)]
         if dry_run:
             argv.append("--dry-run")
         result = run(argv, capture_output=True, text=True)

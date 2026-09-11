@@ -76,6 +76,49 @@ def test_install_appends_dry_run_flag(tmp_path):
     assert calls[0][-1] == "--dry-run"
 
 
+def test_install_omits_private_root_flag_when_not_given(tmp_path):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Result()
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        dry_run=False, run=fake_run,
+    )
+    assert "--private-root" not in calls[0]
+
+
+def test_install_appends_private_root_flag_when_given(tmp_path):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Result()
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    private_root = tmp_path / "dotfiles-private"
+    backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        dry_run=False, private_root=private_root, run=fake_run,
+    )
+    assert calls[0][-2:] == ["--private-root", str(private_root)]
+
+
 def test_install_reports_failure(tmp_path):
     def fake_run(argv, **kwargs):
         class _Result:

@@ -28,4 +28,5 @@ class Backend(Protocol):
         preset_name: str,
         claude_profile_dir: Path,
         dry_run: bool,
+        private_root: Path | None = None,
     ) -> InstallResult: ...

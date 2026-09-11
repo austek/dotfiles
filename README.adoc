@@ -138,7 +138,8 @@ To manually manage packages, you can run `stow <package-name>` or `stow -D <pack
 The `setup.sh` script handles stowing automatically. This manual method is only for quick adjustments or troubleshooting.
 
 Packages listed in `.stow-packages` are stowed unfolded (one symlink per file) so that new files appear without a restow.
-`claude` and `gradle` are exceptions and stay folded — `gradle/.gradle` is the live Gradle home, and unfolding its ~1.1M cache files would exhaust `stow` before it wrote anything.
+`gradle` is the one exception and stays folded — `gradle/.gradle` is the live Gradle home, and unfolding its ~1.1M cache files would exhaust `stow` before it wrote anything.
+`claude` is unfolded like the rest (rather than folded for convenience) specifically so the private overlay below can also contribute files under it without two source directories fighting over one top-level symlink.
 `setup.sh` refuses to unfold any package over 1000 files rather than attempting it.
 
 === Claude Code Skills
@@ -164,5 +165,6 @@ An optional sibling clone at `~/.dotfiles-private` (or a path given via `DOTFILE
 * *Git identity* — `~/.dotfiles-private/git/gitconfig-work` is conditionally included by `git/.gitconfig` on Collibra remotes (see "Git Configuration" above).
 * *Extra packages* — `~/.dotfiles-private/packages/<preset>_extra.txt` is unioned into the resolved package list for that preset before it's forked/reconciled into `~/.config/dotfiles/packages/<name>.txt`.
 * *Extra Claude settings* — `~/.dotfiles-private/claude-profiles/<preset>.json` is deep-merged over this repo's own `claude-profiles/<preset>.json`.
+* *Private-only stowed files* — `dotfiles-setup install` passes the overlay root to `setup.sh` as `--private-root`, which, after stowing this repo's own `.stow-packages`, also reads `~/.dotfiles-private/.stow-packages` and stows those packages (unfolded, from the private repo) onto `$HOME` too. This is how private-only content — e.g. Collibra-specific `claude/.claude/skills/*` or `local/.local/bin/*` scripts — reaches `$HOME` without living in this public repo.
 
 If `~/.dotfiles-private` doesn't exist, none of the above applies — a plain fork of this repo runs off its public defaults alone.
