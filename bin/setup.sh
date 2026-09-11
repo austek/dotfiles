@@ -76,6 +76,13 @@ main() {
                 PRIVATE_ROOT="$2"
                 shift 2
                 ;;
+            --verbosity)
+                # Sets VERBOSITY directly rather than accumulating like -v/-vv/-vvv —
+                # used by dotfiles-setup to forward its own already-summed -v/-vv/-vvv
+                # count in one flag, without reconstructing a letter-flag combination.
+                VERBOSITY="$2"
+                shift 2
+                ;;
             -h|--help)
                 echo "Usage: $0 --preset <work|personal|homelab> [OPTIONS]"
                 echo ""
@@ -84,6 +91,7 @@ main() {
                 echo "  --package-file <path>               Use this pre-resolved package list instead of deriving one from --preset"
                 echo "  --claude-profile-dir <path>          Read claude-profiles/*.json from this directory instead of the repo's own"
                 echo "  --private-root <path>                Also stow packages listed in this dir's .stow-packages (the private overlay)"
+                echo "  --verbosity <0-6>                    Set VERBOSITY directly (what dotfiles-setup passes for -v/-vv/-vvv); prefer -v/-vv/-vvv by hand"
                 echo "  --dry-run                   Show what would be done without executing commands"
                 echo "  -v, --verbose               Show step-by-step progress (INFO/SUCCESS messages)"
                 echo "  -vv                         Also show raw output from apt/stow/dpkg/etc."

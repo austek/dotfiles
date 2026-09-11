@@ -50,6 +50,7 @@ def test_install_invokes_setup_sh_with_expected_argv(tmp_path):
         "--preset", "work",
         "--package-file", str(package_file),
         "--claude-profile-dir", str(claude_dir),
+        "--verbosity", "0",
     ]]
     assert result.succeeded is True
     assert result.returncode == 0
@@ -145,6 +146,49 @@ def test_install_does_not_capture_subprocess_output(tmp_path, monkeypatch):
         dry_run=False, run=subprocess_module.run,
     )
     assert calls == [{}]
+
+
+def test_install_defaults_verbosity_to_zero(tmp_path):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Result()
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        dry_run=False, run=fake_run,
+    )
+    assert "--verbosity" in calls[0]
+    assert calls[0][calls[0].index("--verbosity") + 1] == "0"
+
+
+def test_install_forwards_verbosity(tmp_path):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Result()
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        dry_run=False, verbosity=3, run=fake_run,
+    )
+    assert calls[0][calls[0].index("--verbosity") + 1] == "3"
 
 
 def test_install_reports_failure(tmp_path):

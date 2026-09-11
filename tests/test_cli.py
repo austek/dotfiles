@@ -189,6 +189,27 @@ def test_install_reports_backend_failure_with_no_captured_output(isolated_dotfil
     assert "exited with code 3" in capsys.readouterr().err
 
 
+def test_install_forwards_verbosity_to_backend(isolated_dotfiles, monkeypatch):
+    """The exact bug the user hit: -v/-vv/-vvv changed dotfiles-setup's own
+    logging but never reached setup.sh, so its VERBOSITY stayed 0 no matter
+    what was typed and output looked identical at every level."""
+    calls = []
+
+    def recording_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = "installed"
+            stderr = ""
+        return _Result()
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
+
+    assert main(["install", "--preset", "homelab", "-vv"]) == 0
+    assert calls[0][calls[0].index("--verbosity") + 1] == "2"
+
+
 def test_install_passes_private_root_to_backend_when_overlay_present(isolated_dotfiles, monkeypatch, tmp_path):
     calls = []
 
