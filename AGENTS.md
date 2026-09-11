@@ -28,6 +28,11 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - Third-party `apt` repositories are declaratively managed using `.sources` files within the `apt/` package.
 - The setup script handles securely downloading the latest GPG keys.
 
+### 5. Claude Code Skills
+- Shareable Claude Code skills and commands live in a separate public marketplace repo, [austek/claude-skills](https://github.com/austek/claude-skills), referenced from `claude/.claude/settings.json`'s `extraKnownMarketplaces`/`enabledPlugins`.
+- This repo carries no vendored skills or commands of its own.
+- To add a new skill, author it in `austek/claude-skills`, not here.
+
 ## Presets and Portability
 - Presets are manifests at `presets/<name>.json` (this repo ships `work`, `personal`, `homelab`); each lists which `packages/` files to install and which `claude-profiles/*.json` supplies Claude Code settings. Add a machine type by dropping in a new `presets/<name>.json`, not by editing code.
 - `dotfiles-setup install --preset <name>` resolves a preset's package files and, the first time it runs for that preset on a machine, forks the result to `~/.config/dotfiles/packages/<name>.txt`. That forked file is then the user's to hand-edit; never suggest deleting or wholesale-regenerating it.

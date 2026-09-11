@@ -141,6 +141,12 @@ Packages listed in `.stow-packages` are stowed unfolded (one symlink per file) s
 `claude` and `gradle` are exceptions and stay folded — `gradle/.gradle` is the live Gradle home, and unfolding its ~1.1M cache files would exhaust `stow` before it wrote anything.
 `setup.sh` refuses to unfold any package over 1000 files rather than attempting it.
 
+=== Claude Code Skills
+
+Shareable Claude Code skills and commands live in a separate public repo, https://github.com/austek/claude-skills[austek/claude-skills], packaged as a Claude Code plugin marketplace and referenced from `claude/.claude/settings.json`.
+This repo carries no vendored skills or commands of its own.
+Add a new skill there, not here.
+
 == Presets and the Private Overlay
 
 === Presets
