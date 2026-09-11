@@ -136,7 +136,13 @@ def _run_install(args: argparse.Namespace) -> int:
     ))
 
     if not result.succeeded:
-        logger.error(result.stdout)
+        # setup.sh's own output already streamed live above (backend.install no longer
+        # captures it — see apt.py) — result.stdout only ever carries anything when a
+        # caller passes a `run` that captures on its own, e.g. tests.
+        if result.stdout:
+            logger.error(result.stdout)
+        else:
+            logger.error(f"setup.sh exited with code {result.returncode}. See output above.")
         return result.returncode
     logger.success(f"Machine preset set to '{args.preset}'.")
     return 0

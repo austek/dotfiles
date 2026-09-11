@@ -119,6 +119,34 @@ def test_install_appends_private_root_flag_when_given(tmp_path):
     assert calls[0][-2:] == ["--private-root", str(private_root)]
 
 
+def test_install_does_not_capture_subprocess_output(tmp_path, monkeypatch):
+    """setup.sh's own step logging is the only feedback during a real install —
+    capturing it would silently swallow it all until a failure (if any) prints
+    it back, leaving a successful run looking hung with no live output."""
+    calls = []
+
+    def recording_run(argv, **kwargs):
+        calls.append(kwargs)
+
+        class _Result:
+            returncode = 0
+            stdout = None
+            stderr = None
+
+        return _Result()
+
+    monkeypatch.setattr("subprocess.run", recording_run)
+
+    import subprocess as subprocess_module
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        dry_run=False, run=subprocess_module.run,
+    )
+    assert calls == [{}]
+
+
 def test_install_reports_failure(tmp_path):
     def fake_run(argv, **kwargs):
         class _Result:

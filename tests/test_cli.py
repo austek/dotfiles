@@ -173,6 +173,22 @@ def test_install_reports_backend_failure(isolated_dotfiles, monkeypatch):
     assert main(["install", "--preset", "homelab"]) == 1
 
 
+def test_install_reports_backend_failure_with_no_captured_output(isolated_dotfiles, capsys, monkeypatch):
+    """The real run() no longer captures setup.sh's output (it streams live
+    instead), so a real failure has nothing in result.stdout to print back —
+    cli.py falls back to a message naming the exit code instead of a blank line."""
+    def failing_run(argv, **kwargs):
+        class _Result:
+            returncode = 3
+            stdout = None
+            stderr = None
+        return _Result()
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
+    assert main(["install", "--preset", "homelab"]) == 3
+    assert "exited with code 3" in capsys.readouterr().err
+
+
 def test_install_passes_private_root_to_backend_when_overlay_present(isolated_dotfiles, monkeypatch, tmp_path):
     calls = []
 

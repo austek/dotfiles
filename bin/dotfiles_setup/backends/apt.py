@@ -44,7 +44,11 @@ class AptBackend:
             argv += ["--private-root", str(private_root)]
         if dry_run:
             argv.append("--dry-run")
-        result = run(argv, capture_output=True, text=True)
+        # No capture_output: setup.sh's own step-by-step logging (and -v/-vv/-vvv's extra
+        # detail, and apt/stow's own output) is the only feedback during a long real
+        # install — capturing it would silently swallow all of it until (if ever) a
+        # failure prints it back, leaving a real run looking hung with no live output.
+        result = run(argv)
         return InstallResult(
             succeeded=result.returncode == 0,
             returncode=result.returncode,
