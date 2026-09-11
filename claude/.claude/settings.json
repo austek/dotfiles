@@ -152,7 +152,12 @@
     "cozempic@cozempic": true,
     "datadog@claude-plugins-official": false,
     "metaskills@wondelai-skills": true,
-    "code-craftsmanship@wondelai-skills": true
+    "code-craftsmanship@wondelai-skills": true,
+    "language-personas@claude-skills": true,
+    "pr-workflow-oss@claude-skills": true,
+    "architecture@claude-skills": true,
+    "productivity@claude-skills": true,
+    "dev-utilities@claude-skills": true
   },
   "extraKnownMarketplaces": {
     "cozempic": {
@@ -165,6 +170,12 @@
       "source": {
         "source": "github",
         "repo": "wondelai/skills"
+      }
+    },
+    "claude-skills": {
+      "source": {
+        "source": "github",
+        "repo": "austek/claude-skills"
       }
     }
   },
