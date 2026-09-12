@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Global commit-msg hook. Pure passthrough to the repo's own local
-# .git/hooks/commit-msg if one exists (e.g. Jira-ticket-in-message checks) —
-# core.hooksPath being global must not silently disable it.
+# Global commit-msg hook. Strips AI-attribution trailers that tooling may
+# inject, then passes through to the repo's own local .git/hooks/commit-msg
+# if one exists (e.g. Jira-ticket-in-message checks) — core.hooksPath being
+# global must not silently disable it.
 set -euo pipefail
+
+msg_file="$1"
+sed -i '/^Co-Authored-By:.*\(Claude\|Anthropic\)/Id' "$msg_file"
+sed -i '/^Claude-Session:/d' "$msg_file"
+sed -i '/^🤖 Generated with \[Claude Code\]/d' "$msg_file"
 
 git_dir=$(git rev-parse --git-dir)
 local_hook="$git_dir/hooks/commit-msg"
