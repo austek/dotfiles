@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+
+reviews:
+  profile: "chill"
+  high_level_summary: true
+  poem: false
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+  path_filters:
+    - "!**/*.lock"
+    - "!**/__pycache__/**"
+    - "!.venv/**"
+    - "!.pytest_cache/**"
+    - "!gradle/.gradle/**"
+  path_instructions:
+    - path: "**/*.py"
+      instructions: >
+        Stdlib-first. A PATH-installed Python command is a thin executable
+        wrapper (no .py extension, sys.path.insert + call main()) beside an
+        importable, pytest-tested module (see local/.local/bin/coderabbitFullAudit
+        and coderabbit_full_audit.py, or bin/dotfiles-backup and
+        dotfiles_backup.py). Tests are plain pytest functions using tmp_path
+        and monkeypatch, not unittest classes.
+    - path: "**/*.sh"
+      instructions: >
+        Bash scripts use `set -euo pipefail`, long-flag getopts-style parsing
+        (see local/.local/bin/flaky-it), a heredoc usage() for -h/--help, and
+        never hardcode an absolute home directory -- use $HOME or ~.
