@@ -49,6 +49,9 @@ DENY = [
     "cd /tmp && rm -rf /",
     "true; rm -rf /etc",
     "echo hi | rm -rf $HOME",
+    "/bin/rm -rf /",
+    "/usr/bin/rm -rf /home",
+    "sudo /bin/rm -rf /",
 ]
 
 ALLOW = [
@@ -67,6 +70,7 @@ ALLOW = [
     'gh api -f body="do not run rm -rf / here"',
     # unbalanced quotes: unparseable, so deliberately not blocked
     "rm -rf \"/unclosed",
+    "/bin/rm -rf /tmp/build",
 ]
 
 

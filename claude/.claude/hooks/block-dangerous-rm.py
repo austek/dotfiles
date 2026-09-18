@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import posixpath
 import re
 import shlex
 import sys
@@ -62,8 +63,12 @@ def split_segments(tokens):
     return segments
 
 
+def _is_rm(tok):
+    return posixpath.basename(tok) == "rm"
+
+
 def is_force_recursive(tokens):
-    if "rm" not in tokens:
+    if not any(_is_rm(tok) for tok in tokens):
         return False
     flag_chars = set()
     for tok in tokens:
@@ -107,7 +112,7 @@ def check(command):
             continue
 
         targets = [t for t in seg if t and not t.startswith("-")]
-        targets = [t for t in targets if t not in ("rm", "sudo", "rtk")]
+        targets = [t for t in targets if t not in ("sudo", "rtk") and not _is_rm(t)]
 
         for tok in targets:
             if BARE_VAR.match(tok):
