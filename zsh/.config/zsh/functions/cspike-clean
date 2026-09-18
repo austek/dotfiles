@@ -9,7 +9,13 @@ cspike-clean() {
   local name="$1"
   local target_dir="$HOME/.claude/scratches/spikes/spike-${name}"
 
-  git worktree remove "$target_dir" --force 2>/dev/null
-  git branch -D "$name" 2>/dev/null
+  if ! git worktree remove "$target_dir" --force; then
+    echo "cspike-clean: failed to remove worktree '$target_dir'; leaving branch '$name' in place." >&2
+    return 1
+  fi
+  if ! git branch -D "$name"; then
+    echo "cspike-clean: worktree removed, but failed to delete branch '$name'." >&2
+    return 1
+  fi
   echo -e "\033[1;32mWorktree and spike branch '$name' deleted.\033[0m"
 }

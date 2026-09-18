@@ -192,7 +192,7 @@ if [[ -r ~/.zshrc.secret ]]; then
 fi
 # --- END SECRET/MANUAL OVERRIDES ---
 
-if grep -q "0x1002" /sys/class/drm/card*/device/vendor 2>/dev/null; then
+if grep -q "0x1002" /sys/class/drm/card*/device/vendor(N) /dev/null 2>/dev/null; then
   export RUSTICL_ENABLE=radeonsi
 fi
 

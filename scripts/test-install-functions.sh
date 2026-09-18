@@ -4,7 +4,7 @@
 # Sourcing setup.sh here does not run main() — see the sourceability guard
 # at the bottom of setup.sh.
 
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DOTFILES_DIR=$(dirname "$SCRIPT_DIR")

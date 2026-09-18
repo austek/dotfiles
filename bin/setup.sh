@@ -65,14 +65,26 @@ main() {
                 shift 2
                 ;;
             --package-file)
+                if [[ $# -lt 2 ]]; then
+                    log_error "--package-file requires a path."
+                    exit 1
+                fi
                 PACKAGE_FILE_OVERRIDE="$2"
                 shift 2
                 ;;
             --claude-profile-dir)
+                if [[ $# -lt 2 ]]; then
+                    log_error "--claude-profile-dir requires a path."
+                    exit 1
+                fi
                 CLAUDE_PROFILE_DIR_OVERRIDE="$2"
                 shift 2
                 ;;
             --private-root)
+                if [[ $# -lt 2 ]]; then
+                    log_error "--private-root requires a path."
+                    exit 1
+                fi
                 PRIVATE_ROOT="$2"
                 shift 2
                 ;;
@@ -80,6 +92,14 @@ main() {
                 # Sets VERBOSITY directly rather than accumulating like -v/-vv/-vvv —
                 # used by dotfiles-setup to forward its own already-summed -v/-vv/-vvv
                 # count in one flag, without reconstructing a letter-flag combination.
+                if [[ $# -lt 2 ]]; then
+                    log_error "--verbosity requires a value (0-6)."
+                    exit 1
+                fi
+                if ! [[ "$2" =~ ^[0-9]+$ ]] || [[ "$2" -gt 6 ]]; then
+                    log_error "--verbosity must be an integer from 0 to 6, got '$2'."
+                    exit 1
+                fi
                 VERBOSITY="$2"
                 shift 2
                 ;;

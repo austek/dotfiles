@@ -15,13 +15,13 @@ apply-patch() {
     return 1
   fi
 
-  echo "$patch_content" | git apply --check 2>/dev/null
+  print -r -- "$patch_content" | git apply --check 2>/dev/null
   if [[ $? -ne 0 ]]; then
     echo -e "\033[1;31mPatch does not apply cleanly with 'git apply'.\033[0m" >&2
     return 1
   fi
 
-  echo "$patch_content" | git apply
+  print -r -- "$patch_content" | git apply
   echo -e "\033[1;32mPatch applied cleanly.\033[0m"
   git status --short
 }

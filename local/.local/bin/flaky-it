@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -uo pipefail
+set -euo pipefail
 
 REPO="${REPO:-$PWD}"
 GRADLEW="$REPO/gradlew"
@@ -333,7 +333,7 @@ run_one() {
     local log="$1"
     local unit
     unit="flaky-it-$$-$(basename "$log" .log)"
-    systemctl --user stop "$unit.scope" >/dev/null 2>&1
+    systemctl --user stop "$unit.scope" >/dev/null 2>&1 || true
 
     # --no-build-cache: a cached run reports 0 tests as a false PASS. --rerun-tasks
     # is avoided since it rebuilds the whole module graph, not just the target.
@@ -373,10 +373,10 @@ run_one() {
             sleep 2
         done
     fi
-    systemctl --user stop "$unit.scope" >/dev/null 2>&1
+    systemctl --user stop "$unit.scope" >/dev/null 2>&1 || true
     local hardstop=$((SECONDS + 10))
     while kill -0 "$pid" 2>/dev/null && ((SECONDS < hardstop)); do sleep 1; done
-    wait "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null || true
 
     printf '%s' "$verdict"
 }
@@ -412,17 +412,17 @@ for ((i = 1; i <= RUNS; i++)); do
         PASS)
             printf 'PASS     (%ds)  %s\n' "$dur" "$log"
             results+=("$n PASS ${dur}s")
-            ((pass++))
+            ((++pass))
             ;;
         TIMEOUT)
             printf 'TIMEOUT  (%ds)  %s\n' "$dur" "$log"
             results+=("$n TIMEOUT ${dur}s")
-            ((fail++))
+            ((++fail))
             ;;
         *)
             printf 'FAIL     (%ds)  %s\n' "$dur" "$log"
             results+=("$n FAIL ${dur}s")
-            ((fail++))
+            ((++fail))
             ;;
     esac
 done
@@ -440,7 +440,7 @@ if ((fail > 0)); then
     grep -hE '> .+ (FAILED|SKIPPED)$' "$OUT_DIR"/run-*.log 2>/dev/null \
         | grep -E 'FAILED$' \
         | sed -E 's/^[[:space:]]+//' \
-        | sort | uniq -c | sort -rn | head -40
+        | sort | uniq -c | sort -rn | head -40 || true
 fi
 echo
 echo "All logs: $OUT_DIR"

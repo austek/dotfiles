@@ -27,6 +27,17 @@ if [[ ! -f "$EXCLUDE_FILE" ]]; then
 fi
 
 mkdir -p "$DEST"
-rsync -a --delete --exclude-from="$EXCLUDE_FILE" "$SRC/" "$DEST/"
+
+# Also protect any other destination-only file iam's own git already treats as
+# ignored/untracked under this path (e.g. local notes, secrets not covered by
+# dotfiles' dev-aws/.gitignore above) -- resolved from iam's own git config,
+# not guessed from this checkout, so it stays correct if iam's ignore rules
+# ever diverge from dotfiles'.
+DEST_EXCLUDES=()
+while IFS= read -r -d '' rel; do
+    DEST_EXCLUDES+=(--exclude="${rel#"$SKILL_REL"/}")
+done < <(git -C "$IAM_REPO" ls-files --others --ignored --exclude-standard -z -- "$SKILL_REL")
+
+rsync -a --delete --exclude-from="$EXCLUDE_FILE" "${DEST_EXCLUDES[@]}" "$SRC/" "$DEST/"
 
 echo "hunt-flaky-it: pushed into $DEST."

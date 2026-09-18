@@ -49,10 +49,11 @@ def test_resolve_packages_dedupes_and_sorts_across_files(tmp_path):
     assert resolve_packages(tmp_path, preset) == ("curl", "ripgrep", "zsh")
 
 
-def test_resolve_packages_skips_missing_files(tmp_path):
+def test_resolve_packages_raises_for_missing_files(tmp_path):
     (tmp_path / "common.txt").write_text("zsh\n")
     preset = Preset(
         name="x", description="", package_files=("common.txt", "nonexistent.txt"),
         backend_overrides={}, claude_settings=None,
     )
-    assert resolve_packages(tmp_path, preset) == ("zsh",)
+    with pytest.raises(FileNotFoundError):
+        resolve_packages(tmp_path, preset)

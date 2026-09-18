@@ -36,7 +36,7 @@ def resolve_packages(packages_dir: Path, preset: Preset) -> tuple[str, ...]:
     for filename in preset.package_files:
         file_path = packages_dir / filename
         if not file_path.is_file():
-            continue
+            raise FileNotFoundError(f"Preset '{preset.name}' declares missing package file: {file_path}")
         for line in file_path.read_text().splitlines():
             stripped = line.strip()
             if stripped and not stripped.startswith("#"):

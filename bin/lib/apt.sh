@@ -203,9 +203,14 @@ strip_snap_from_system_path() {
 detect_ubuntu_codename() {
     local os_release_file="${1:-/etc/os-release}"
     local codename=""
+    # Assigned via `if` rather than a bare `codename=$(...)`: under `set -e`, a
+    # bare assignment aborts the script the instant sourcing fails or
+    # VERSION_CODENAME is unset, before the fallback below ever runs.
     if [ -f "$os_release_file" ]; then
         # shellcheck disable=SC1090
-        codename=$(. "$os_release_file" && echo "$VERSION_CODENAME")
+        if ! codename=$(. "$os_release_file" && echo "${VERSION_CODENAME:-}"); then
+            codename=""
+        fi
     fi
     if [ -z "$codename" ]; then
         log_warn "Could not detect Ubuntu codename; defaulting to 'noble'."

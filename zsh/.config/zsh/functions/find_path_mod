@@ -11,7 +11,7 @@ find_path_mod() {
     /etc/zprofile
     /etc/zshrc
     /etc/zlogin
-    /etc/profile.d/*.sh
+    /etc/profile.d/*.sh(N)
 
     ~/.profile
     ~/.bashrc

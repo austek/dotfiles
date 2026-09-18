@@ -21,12 +21,17 @@ HASH_STYLE_EXTS = {"sh", "bash", "zsh", "yaml", "yml", "rb", "pl", "toml"}
 _TRAILING_WS = re.compile(r"[ \t]+(?=\n)")
 
 
+def _is_shebang_token(tok) -> bool:
+    row, col = tok.start
+    return row == 1 and col == 0 and tok.string.startswith("#!")
+
+
 def strip_python_comments(source: str) -> str:
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
     except (tokenize.TokenError, IndentationError, SyntaxError):
         return source
-    kept = [tok for tok in tokens if tok.type != tokenize.COMMENT]
+    kept = [tok for tok in tokens if tok.type != tokenize.COMMENT or _is_shebang_token(tok)]
     try:
         result = tokenize.untokenize(kept)
     except ValueError:
@@ -62,7 +67,10 @@ def strip_c_style_comments(source: str) -> str:
             continue
         if ch == "/" and nxt == "*":
             i += 2
+            out.append(" ")
             while i < n and not (source[i] == "*" and i + 1 < n and source[i + 1] == "/"):
+                if source[i] == "\n":
+                    out.append("\n")
                 i += 1
             i += 2
             continue
@@ -72,6 +80,20 @@ def strip_c_style_comments(source: str) -> str:
 
 
 def strip_hash_comments(source: str) -> str:
+    shebang, source = _split_shebang(source)
+    return shebang + _strip_hash_comments_body(source)
+
+
+def _split_shebang(source: str) -> tuple[str, str]:
+    if not source.startswith("#!"):
+        return "", source
+    newline = source.find("\n")
+    if newline == -1:
+        return source, ""
+    return source[: newline + 1], source[newline + 1 :]
+
+
+def _strip_hash_comments_body(source: str) -> str:
     out = []
     i, n = 0, len(source)
     in_string = None

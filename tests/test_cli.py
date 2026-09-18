@@ -189,6 +189,40 @@ def test_install_reports_backend_failure_with_no_captured_output(isolated_dotfil
     assert "exited with code 3" in capsys.readouterr().err
 
 
+def test_dry_run_skips_git_identity(isolated_dotfiles, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "dotfiles_setup.cli.identity.ensure_git_identity",
+        lambda **kw: calls.append(kw) or None,
+    )
+    main(["install", "--preset", "homelab", "--dry-run"])
+    assert calls == []
+
+
+def test_dry_run_skips_claude_profile_write(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    main(["install", "--preset", "homelab", "--dry-run"])
+    assert not (tmp_path / "state" / "claude-profiles" / "claude_homelab.json").exists()
+
+
+def test_dry_run_skips_state_persistence(isolated_dotfiles):
+    main(["install", "--preset", "homelab", "--dry-run"])
+    assert state.load_state() is None
+
+
+def test_install_does_not_persist_state_on_failure(isolated_dotfiles, monkeypatch):
+    def failing_run(argv, **kwargs):
+        class _Result:
+            returncode = 1
+            stdout = "apt-get exploded"
+            stderr = ""
+        return _Result()
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
+    main(["install", "--preset", "homelab"])
+    assert state.load_state() is None
+
+
 def test_install_forwards_verbosity_to_backend(isolated_dotfiles, monkeypatch):
     """The exact bug the user hit: -v/-vv/-vvv changed dotfiles-setup's own
     logging but never reached setup.sh, so its VERBOSITY stayed 0 no matter

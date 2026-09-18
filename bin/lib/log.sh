@@ -51,8 +51,14 @@ quiet_run() {
         return $?
     fi
     local output status
-    output=$("$@" 2>&1)
-    status=$?
+    # Assigned via `if` rather than a bare `output=$(...)`: under `set -e`, a
+    # bare assignment aborts the script the instant "$@" fails, before
+    # `status=$?` ever runs -- skipping the captured-output print below entirely.
+    if output=$("$@" 2>&1); then
+        status=0
+    else
+        status=$?
+    fi
     if [ $status -ne 0 ]; then
         printf '%s\n' "$output" >&2
     fi

@@ -215,8 +215,14 @@ if [ "$weekly_cache_age" -ge "$cache_ttl" ] && mkdir "$lock_dir" 2>/dev/null; th
         month_epoch=$(date -d "$month_since" +%s 2>/dev/null || date -j -f '%Y-%m-%d' "$month_since" +%s 2>/dev/null)
 
         if [ -n "$day_epoch" ] && [ -n "$week_epoch" ] && [ -n "$month_epoch" ]; then
+            # Streams every discovered file's content through one jq -s process
+            # via cat, rather than passing filenames as jq's own argv -- xargs
+            # batching filenames directly would launch multiple jq processes
+            # once the file count crosses ARG_MAX, each independently slurping
+            # only its own batch and corrupting the day/week/month aggregation.
             result=$(command find "$projects_dir" -iname "*.jsonl" -newermt "$month_since" -print0 2>/dev/null \
-                | xargs -0 -r jq -s \
+                | xargs -0 -r cat 2>/dev/null \
+                | jq -s \
                     --argjson day_epoch "$day_epoch" \
                     --argjson week_epoch "$week_epoch" \
                     --argjson month_epoch "$month_epoch" \

@@ -91,7 +91,8 @@ def _run_install(args: argparse.Namespace) -> int:
     logger.step("Starting Ubuntu Dotfiles Setup...")
 
     dotfiles_dir = _dotfiles_dir()
-    identity.ensure_git_identity(force=args.reconfigure)
+    if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
+        identity.ensure_git_identity(force=args.reconfigure)
 
     try:
         preset = presets.load_preset(dotfiles_dir / "presets", args.preset)
@@ -114,27 +115,19 @@ def _run_install(args: argparse.Namespace) -> int:
         logger.info(f"Added {len(added)} new package(s) to {package_file}")
 
     claude_dir = state.STATE_DIR / "claude-profiles"
-    claude_dir.mkdir(parents=True, exist_ok=True)
     if preset.claude_settings:
-        base_path = dotfiles_dir / "claude-profiles" / preset.claude_settings
-        merged = overlay.load_claude_settings(base_path, overlay_root, args.preset)
-        (claude_dir / preset.claude_settings).write_text(json.dumps(merged, indent=2) + "\n")
+        claude_profile_path = claude_dir / preset.claude_settings
+        if not logger.dry_run_notice(f"Would write {claude_profile_path}."):
+            claude_dir.mkdir(parents=True, exist_ok=True)
+            base_path = dotfiles_dir / "claude-profiles" / preset.claude_settings
+            merged = overlay.load_claude_settings(base_path, overlay_root, args.preset)
+            claude_profile_path.write_text(json.dumps(merged, indent=2) + "\n")
 
     result = backend.install(
         package_file, preset_name=args.preset, claude_profile_dir=claude_dir,
         dry_run=args.dry_run, private_root=overlay_root, verbosity=args.verbosity,
         run=subprocess.run,
     )
-
-    state.save_state(state.MachineState(
-        preset_name=args.preset,
-        backend=backend.name,
-        package_file=str(package_file),
-        applied_package_names=combined,
-        overlay_root=str(overlay_root) if overlay_root else None,
-        created_at=prior.created_at if prior else _now(),
-        updated_at=_now(),
-    ))
 
     if not result.succeeded:
         # setup.sh's own output already streamed live above (backend.install no longer
@@ -145,6 +138,17 @@ def _run_install(args: argparse.Namespace) -> int:
         else:
             logger.error(f"setup.sh exited with code {result.returncode}. See output above.")
         return result.returncode
+
+    if not args.dry_run:
+        state.save_state(state.MachineState(
+            preset_name=args.preset,
+            backend=backend.name,
+            package_file=str(package_file),
+            applied_package_names=combined,
+            overlay_root=str(overlay_root) if overlay_root else None,
+            created_at=prior.created_at if prior else _now(),
+            updated_at=_now(),
+        ))
     logger.success(f"Machine preset set to '{args.preset}'.")
     return 0
 

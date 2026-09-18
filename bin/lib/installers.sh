@@ -211,14 +211,14 @@ resolve_antigravity_ide_build() {
     local arch_dir="$1"
     local pinned_url="https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.1.1-6123990880747520/$arch_dir/Antigravity%20IDE.tar.gz"
 
-    log_info "Resolving the latest Antigravity IDE build..."
+    log_info "Resolving the latest Antigravity IDE build..." >&2
     local download_url
     download_url=$(curl -sS --compressed "https://antigravity.google/download" \
         | grep -oP "https://edgedl\.me\.gvt1\.com/edgedl/release2/[^\"'\\\\ /]+/antigravity/stable/[0-9][^\"'\\\\ ]*/$arch_dir/Antigravity%20IDE\.tar\.gz" \
         | head -1) || true
 
     if [ -z "$download_url" ]; then
-        log_warn "Could not resolve the latest build. Falling back to the pinned URL."
+        log_warn "Could not resolve the latest build. Falling back to the pinned URL." >&2
         download_url="$pinned_url"
     fi
 
@@ -242,13 +242,13 @@ fetch_and_extract_antigravity_ide() {
     mkdir -p "$cache_dir"
 
     if [ -s "$cached_tarball" ]; then
-        log_info "Using cached Antigravity IDE ${version:-unknown} tarball."
+        log_info "Using cached Antigravity IDE ${version:-unknown} tarball." >&2
         cp -- "$cached_tarball" "$tarball_path"
     else
-        log_info "Downloading Antigravity IDE ${version:-unknown} from $download_url..."
+        log_info "Downloading Antigravity IDE ${version:-unknown} from $download_url..." >&2
         if ! curl -sL -o "$tarball_path" "$download_url"; then
             log_error "Failed to download Antigravity IDE from $download_url"
-            log_warn "Continuing with setup..."
+            log_warn "Continuing with setup..." >&2
             return 1
         fi
         # Write-then-rename so an interrupted run never leaves a corrupt cache entry.
@@ -256,10 +256,10 @@ fetch_and_extract_antigravity_ide() {
         find "$cache_dir" -maxdepth 1 -type f -name '*.tar.gz' ! -name "$(basename "$cached_tarball")" -delete 2>/dev/null || true
     fi
 
-    log_info "Extracting Antigravity IDE..."
+    log_info "Extracting Antigravity IDE..." >&2
     if ! tar -xzf "$tarball_path" -C "$temp_dir"; then
         log_error "Failed to extract Antigravity IDE."
-        log_warn "Continuing with setup..."
+        log_warn "Continuing with setup..." >&2
         return 1
     fi
 
@@ -270,7 +270,7 @@ fetch_and_extract_antigravity_ide() {
 
     if [ -z "$extracted_dir" ]; then
         log_error "Could not find the antigravity-ide binary in the archive."
-        log_warn "Continuing with setup..."
+        log_warn "Continuing with setup..." >&2
         return 1
     fi
 
@@ -281,38 +281,52 @@ fetch_and_extract_antigravity_ide() {
 # entry, and records the installed build ID.
 place_antigravity_ide() {
     local extracted_dir="$1" install_dir="$2" icon_path="$3" desktop_path="$4" build_file="$5" build="$6" version="$7"
+    # Staged in a sibling directory and swapped into place only once fully
+    # built, so a failure below leaves any existing installation untouched
+    # instead of removing it before the replacement is ready.
+    local staging_dir="$install_dir.staging"
 
     log_info "Installing Antigravity IDE to $install_dir..."
-    if ! sudo rm -rf -- "$install_dir"; then
-        log_error "Failed to remove existing $install_dir."
+    sudo rm -rf -- "$staging_dir"
+    if ! sudo mkdir -p "$staging_dir"; then
+        log_error "Failed to create $staging_dir."
         log_warn "Continuing with setup..."
         return 1
     fi
-    if ! sudo mkdir -p "$install_dir"; then
-        log_error "Failed to create $install_dir."
+    if ! sudo cp -r "$extracted_dir"/. "$staging_dir/"; then
+        log_error "Failed to copy Antigravity IDE into $staging_dir."
         log_warn "Continuing with setup..."
+        sudo rm -rf -- "$staging_dir"
         return 1
     fi
-    if ! sudo cp -r "$extracted_dir"/. "$install_dir/"; then
-        log_error "Failed to copy Antigravity IDE into $install_dir."
+    if ! sudo chown -R root:root "$staging_dir"; then
+        log_error "Failed to set ownership on $staging_dir."
         log_warn "Continuing with setup..."
-        return 1
-    fi
-    if ! sudo chown -R root:root "$install_dir"; then
-        log_error "Failed to set ownership on $install_dir."
-        log_warn "Continuing with setup..."
+        sudo rm -rf -- "$staging_dir"
         return 1
     fi
     # Electron's SUID sandbox helper; without root ownership Ubuntu's userns restriction blocks startup.
-    if [ -f "$install_dir/chrome-sandbox" ]; then
-        if ! sudo chmod 4755 "$install_dir/chrome-sandbox"; then
+    if [ -f "$staging_dir/chrome-sandbox" ]; then
+        if ! sudo chmod 4755 "$staging_dir/chrome-sandbox"; then
             log_error "Failed to set the SUID bit on chrome-sandbox."
             log_warn "Continuing with setup..."
+            sudo rm -rf -- "$staging_dir"
             return 1
         fi
     else
         log_warn "chrome-sandbox not found in the Antigravity IDE archive; the sandbox may not start."
     fi
+
+    sudo mv -- "$install_dir" "$install_dir.old" 2>/dev/null || true
+    if ! sudo mv -- "$staging_dir" "$install_dir"; then
+        log_error "Failed to move staged Antigravity IDE into $install_dir."
+        log_warn "Continuing with setup..."
+        sudo rm -rf -- "$staging_dir"
+        [ -d "$install_dir.old" ] && sudo mv -- "$install_dir.old" "$install_dir"
+        return 1
+    fi
+    sudo rm -rf -- "$install_dir.old"
+
     if ! sudo ln -sfn "$install_dir/antigravity-ide" /usr/local/bin/antigravity-ide; then
         log_error "Failed to symlink /usr/local/bin/antigravity-ide."
         log_warn "Continuing with setup..."

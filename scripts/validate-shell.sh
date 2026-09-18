@@ -9,9 +9,7 @@ NC='\033[0m'
 
 if ! command -v shellcheck &> /dev/null; then
     echo -e "${YELLOW}Warning: shellcheck is not installed${NC}"
-    echo "To install on Ubuntu/Debian: sudo apt-get install shellcheck"
-    echo "To install on macOS: brew install shellcheck"
-    echo "To install on other systems: https://github.com/koalaman/shellcheck#installing"
+    echo "shellcheck is a managed package (packages/apt_common.txt); run 'dotfiles-setup install --preset <preset>' to install it."
     exit 1
 fi
 
