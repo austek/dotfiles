@@ -1,67 +1,11 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""Entry point for coderabbitFullAudit."""
+import sys
+from pathlib import Path
 
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-WORKTREE_DIR="../cr-audit-scratch"
-EXPORT_DIR="$HOME/.claude/scratches/handoff"
-EXPORT_FILE="$EXPORT_DIR/coderabbit_full_audit.md"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-if ! git cat-file -e "${CURRENT_BRANCH}:.coderabbit.yaml" 2>/dev/null; then
-  echo "Error: .coderabbit.yaml not found on '${CURRENT_BRANCH}' (must be tracked in git)." >&2
-  echo "This repo's review scope (path_filters/instructions) must be defined there before running a full audit." >&2
-  exit 1
-fi
+from coderabbit_full_audit import main
 
-mkdir -p "$EXPORT_DIR"
-
-echo "=== 1. Cleaning local pycache and build artifacts ==="
-find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-find . -type f -name "*.pyc" -delete 2>/dev/null || true
-
-echo "=== 2. Creating audit worktree ==="
-git worktree add --detach "$WORKTREE_DIR"
-
-cleanup() {
-  echo "=== 5. Cleaning up scratch worktree ==="
-  cd "$OLDPWD" || exit
-  git worktree remove --force "$WORKTREE_DIR" 2>/dev/null || rm -rf "$WORKTREE_DIR"
-  git branch -D audit-base audit-code 2>/dev/null || true
-  git worktree prune
-  echo "Cleanup complete."
-}
-trap cleanup EXIT
-
-cd "$WORKTREE_DIR"
-
-echo "=== 3. Setting up orphan baseline ==="
-git checkout --orphan audit-base
-git rm -rf . >/dev/null 2>&1 || true
-git commit --allow-empty -m "empty initial commit"
-
-git checkout -b audit-code
-git checkout "$CURRENT_BRANCH" -- .
-
-# reviews.path_filters in .coderabbit.yaml (checked out above) governs what
-# `cr review` reports on, but it does NOT stop the CLI from uploading a
-# filtered-out file's full content as part of the diff -- a large tracked
-# binary (e.g. a model file) in that diff makes the review's WebSocket
-# connection drop. So the negated (!-prefixed) path_filters patterns are
-# also applied here, physically dropping those paths from the git tree that
-# gets diffed/uploaded. Single source of truth stays .coderabbit.yaml.
-while IFS= read -r pattern; do
-  # -f (not --cached): the file must also leave disk, or the `git add .`
-  # below silently re-stages it (nothing here builds from this snapshot).
-  [ -n "$pattern" ] && git rm -r -f -q -- ":(glob)${pattern}" 2>/dev/null || true
-done < <(awk '
-  /^[[:space:]]*path_filters:/ { infilt=1; next }
-  infilt && /^[[:space:]]*[A-Za-z_]+:/ { infilt=0 }
-  infilt { print }
-' .coderabbit.yaml | grep -oP '"!\K[^"]+' || true)
-
-git add .
-git commit -m "clean source snapshot for audit"
-
-echo "=== 4. Running CodeRabbit review ==="
-cr review --base audit-base --agent > "$EXPORT_FILE"
-
-echo "Done. Exported to: $EXPORT_FILE"
+if __name__ == "__main__":
+    sys.exit(main())

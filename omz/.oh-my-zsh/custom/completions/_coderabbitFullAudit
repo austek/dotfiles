@@ -1,0 +1,11 @@
+#compdef coderabbitFullAudit
+
+_coderabbitFullAudit() {
+    _arguments -s -S \
+        '(-h --help)'{-h,--help}'[show help and exit]' \
+        '(--path --pr --branch --uncommitted)--uncommitted[review uncommitted working-tree changes]' \
+        '(--uncommitted --pr --branch)--path=[full-content audit of a path]:path:_files -/' \
+        '(--uncommitted --path --branch)--pr=[review a pull request]:PR number or URL:' \
+        '(--uncommitted --path --pr)--branch=[review the diff against a branch]:branch:' \
+        '--limit=[max files per review call (default 150, clamped to it)]:limit:(25 50 75 100 150)'
+}
