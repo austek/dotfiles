@@ -4,9 +4,9 @@ set -euo pipefail
 
 echo "--- Clipboard Detection Diagnostic ---"
 
-if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
     echo "Environment: Wayland detected ($WAYLAND_DISPLAY)"
-elif [ -n "${DISPLAY:-}" ]; then
+elif [[ -n "${DISPLAY:-}" ]]; then
     echo "Environment: X11 detected ($DISPLAY)"
 else
     echo "Environment: Headless or Unknown (No DISPLAY vars set)"
@@ -19,9 +19,9 @@ if command -v xclip >/dev/null;   then echo -n "[xclip] "; TOOLS_FOUND=1; fi
 if command -v xsel >/dev/null;    then echo -n "[xsel] "; TOOLS_FOUND=1; fi
 if command -v pbcopy >/dev/null;  then echo -n "[macos-pbcopy] "; TOOLS_FOUND=1; fi
 
-if [ $TOOLS_FOUND -eq 0 ]; then
+if [[ $TOOLS_FOUND -eq 0 ]]; then
     echo "NONE FOUND"
-    echo "❌ Error: No clipboard utilities installed."
+    echo "❌ Error: No clipboard utilities installed." >&2
     exit 1
 else
     echo ""
@@ -33,11 +33,11 @@ echo -n "Test: Attempting to copy '$TEST_STRING'..."
 
 if command -v pbcopy >/dev/null 2>&1; then
     echo "$TEST_STRING" | pbcopy
-elif [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+elif [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v wl-copy >/dev/null 2>&1; then
     echo "$TEST_STRING" | wl-copy
-elif [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+elif [[ -n "${DISPLAY:-}" ]] && command -v xclip >/dev/null 2>&1; then
     echo "$TEST_STRING" | xclip -selection clipboard
-elif [ -n "${DISPLAY:-}" ] && command -v xsel >/dev/null 2>&1; then
+elif [[ -n "${DISPLAY:-}" ]] && command -v xsel >/dev/null 2>&1; then
     echo "$TEST_STRING" | xsel --clipboard --input
 else
     echo "❌ Failed: Could not map environment to a tool."

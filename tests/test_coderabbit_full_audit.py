@@ -126,20 +126,26 @@ def test_main_uncommitted_within_limit_uses_simple_review(tmp_path):
     assert ("coderabbit", "review", "--uncommitted", "--agent") in [c[0] for c in run.calls]
 
 
-def test_main_uncommitted_over_limit_batches_via_stash_create(tmp_path):
+def test_main_uncommitted_over_limit_snapshots_untracked_files(tmp_path):
     responses = {
         ("git", "rev-parse", "--show-toplevel"): ok(str(tmp_path / "repo") + "\n"),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): ok("main\n"),
-        ("git", "status", "--porcelain"): ok(" M a.py\n M b.py\n"),
-        ("git", "stash", "create"): ok("deadbeef\n"),
+        ("git", "status", "--porcelain"): ok(" M a.py\n?? new.py\n"),
+        ("git", "write-tree"): ok("treesha\n"),
+        ("git", "commit-tree"): ok("deadbeef\n"),
         ("coderabbit", "review"): sequence(["REVIEW1\n", "REVIEW2\n"]),
     }
     run = FakeRun(responses)
     assert cra.main(["--uncommitted", "--limit", "1"], run=run) == 0
     content = cra.EXPORT_FILE.read_text()
-    assert "Batch 1/2" in content and "REVIEW1" in content
-    assert "Batch 2/2" in content and "REVIEW2" in content
+    assert "Batch 1/2" in content
+    assert "REVIEW1" in content
+    assert "Batch 2/2" in content
+    assert "REVIEW2" in content
     assert any(c[0][:2] == ("git", "worktree") and c[0][2] == "add" for c in run.calls)
+    assert ("git", "add", "-A") in [c[0] for c in run.calls]
+    assert not any(c[0][:3] == ("git", "stash", "create") for c in run.calls)
+    assert any(c[0][:3] == ("git", "ls-tree", "-r") and "deadbeef" in c[0] and "new.py" in c[0] for c in run.calls)
 
 
 def test_main_pr_uses_existing_review_when_present(tmp_path):
@@ -198,3 +204,70 @@ def test_main_full_repo_real_git_worktree_lifecycle(tmp_path, monkeypatch):
         ["git", "-C", str(repo), "branch", "--list"], capture_output=True, text=True, check=False
     ).stdout
     assert "audit-base-full-repo" not in branches
+
+
+def _git_out(repo, *args):
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
+    ).stdout
+
+
+def _init_feature_branch(repo, monkeypatch):
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    for name in ("a.py", "b.py", "c.py"):
+        (repo / name).write_text(f"# {name}\n")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "initial"], check=True)
+    subprocess.run(["git", "-C", str(repo), "checkout", "-q", "-b", "feature"], check=True)
+    (repo / "a.py").write_text("# a.py changed\n")
+    (repo / "b.py").unlink()
+    (repo / "d.py").write_text("# d.py\n")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "feature"], check=True)
+    monkeypatch.chdir(repo)
+
+
+def _snapshot_reviewer(seen):
+    def run(cmd, cwd=None, **kwargs):
+        if cmd[0] != "coderabbit":
+            return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
+        diff = subprocess.run(
+            ["git", "diff", "--name-status", cmd[3], "HEAD"],
+            cwd=cwd, capture_output=True, text=True, check=True,
+        ).stdout
+        seen.append(sorted(diff.split("\n")))
+        return subprocess.CompletedProcess(cmd, 0, stdout=diff, stderr="")
+
+    return run
+
+
+def test_branch_scope_batches_every_changed_file_including_deleted_ones(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    _init_feature_branch(repo, monkeypatch)
+    seen = []
+
+    assert cra.main(["--branch", "main", "--limit", "2"], run=_snapshot_reviewer(seen)) == 0
+
+    assert len(seen) == 2
+    reviewed = {line for batch in seen for line in batch if line}
+    assert reviewed == {"M\ta.py", "D\tb.py", "A\td.py"}
+    assert "Batch 1/2" in cra.EXPORT_FILE.read_text()
+    assert "Batch 2/2" in cra.EXPORT_FILE.read_text()
+
+
+def test_scoped_audit_leaves_no_branches_or_worktrees_after_a_failed_batch(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    _init_feature_branch(repo, monkeypatch)
+
+    def run(cmd, cwd=None, **kwargs):
+        if cmd[0] == "coderabbit":
+            raise RuntimeError("review crashed")
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
+
+    assert cra.main(["--branch", "main", "--limit", "1"], run=run) == 1
+
+    assert "audit-" not in _git_out(repo, "branch", "--list")
+    assert _git_out(repo, "worktree", "list").count("\n") == 1

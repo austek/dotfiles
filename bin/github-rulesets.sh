@@ -24,6 +24,7 @@ REPOS="${REPOS:-}"
 command -v gh >/dev/null || { echo "gh not found" >&2; exit 1; }
 
 build_payload() {
+  local require_pr_review="$1"
   python3 -c '
 import json, sys
 rules = [{"type": t} for t in ("deletion", "non_fast_forward", "required_linear_history")]
@@ -43,7 +44,7 @@ json.dump({
   "enforcement": "active",
   "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
   "rules": rules,
-}, sys.stdout)' "$RULESET_NAME" "$1"
+}, sys.stdout)' "$RULESET_NAME" "$require_pr_review"
 }
 
 if [[ -n "$REPOS" ]]; then

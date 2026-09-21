@@ -10,9 +10,10 @@ configure_dotfiles() {
     # patterns are otherwise interpreted as regexes (a literal '.' in a filename would
     # match any character).
     stow_regex_escape() {
+        local path="$1"
         # shellcheck disable=SC2016  # single-quoted on purpose: this is a literal sed
         # pattern/replacement, not a shell expansion.
-        printf '%s' "$1" | sed -e 's/[.[\*^$()+?{}|\\]/\\&/g'
+        printf '%s' "$path" | sed -e 's/[.[\*^$()+?{}|\\]/\\&/g'
     }
 
     # Every path the private overlay would override (a file present in both a private
@@ -22,13 +23,13 @@ configure_dotfiles() {
     # `stow --restow` of the public package tries to reclaim that path right back, since
     # it has no notion that another source dir is now meant to own it.
     local private_override_ignores=()
-    if [ -n "$PRIVATE_ROOT" ] && [ -f "$PRIVATE_ROOT/.stow-packages" ]; then
+    if [[ -n "$PRIVATE_ROOT" ]] && [[ -f "$PRIVATE_ROOT/.stow-packages" ]]; then
         local priv_pkg
         while IFS= read -r priv_pkg; do
-            [ -d "$DOTFILES_DIR/$priv_pkg" ] || continue
+            [[ -d "$DOTFILES_DIR/$priv_pkg" ]] || continue
             while IFS= read -r -d '' file; do
                 local rel="${file#"$PRIVATE_ROOT"/"$priv_pkg"/}"
-                if [ -f "$DOTFILES_DIR/$priv_pkg/$rel" ]; then
+                if [[ -f "$DOTFILES_DIR/$priv_pkg/$rel" ]]; then
                     private_override_ignores+=("--ignore=$(stow_regex_escape "$rel")")
                 fi
             done < <(find "$PRIVATE_ROOT/$priv_pkg" -type f -print0)
@@ -37,7 +38,7 @@ configure_dotfiles() {
 
     stow_common_to_home() {
         local stow_file="$DOTFILES_DIR/.stow-packages"
-        if [ ! -f "$stow_file" ]; then
+        if [[ ! -f "$stow_file" ]]; then
             log_warn ".stow-packages file not found. Skipping $HOME stow."
             return
         fi
@@ -79,7 +80,7 @@ configure_dotfiles() {
         done
 
         log_info "Stowing common packages to $HOME: ${packages_to_stow[*]}..."
-        if [ "$DRY_RUN" = true ]; then
+        if [[ "$DRY_RUN" = true ]]; then
             log_dry_run "Would stow (unfolded) to $HOME: ${nofold[*]:-none}"
             log_dry_run "Would stow (folded) to $HOME: ${folded[*]:-none}"
         else
@@ -110,7 +111,7 @@ configure_dotfiles() {
         local pkg="$1" file="$2"
         local rel="${file#"$PRIVATE_ROOT"/"$pkg"/}"
         local target="$HOME/$rel"
-        [ -L "$target" ] || return 0
+        [[ -L "$target" ]] || return 0
         # stow --override only reclaims a file not owned by ANY package; it can't make one
         # source dir win over a symlink stow already placed from a *different* source dir
         # (it just sees "existing target is not owned by stow" and refuses either way). So
@@ -120,15 +121,16 @@ configure_dotfiles() {
         link_target=$(readlink -f "$target")
         case "$link_target" in
             "$DOTFILES_DIR"/*) rm -f -- "$target" ;;
+            *) ;;
         esac
     }
 
     stow_private_to_home() {
-        if [ -z "$PRIVATE_ROOT" ]; then
+        if [[ -z "$PRIVATE_ROOT" ]]; then
             return
         fi
         local private_stow_file="$PRIVATE_ROOT/.stow-packages"
-        if [ ! -f "$private_stow_file" ]; then
+        if [[ ! -f "$private_stow_file" ]]; then
             log_info "No .stow-packages in the private overlay ($PRIVATE_ROOT). Skipping private stow."
             return
         fi
@@ -140,7 +142,7 @@ configure_dotfiles() {
         fi
 
         log_info "Stowing private-overlay packages to $HOME: ${private_packages[*]}..."
-        if [ "$DRY_RUN" = true ]; then
+        if [[ "$DRY_RUN" = true ]]; then
             log_dry_run "Would stow (unfolded, from $PRIVATE_ROOT, overriding any public file at the same path) to $HOME: ${private_packages[*]}"
         else
             for pkg in "${private_packages[@]}"; do
@@ -162,7 +164,7 @@ configure_dotfiles() {
     stow_private_to_home
 
     log_info "Configuring pre-commit git hooks..."
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would set core.hooksPath to .githooks"
     else
         cd "$DOTFILES_DIR"
@@ -186,13 +188,13 @@ configure_claude_profile() {
     # PATH — environment.d merges by filename across dirs and the last file wins.
     local env_file="$HOME/.config/environment.d/zz-claude-profile.conf"
     local active_settings="$personal_settings"
-    if [ "$MACHINE_PRESET" == "work" ]; then
+    if [[ "$MACHINE_PRESET" == "work" ]]; then
         active_settings="$work_settings"
-    elif [ "$MACHINE_PRESET" == "homelab" ]; then
+    elif [[ "$MACHINE_PRESET" == "homelab" ]]; then
         active_settings="$homelab_settings"
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would write Claude work/personal/burst aliases to $target"
         log_dry_run "Would write Claude PATH wrapper to $wrapper"
         log_dry_run "Would write session PATH ordering to $env_file"
@@ -212,13 +214,13 @@ configure_claude_profile() {
 
     local entry item skip excluded
     for entry in "$HOME/.claude"/* "$HOME/.claude"/.[!.]*; do
-        [ -e "$entry" ] || continue
+        [[ -e "$entry" ]] || continue
         item=$(basename "$entry")
         skip=false
         for excluded in "${excluded_items[@]}"; do
-            [ "$item" = "$excluded" ] && skip=true && break
+            [[ "$item" = "$excluded" ]] && skip=true && break
         done
-        [ "$skip" = true ] && continue
+        [[ "$skip" = true ]] && continue
         ln -sfn "$entry" "$burst_dir/$item"
     done
 
@@ -228,9 +230,9 @@ configure_claude_profile() {
         echo "alias claude-personal='claude --settings \"$personal_settings\"'"
         echo "alias claude-homelab='claude --settings \"$homelab_settings\"'"
         echo "alias claude-burst='CLAUDE_CONFIG_DIR=\"$burst_dir\" claude --settings \"$burst_settings\"'"
-        if [ "$MACHINE_PRESET" == "work" ]; then
+        if [[ "$MACHINE_PRESET" == "work" ]]; then
             echo "alias claude='claude --settings \"$work_settings\"'"
-        elif [ "$MACHINE_PRESET" == "homelab" ]; then
+        elif [[ "$MACHINE_PRESET" == "homelab" ]]; then
             echo "alias claude='claude --settings \"$homelab_settings\"'"
         else
             echo "alias claude='claude --settings \"$personal_settings\"'"
@@ -294,13 +296,13 @@ configure_rtk_cli() {
         return
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would install the rtk CLI via https://github.com/rtk-ai/rtk's install script."
         return
     fi
 
     log_info "rtk CLI not found; installing..."
-    if curl -fsSL "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" | sh; then
+    if curl_https -fsSL "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" | sh; then
         log_success "rtk CLI installed ($(command_exists rtk && rtk --version 2>/dev/null))."
     else
         log_error "Failed to install rtk. Install it manually: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh"
@@ -318,7 +320,7 @@ configure_cozempic_cli() {
         return
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would install the cozempic CLI via pipx."
         return
     fi
@@ -357,7 +359,7 @@ configure_cozempic_cli() {
 configure_serena() {
     log_step "Step 7e: Verifying Serena MCP is installed and configured..."
 
-    if [ "$MACHINE_PRESET" == "homelab" ]; then
+    if [[ "$MACHINE_PRESET" == "homelab" ]]; then
         log_success "Serena not needed on the homelab profile; skipping."
         return
     fi
@@ -369,7 +371,7 @@ configure_serena() {
 
     if command_exists serena; then
         log_success "Serena CLI already installed ($(serena --version 2>/dev/null | head -n1))."
-    elif [ "$DRY_RUN" = true ]; then
+    elif [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would install Serena via: pipx install --python 3.13 serena-agent --pip-args=\"--pre\""
     else
         log_info "Serena CLI not found; installing..."
@@ -381,9 +383,9 @@ configure_serena() {
         fi
     fi
 
-    if [ -f "$HOME/.serena/serena_config.yml" ]; then
+    if [[ -f "$HOME/.serena/serena_config.yml" ]]; then
         log_success "Serena already initialised ($HOME/.serena/serena_config.yml exists)."
-    elif [ "$DRY_RUN" = true ]; then
+    elif [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would run 'serena init'."
     else
         serena init
@@ -391,7 +393,7 @@ configure_serena() {
 
     if command_exists claude && claude mcp get serena >/dev/null 2>&1; then
         log_success "Serena already registered as a Claude Code MCP server."
-    elif [ "$DRY_RUN" = true ]; then
+    elif [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would run: claude mcp add --scope user serena -- serena start-mcp-server --context claude-code --project-from-cwd"
     elif command_exists claude; then
         claude mcp add --scope user serena -- serena start-mcp-server --context claude-code --project-from-cwd
@@ -402,14 +404,14 @@ configure_serena() {
     local jdtls_file
     jdtls_file=$(find "$HOME/.local/share/pipx/venvs/serena-agent" -path '*/solidlsp/language_servers/eclipse_jdtls.py' 2>/dev/null | head -n1 || true)
 
-    if [ -z "$jdtls_file" ]; then
+    if [[ -z "$jdtls_file" ]]; then
         log_warn "eclipse_jdtls.py not found under the serena-agent pipx venv; skipping the Gradle 9 annotation-processing patch."
         return
     fi
 
     if grep -q '"annotationProcessing": {"enabled": False}' "$jdtls_file"; then
         log_success "Gradle 9 annotation-processing patch already applied to $jdtls_file."
-    elif [ "$DRY_RUN" = true ]; then
+    elif [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would patch $jdtls_file: annotationProcessing enabled True -> False (Gradle 9 workaround, see serena#1510)."
     else
         sed -i.bak 's/"annotationProcessing": {"enabled": True}/"annotationProcessing": {"enabled": False}/' "$jdtls_file"
@@ -434,14 +436,14 @@ configure_caveman_proxy() {
 
     if command_exists caveman; then
         log_success "caveman CLI already installed ($(caveman version 2>/dev/null | sed -n 's/.*"version": "\([^"]*\)".*/\1/p'))."
-    elif [ "$DRY_RUN" = true ]; then
-        log_dry_run "Would install the caveman CLI via: npm install -g @caveman-ai/cli"
+    elif [[ "$DRY_RUN" = true ]]; then
+        log_dry_run "Would install the caveman CLI via: npm install -g --ignore-scripts @caveman-ai/cli"
     else
         log_info "caveman CLI not found; installing..."
-        if npm install -g @caveman-ai/cli; then
+        if npm install -g --ignore-scripts @caveman-ai/cli; then
             log_success "caveman CLI installed."
         else
-            log_error "Failed to install @caveman-ai/cli via npm. Install it manually: npm install -g @caveman-ai/cli"
+            log_error "Failed to install @caveman-ai/cli via npm. Install it manually: npm install -g --ignore-scripts @caveman-ai/cli"
             return
         fi
     fi
@@ -456,7 +458,7 @@ configure_caveman_proxy() {
     local caveman_status_output
     caveman_status_output=$(caveman status 2>/dev/null || true)
     if [[ "$caveman_status_output" == *"caveman-proxy not installed"* ]]; then
-        if [ "$DRY_RUN" = true ]; then
+        if [[ "$DRY_RUN" = true ]]; then
             log_dry_run "Would install the caveman proxy engine via: caveman setup --install"
         else
             log_info "caveman proxy engine not found; installing..."
@@ -476,9 +478,9 @@ change_shell() {
     local zsh_path
     zsh_path=$(command -v zsh 2>/dev/null || echo "/usr/bin/zsh")
 
-    if [ "$SHELL" == "$zsh_path" ]; then
+    if [[ "$SHELL" == "$zsh_path" ]]; then
         log_info "Default shell is already $zsh_path. Skipping."
-    elif [ "$DRY_RUN" = true ]; then
+    elif [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would change default shell to $zsh_path using chsh"
         log_dry_run "Would require logout/login for changes to take effect"
     else
@@ -497,7 +499,7 @@ set_default_terminal() {
     local ghostty_path
     ghostty_path=$(command -v ghostty 2>/dev/null || echo "")
 
-    if [ -z "$ghostty_path" ]; then
+    if [[ -z "$ghostty_path" ]]; then
         log_warn "Ghostty is not installed. Skipping default terminal configuration."
         return 0
     fi
@@ -506,7 +508,7 @@ set_default_terminal() {
     local xdg_terminals_list="$config_dir/xdg-terminals.list"
     local ghostty_entry_id="com.mitchellh.ghostty.desktop"
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would register and set x-terminal-emulator alternative to $ghostty_path"
         log_dry_run "Would set $ghostty_entry_id as the preferred entry in $xdg_terminals_list"
         return 0
@@ -529,17 +531,17 @@ set_default_terminal() {
 
     local list updated=0
     for list in "$xdg_terminals_list" "$config_dir"/*-xdg-terminals.list; do
-        [ "$list" = "$xdg_terminals_list" ] || [ -e "$list" ] || continue
+        [[ "$list" = "$xdg_terminals_list" ]] || [[ -e "$list" ]] || continue
         local other_entries=""
-        [ -f "$list" ] && other_entries=$(grep -vFx "$ghostty_entry_id" "$list" || true)
+        [[ -f "$list" ]] && other_entries=$(grep -vFx "$ghostty_entry_id" "$list" || true)
         if printf '%s\n' "$ghostty_entry_id" > "$list" \
-            && { [ -z "$other_entries" ] || printf '%s\n' "$other_entries" >> "$list"; }; then
+            && { [[ -z "$other_entries" ]] || printf '%s\n' "$other_entries" >> "$list"; }; then
             updated=$((updated + 1))
         else
             log_error "Failed to update $list. Please add '$ghostty_entry_id' as its first line manually."
         fi
     done
-    if [ "$updated" -gt 0 ]; then
+    if [[ "$updated" -gt 0 ]]; then
         log_success "Ghostty set as preferred terminal in $updated xdg-terminal-exec list(s)."
     fi
 

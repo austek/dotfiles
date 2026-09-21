@@ -4,9 +4,13 @@
 
 set -euo pipefail
 
+PACKAGE_LIST_SKIP_PATTERN='^\s*#|^\s*$'
+PKG_1PASSWORD="1password"
+PKG_DOCKER_CE="docker-ce"
+
 prompt_sudo() {
     log_info "This script requires sudo access to install packages and configure the system."
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would verify sudo credentials and start refresh loop"
         return 0
     fi
@@ -22,12 +26,12 @@ prompt_sudo() {
 }
 
 validate_machine_preset() {
-    if [ -z "$MACHINE_PRESET" ]; then
+    if [[ -z "$MACHINE_PRESET" ]]; then
         log_error "Missing required --preset argument."
         echo "Use --help for usage information"
         exit 1
     fi
-    if [ -n "$PACKAGE_FILE_OVERRIDE" ]; then
+    if [[ -n "$PACKAGE_FILE_OVERRIDE" ]]; then
         log_success "Machine preset set to '$MACHINE_PRESET' (packages resolved externally)."
         return 0
     fi
@@ -44,13 +48,13 @@ validate_machine_preset() {
 }
 
 determine_packages_to_install() {
-    if [ -n "$PACKAGE_FILE_OVERRIDE" ]; then
+    if [[ -n "$PACKAGE_FILE_OVERRIDE" ]]; then
         log_info "Reading resolved package list from $PACKAGE_FILE_OVERRIDE..."
-        if [ ! -f "$PACKAGE_FILE_OVERRIDE" ]; then
+        if [[ ! -f "$PACKAGE_FILE_OVERRIDE" ]]; then
             log_error "--package-file '$PACKAGE_FILE_OVERRIDE' does not exist."
             exit 1
         fi
-        mapfile -t PACKAGES_TO_INSTALL < <(grep -vE '^\s*#|^\s*$' "$PACKAGE_FILE_OVERRIDE" | sort -u)
+        mapfile -t PACKAGES_TO_INSTALL < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$PACKAGE_FILE_OVERRIDE" | sort -u)
         log_info "Found ${#PACKAGES_TO_INSTALL[@]} unique packages to install."
         return 0
     fi
@@ -58,37 +62,29 @@ determine_packages_to_install() {
     log_info "Determining which packages to install..."
     local all_packages=()
 
-    if [ -f "$APT_PACKAGE_DIR/apt_common.txt" ]; then
-        mapfile -t common_packages < <(grep -vE '^\s*#|^\s*$' "$APT_PACKAGE_DIR/apt_common.txt")
+    if [[ -f "$APT_PACKAGE_DIR/apt_common.txt" ]]; then
+        mapfile -t common_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_common.txt")
         all_packages+=( "${common_packages[@]}" )
     fi
 
-    if [[ "$MACHINE_PRESET" == "work" || "$MACHINE_PRESET" == "personal" ]]; then
-        if [ -f "$APT_PACKAGE_DIR/apt_desktop.txt" ]; then
-            mapfile -t desktop_packages < <(grep -vE '^\s*#|^\s*$' "$APT_PACKAGE_DIR/apt_desktop.txt")
-            all_packages+=( "${desktop_packages[@]}" )
-        fi
+    if [[ "$MACHINE_PRESET" == "work" || "$MACHINE_PRESET" == "personal" ]] && [[ -f "$APT_PACKAGE_DIR/apt_desktop.txt" ]]; then
+        mapfile -t desktop_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_desktop.txt")
+        all_packages+=( "${desktop_packages[@]}" )
     fi
 
-    if [[ "$MACHINE_PRESET" == "work" ]]; then
-        if [ -f "$APT_PACKAGE_DIR/apt_work.txt" ]; then
-            mapfile -t work_packages < <(grep -vE '^\s*#|^\s*$' "$APT_PACKAGE_DIR/apt_work.txt")
-            all_packages+=( "${work_packages[@]}" )
-        fi
+    if [[ "$MACHINE_PRESET" == "work" ]] && [[ -f "$APT_PACKAGE_DIR/apt_work.txt" ]]; then
+        mapfile -t work_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_work.txt")
+        all_packages+=( "${work_packages[@]}" )
     fi
 
-    if [[ "$MACHINE_PRESET" == "personal" ]]; then
-        if [ -f "$APT_PACKAGE_DIR/apt_personal.txt" ]; then
-            mapfile -t personal_packages < <(grep -vE '^\s*#|^\s*$' "$APT_PACKAGE_DIR/apt_personal.txt")
-            all_packages+=( "${personal_packages[@]}" )
-        fi
+    if [[ "$MACHINE_PRESET" == "personal" ]] && [[ -f "$APT_PACKAGE_DIR/apt_personal.txt" ]]; then
+        mapfile -t personal_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_personal.txt")
+        all_packages+=( "${personal_packages[@]}" )
     fi
 
-    if [[ "$MACHINE_PRESET" == "homelab" ]]; then
-        if [ -f "$APT_PACKAGE_DIR/apt_homelab.txt" ]; then
-            mapfile -t homelab_packages < <(grep -vE '^\s*#|^\s*$' "$APT_PACKAGE_DIR/apt_homelab.txt")
-            all_packages+=( "${homelab_packages[@]}" )
-        fi
+    if [[ "$MACHINE_PRESET" == "homelab" ]] && [[ -f "$APT_PACKAGE_DIR/apt_homelab.txt" ]]; then
+        mapfile -t homelab_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_homelab.txt")
+        all_packages+=( "${homelab_packages[@]}" )
     fi
 
     if (( ${#all_packages[@]} > 0 )); then
@@ -137,7 +133,7 @@ disable_snapd() {
     fi
     cd "$HOME"
 
-    if [ $stow_exit -eq 0 ]; then
+    if [[ $stow_exit -eq 0 ]]; then
         track_change "STOW_ROOT:system"
     fi
 
@@ -174,7 +170,7 @@ strip_snap_from_system_path() {
         return 0
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would back up $env_file and remove /snap/bin from its PATH"
         return 0
     fi
@@ -206,13 +202,11 @@ detect_ubuntu_codename() {
     # Assigned via `if` rather than a bare `codename=$(...)`: under `set -e`, a
     # bare assignment aborts the script the instant sourcing fails or
     # VERSION_CODENAME is unset, before the fallback below ever runs.
-    if [ -f "$os_release_file" ]; then
-        # shellcheck disable=SC1090
-        if ! codename=$(. "$os_release_file" && echo "${VERSION_CODENAME:-}"); then
-            codename=""
-        fi
+    # shellcheck disable=SC1090
+    if [[ -f "$os_release_file" ]] && ! codename=$(. "$os_release_file" && echo "${VERSION_CODENAME:-}"); then
+        codename=""
     fi
-    if [ -z "$codename" ]; then
+    if [[ -z "$codename" ]]; then
         log_warn "Could not detect Ubuntu codename; defaulting to 'noble'."
         codename="noble"
     fi
@@ -234,40 +228,40 @@ download_apt_gpg_keys() {
     local pgadmin_selected="$1" postgresql_selected="$2" teleport_selected="$3"
     log_info "Downloading all required GPG keys..."
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         if array_contains "google-chrome-stable" "${PACKAGES_TO_INSTALL[@]}"; then log_dry_run "Would download Google Chrome GPG key"; fi
         if array_contains "code" "${PACKAGES_TO_INSTALL[@]}"; then log_dry_run "Would download VS Code GPG key"; fi
-        if array_contains "1password" "${PACKAGES_TO_INSTALL[@]}"; then log_dry_run "Would download 1Password GPG keys"; fi
-        if array_contains "docker-ce" "${PACKAGES_TO_INSTALL[@]}"; then log_dry_run "Would download Docker GPG key"; fi
+        if array_contains "$PKG_1PASSWORD" "${PACKAGES_TO_INSTALL[@]}"; then log_dry_run "Would download 1Password GPG keys"; fi
+        if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then log_dry_run "Would download Docker GPG key"; fi
         if array_contains "gh" "${PACKAGES_TO_INSTALL[@]}"; then log_dry_run "Would download GitHub CLI GPG key"; fi
-        if [ "$teleport_selected" -eq 1 ]; then log_dry_run "Would download Teleport GPG key"; fi
-        if [ "$pgadmin_selected" -eq 1 ]; then log_dry_run "Would download pgAdmin GPG key"; fi
-        if [ "$postgresql_selected" -eq 1 ]; then log_dry_run "Would download PostgreSQL GPG key"; fi
+        if [[ "$teleport_selected" -eq 1 ]]; then log_dry_run "Would download Teleport GPG key"; fi
+        if [[ "$pgadmin_selected" -eq 1 ]]; then log_dry_run "Would download pgAdmin GPG key"; fi
+        if [[ "$postgresql_selected" -eq 1 ]]; then log_dry_run "Would download PostgreSQL GPG key"; fi
     else
         if array_contains "google-chrome-stable" "${PACKAGES_TO_INSTALL[@]}"; then wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor --yes -o /usr/share/keyrings/google-chrome-keyring.gpg; fi
         if array_contains "code" "${PACKAGES_TO_INSTALL[@]}"; then wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/packages.microsoft.gpg; fi
-        if array_contains "1password" "${PACKAGES_TO_INSTALL[@]}"; then
+        if array_contains "$PKG_1PASSWORD" "${PACKAGES_TO_INSTALL[@]}"; then
             curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --yes --output /usr/share/keyrings/1password-archive-keyring.gpg
             curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --yes --output /usr/share/debsig/keyrings/AC2D62742012EA22/debsig.gpg
         fi
-        if array_contains "docker-ce" "${PACKAGES_TO_INSTALL[@]}"; then curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/docker.gpg; fi
-        if array_contains "gh" "${PACKAGES_TO_INSTALL[@]}"; then curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/githubcli-archive-keyring.gpg; fi
-        if [ "$teleport_selected" -eq 1 ]; then curl -fsSL https://apt.releases.teleport.dev/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/teleport-archive-keyring.gpg; fi
-        if [ "$pgadmin_selected" -eq 1 ]; then curl -fsSL https://www.pgadmin.org/static/packages_pgadmin_org.pub | sudo gpg --dearmor --yes -o /usr/share/keyrings/pgadmin4-archive-keyring.gpg; fi
-        if [ "$postgresql_selected" -eq 1 ]; then curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/postgresql-archive-keyring.gpg; fi
+        if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then curl_https -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/docker.gpg; fi
+        if array_contains "gh" "${PACKAGES_TO_INSTALL[@]}"; then curl_https -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/githubcli-archive-keyring.gpg; fi
+        if [[ "$teleport_selected" -eq 1 ]]; then curl_https -fsSL https://apt.releases.teleport.dev/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/teleport-archive-keyring.gpg; fi
+        if [[ "$pgadmin_selected" -eq 1 ]]; then curl_https -fsSL https://www.pgadmin.org/static/packages_pgadmin_org.pub | sudo gpg --dearmor --yes -o /usr/share/keyrings/pgadmin4-archive-keyring.gpg; fi
+        if [[ "$postgresql_selected" -eq 1 ]]; then curl_https -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/postgresql-archive-keyring.gpg; fi
     fi
 }
 
 configure_apt_ppas() {
     log_info "Adding and configuring APT repositories..."
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         if array_contains "firefox" "${PACKAGES_TO_INSTALL[@]}"; then
             log_dry_run "Would add Mozilla PPA and configure Firefox pinning"
         fi
         if array_contains "ghostty" "${PACKAGES_TO_INSTALL[@]}"; then
             log_dry_run "Would add ghostty PPA (ppa:mkasberg/ghostty-ubuntu)"
         fi
-        if array_contains "1password" "${PACKAGES_TO_INSTALL[@]}"; then
+        if array_contains "$PKG_1PASSWORD" "${PACKAGES_TO_INSTALL[@]}"; then
             log_dry_run "Would configure 1Password debsig policy"
         fi
     else
@@ -282,7 +276,7 @@ Pin-Priority: 1001
         if array_contains "ghostty" "${PACKAGES_TO_INSTALL[@]}"; then
             quiet_run sudo add-apt-repository -y ppa:mkasberg/ghostty-ubuntu
         fi
-        if array_contains "1password" "${PACKAGES_TO_INSTALL[@]}"; then curl -sS https://downloads.1password.com/linux/debian/debsig/1password.pol | sudo tee /etc/debsig/policies/AC2D62742012EA22/1password.pol > /dev/null; fi
+        if array_contains "$PKG_1PASSWORD" "${PACKAGES_TO_INSTALL[@]}"; then curl -sS https://downloads.1password.com/linux/debian/debsig/1password.pol | sudo tee /etc/debsig/policies/AC2D62742012EA22/1password.pol > /dev/null; fi
     fi
 }
 
@@ -310,16 +304,16 @@ stow_apt_source_files() {
         local needed=0
 
         if [[ "$pkg_key" == "pgadmin4" ]]; then
-            if [ "$pgadmin_selected" -eq 1 ]; then needed=1; fi
+            if [[ "$pgadmin_selected" -eq 1 ]]; then needed=1; fi
         elif [[ "$pkg_key" == "postgresql" ]]; then
-            if [ "$postgresql_selected" -eq 1 ]; then needed=1; fi
+            if [[ "$postgresql_selected" -eq 1 ]]; then needed=1; fi
         elif [[ "$pkg_key" == "teleport" ]]; then
-            if [ "$teleport_selected" -eq 1 ]; then needed=1; fi
+            if [[ "$teleport_selected" -eq 1 ]]; then needed=1; fi
         elif array_contains "$pkg_key" "${PACKAGES_TO_INSTALL[@]}"; then
             needed=1
         fi
 
-        if [ -f "$source_file_path" ] && [ $needed -eq 0 ]; then
+        if [[ -f "$source_file_path" ]] && [[ $needed -eq 0 ]]; then
             log_info "Temporarily hiding unneeded source file: $source_file"
             mkdir -p "$(dirname "$temp_stow_backup_dir/$source_file")"
             mv "$source_file_path" "$temp_stow_backup_dir/$source_file"
@@ -338,23 +332,23 @@ stow_apt_source_files() {
     else
         stow_status=$?
     fi
-    if [ "$VERBOSITY" -ge 2 ] || [ $stow_status -ne 0 ]; then
+    if [[ "$VERBOSITY" -ge 2 ]] || [[ $stow_status -ne 0 ]]; then
         printf '%s\n' "$stow_output"
     fi
     cd "$HOME"
 
-    if [ $stow_status -ne 0 ]; then
+    if [[ $stow_status -ne 0 ]]; then
         log_warn "Stow encountered conflicts. Attempting to resolve..."
 
         local conflict_files
         # shellcheck disable=SC2015
         conflict_files=$( (cd "$DOTFILES_DIR" && sudo stow --dir="$DOTFILES_DIR" --no --no-folding --target=/ --verbose=1 apt 2>&1 | perl -ne 'if (/existing target.*?:\s*(\S+)/) { print "$1\n" } elsif (/existing target\s+(\S+)\s+since/) { print "$1\n" }') || true)
 
-        if [ -n "$conflict_files" ]; then
+        if [[ -n "$conflict_files" ]]; then
             local stow_backup_root="/var/backups/dotfiles-stow"
             sudo mkdir -p "$stow_backup_root"
             while IFS= read -r conflict_file; do
-                if [ -f "/$conflict_file" ]; then
+                if [[ -f "/$conflict_file" ]]; then
                     log_info "Backing up conflicting file: $conflict_file"
                     local backup_path
                     backup_path="$stow_backup_root/$(basename "$conflict_file").backup-$(date +%s)"
@@ -373,7 +367,7 @@ stow_apt_source_files() {
     fi
 
     log_info "Restoring hidden source files..."
-    if [ -d "$temp_stow_backup_dir" ] && [ "$(ls -A "$temp_stow_backup_dir")" ]; then
+    if [[ -d "$temp_stow_backup_dir" ]] && [[ "$(ls -A "$temp_stow_backup_dir")" ]]; then
         rsync -a "$temp_stow_backup_dir/" "$stow_apt_dir/etc/apt/sources.list.d/"
     fi
     rm -rf -- "$temp_stow_backup_dir"
@@ -382,18 +376,18 @@ stow_apt_source_files() {
 generate_templated_apt_sources() {
     local teleport_selected="$1"
 
-    if array_contains "docker-ce" "${PACKAGES_TO_INSTALL[@]}" || [ "$teleport_selected" -eq 1 ]; then
+    if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}" || [[ "$teleport_selected" -eq 1 ]]; then
         local host_codename
         # shellcheck disable=SC2119
         host_codename=$(detect_ubuntu_codename)
 
-        if array_contains "docker-ce" "${PACKAGES_TO_INSTALL[@]}"; then
+        if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then
             log_info "Configuring Docker apt repository for suite: $host_codename"
             sed "s/^Suites:.*/Suites: $host_codename/" "$DOTFILES_DIR/apt-templates/docker.sources.template" | sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null
             track_change "FILE_CREATED:/etc/apt/sources.list.d/docker.sources"
         fi
 
-        if [ "$teleport_selected" -eq 1 ]; then
+        if [[ "$teleport_selected" -eq 1 ]]; then
             log_info "Configuring Teleport apt repository for suite: $host_codename"
             sed "s/^Suites:.*/Suites: $host_codename/" "$DOTFILES_DIR/apt-templates/teleport.sources.template" | sudo tee /etc/apt/sources.list.d/teleport.sources > /dev/null
             track_change "FILE_CREATED:/etc/apt/sources.list.d/teleport.sources"
@@ -404,7 +398,7 @@ generate_templated_apt_sources() {
 configure_apt_sources() {
     log_step "Step 3: Configuring third-party apt sources..."
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would create directories for GPG keys and debsig policies"
     else
         sudo mkdir -p /usr/share/keyrings /etc/debsig/policies/AC2D62742012EA22 /usr/share/debsig/keyrings/AC2D62742012EA22
@@ -421,13 +415,13 @@ configure_apt_sources() {
     # Dry-run must return before the code below, which physically moves
     # tracked .sources files into a temp dir — checking DRY_RUN after that
     # would make --dry-run mutate the working tree.
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would stow 'apt' package to / (includes third-party repo sources)"
         log_dry_run "Would handle any stow conflicts by backing up existing files"
-        if array_contains "docker-ce" "${PACKAGES_TO_INSTALL[@]}"; then
+        if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then
             log_dry_run "Would generate /etc/apt/sources.list.d/docker.sources for the detected Ubuntu codename"
         fi
-        if [ "$teleport_selected" -eq 1 ]; then
+        if [[ "$teleport_selected" -eq 1 ]]; then
             log_dry_run "Would generate /etc/apt/sources.list.d/teleport.sources for the detected Ubuntu codename"
         fi
         log_success "Apt sources configured (dry-run)."
@@ -494,7 +488,7 @@ install_packages() {
     done
 
     if (( ${#apt_packages_to_install[@]} > 0 )); then
-        if [ "$DRY_RUN" = true ]; then
+        if [[ "$DRY_RUN" = true ]]; then
             log_dry_run "Would update package lists"
             log_dry_run "Would install ${#apt_packages_to_install[@]} apt packages: ${apt_packages_to_install[*]}"
         else
@@ -508,7 +502,7 @@ install_packages() {
             for sources_file in "$sources_dir"/*.sources; do
                 local base
                 base=$(basename "$sources_file" .sources)
-                if [ -f "$sources_dir/$base.list" ]; then
+                if [[ -f "$sources_dir/$base.list" ]]; then
                     log_info "Removing duplicate apt source: $base.list (superseded by $base.sources)"
                     sudo rm -f "$sources_dir/$base.list"
                 fi
@@ -531,7 +525,7 @@ enable_gpaste_extension() {
         return 0
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would enable GPaste@gnome-shell-extensions.gnome.org"
         return 0
     fi
@@ -554,7 +548,7 @@ install_github_bins() {
         return
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         while IFS= read -r line || [[ -n "$line" ]]; do
             if [[ "$line" =~ ^\s*# ]] || [[ -z "$line" ]]; then
                 continue
@@ -601,7 +595,7 @@ install_github_bins() {
 
         log_info "Fetching $filename v$version from $repo..."
         if download_with_cache "github-bins/$repo" "$version-$filename" "$url" "$deb_path"; then
-            [ "$DOWNLOAD_CACHE_HIT" = true ] && log_info "(using cached .deb)"
+            [[ "$DOWNLOAD_CACHE_HIT" = true ]] && log_info "(using cached .deb)"
             log_info "Installing $filename..."
             if quiet_run sudo dpkg -i "$deb_path"; then
                 log_success "Successfully installed $filename."
@@ -616,10 +610,10 @@ install_github_bins() {
 }
 
 configure_docker_group() {
-    if array_contains "docker-ce" "${PACKAGES_TO_INSTALL[@]}"; then
+    if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then
         log_step "Step 6: Configuring docker group..."
 
-        if [ "$DRY_RUN" = true ]; then
+        if [[ "$DRY_RUN" = true ]]; then
             if ! getent group docker >/dev/null; then
                 log_dry_run "Would create docker group"
             fi
