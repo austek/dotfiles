@@ -238,8 +238,8 @@ download_apt_gpg_keys() {
         if [[ "$pgadmin_selected" -eq 1 ]]; then log_dry_run "Would download pgAdmin GPG key"; fi
         if [[ "$postgresql_selected" -eq 1 ]]; then log_dry_run "Would download PostgreSQL GPG key"; fi
     else
-        if array_contains "google-chrome-stable" "${PACKAGES_TO_INSTALL[@]}"; then wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor --yes -o /usr/share/keyrings/google-chrome-keyring.gpg; fi
-        if array_contains "code" "${PACKAGES_TO_INSTALL[@]}"; then wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/packages.microsoft.gpg; fi
+        if array_contains "google-chrome-stable" "${PACKAGES_TO_INSTALL[@]}"; then wget --max-redirect=0 -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor --yes -o /usr/share/keyrings/google-chrome-keyring.gpg; fi
+        if array_contains "code" "${PACKAGES_TO_INSTALL[@]}"; then wget --max-redirect=0 -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/packages.microsoft.gpg; fi
         if array_contains "$PKG_1PASSWORD" "${PACKAGES_TO_INSTALL[@]}"; then
             curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --yes --output /usr/share/keyrings/1password-archive-keyring.gpg
             curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --yes --output /usr/share/debsig/keyrings/AC2D62742012EA22/debsig.gpg
