@@ -1,15 +1,17 @@
-"""Commit and push any dotfiles changes. Port of bin/backup.sh.
+"""Commit dotfiles changes to a branch and open a pull request.
 
-The original has no `set -e`: a failing git commit/push does not abort the
-script, it still prints the completion banner and exits 0. Only the three
-explicit checks below (flaky-it sync, machine-path validation, claude settings)
-gate."""
+`save` never pushes to main. It stays on the backup branch afterwards: the stowed config files are symlinks into this
+checkout, so switching back to main would revert the live config until the PR
+merges."""
 from __future__ import annotations
 
 import argparse
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
+
+DEFAULT_BRANCH = "main"
 
 
 def repo_root() -> Path:
@@ -29,16 +31,16 @@ def claude_settings_changed(dotfiles_dir: Path, run=subprocess.run) -> bool:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dotfiles-backup",
-        description="Commit and push any dotfiles changes.",
+        description="Commit dotfiles changes to a branch and open a pull request.",
         epilog="Examples:\n  dotfiles-backup save\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", metavar="command")
-    sub.add_parser("save", help="stage, commit, and push dotfiles changes")
+    sub.add_parser("save", help="commit, push the branch (backup/<timestamp> from main), and open a PR if none exists")
     return parser
 
 
-def main(argv: list[str] | None = None, run=subprocess.run) -> int:
+def main(argv: list[str] | None = None, run=subprocess.run, now=datetime.now) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
@@ -47,12 +49,12 @@ def main(argv: list[str] | None = None, run=subprocess.run) -> int:
         return 1
 
     if args.command == "save":
-        return _run_save(run=run)
+        return _run_save(run=run, now=now)
 
     return 1
 
 
-def _run_save(run=subprocess.run) -> int:
+def _run_save(run=subprocess.run, now=datetime.now) -> int:
     dotfiles_dir = repo_root()
 
     sync_result = run(
@@ -81,15 +83,55 @@ def _run_save(run=subprocess.run) -> int:
         )
         return 1
 
-    run(["git", "add", "."], cwd=dotfiles_dir)
-    run(
-        ["git", "commit", "-m", "chore: update configs and package lists"],
-        cwd=dotfiles_dir,
-    )
-    run(["git", "push"], cwd=dotfiles_dir)
+    if not _has_changes(dotfiles_dir, run=run):
+        print("Nothing to back up.")
+        return 0
 
-    print("Dotfiles backup complete.")
+    branch = _backup_branch(dotfiles_dir, run=run, now=now)
+    if branch is None:
+        return 1
+
+    steps = [
+        ["git", "add", "."],
+        ["git", "commit", "-m", "chore: update configs and package lists"],
+        ["git", "push", "-u", "origin", branch],
+    ]
+    if run(["gh", "pr", "view", branch], cwd=dotfiles_dir, capture_output=True).returncode != 0:
+        steps.append(["gh", "pr", "create", "--base", DEFAULT_BRANCH, "--fill"])
+    for step in steps:
+        if run(step, cwd=dotfiles_dir).returncode != 0:
+            print(f"Aborting: `{' '.join(step[:2])}` failed.", file=sys.stderr)
+            return 1
+
+    print(f"Dotfiles backup complete. After the PR merges: git switch {DEFAULT_BRANCH} && git pull")
     return 0
+
+
+def _has_changes(dotfiles_dir: Path, run=subprocess.run) -> bool:
+    result = run(
+        ["git", "status", "--porcelain"],
+        cwd=dotfiles_dir,
+        capture_output=True,
+        text=True,
+    )
+    return bool((result.stdout or "").strip())
+
+
+def _backup_branch(dotfiles_dir: Path, run=subprocess.run, now=datetime.now) -> str | None:
+    current = run(
+        ["git", "branch", "--show-current"],
+        cwd=dotfiles_dir,
+        capture_output=True,
+        text=True,
+    )
+    branch = (current.stdout or "").strip()
+    if branch not in ("", DEFAULT_BRANCH):
+        return branch
+    branch = f"backup/{now():%Y%m%d-%H%M%S}"
+    if run(["git", "switch", "-c", branch], cwd=dotfiles_dir).returncode != 0:
+        print(f"Aborting: cannot create branch {branch}.", file=sys.stderr)
+        return None
+    return branch
 
 
 if __name__ == "__main__":

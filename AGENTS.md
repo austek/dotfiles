@@ -70,4 +70,4 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 
 ### Saving Changes
 - Use the provided `dotfiles-backup save` command to save changes.
-- This helper script automatically stages changes, commits them with a standard message, and pushes them to the remote repository.
+- This helper script automatically stages changes, commits them with a standard message, pushes the current branch (creating `backup/<timestamp>` when on `main`), and opens a PR if none exists. `main` is protected (PR + CI required); never push to it directly.

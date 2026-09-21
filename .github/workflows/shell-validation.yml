@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   shellcheck:
     name: Validate Shell Scripts
@@ -13,7 +20,9 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install shellcheck
         run: |
@@ -39,22 +48,24 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           python-version: '3.13'
           enable-cache: true
 
       - name: Install dev dependencies
-        run: uv sync --dev
+        run: uv sync --dev --locked --no-build
 
       - name: Lint with ruff
-        run: uv run ruff check .
+        run: uv run --locked --no-build ruff check .
 
       - name: Run pytest with coverage
-        run: uv run pytest --cov --cov-report=term-missing -v
+        run: uv run --locked --no-build pytest --cov --cov-report=term-missing --cov-fail-under=75 -v
 
       - name: Smoke-test the CLI entry points
         run: |
