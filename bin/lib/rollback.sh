@@ -4,7 +4,7 @@
 set -euo pipefail
 
 track_change() {
-    if [ "$DRY_RUN" = false ] && [ "$SETUP_IN_PROGRESS" = true ]; then
+    if [[ "$DRY_RUN" = false ]] && [[ "$SETUP_IN_PROGRESS" = true ]]; then
         echo "$1" >> "$ROLLBACK_LOG"
     fi
 }
@@ -17,7 +17,7 @@ register_temp_dir() {
 }
 
 perform_rollback() {
-    if [ ! -f "$ROLLBACK_LOG" ] || [ ! -s "$ROLLBACK_LOG" ]; then
+    if [[ ! -f "$ROLLBACK_LOG" ]] || [[ ! -s "$ROLLBACK_LOG" ]]; then
         log_info "No rollback log found. Nothing to roll back."
         return 0
     fi
@@ -60,7 +60,7 @@ perform_rollback() {
                 ;;
             FILE_BACKUP)
                 local backup_file="${data%.backup-*}"
-                if [ -f "$data" ]; then
+                if [[ -f "$data" ]]; then
                     log_info "Restoring backed up file: $backup_file"
                     sudo mv "$data" "$backup_file" 2>/dev/null || log_warn "Failed to restore $backup_file"
                 fi
@@ -88,23 +88,23 @@ cleanup() {
 
     local temp_dir
     for temp_dir in "${TEMP_DIRS_TO_CLEAN[@]:-}"; do
-        [ -n "$temp_dir" ] && rm -rf -- "$temp_dir"
+        [[ -n "$temp_dir" ]] && rm -rf -- "$temp_dir"
     done
 
-    if [ -n "$SUDO_REFRESH_PID" ] && kill -0 "$SUDO_REFRESH_PID" 2>/dev/null; then
+    if [[ -n "$SUDO_REFRESH_PID" ]] && kill -0 "$SUDO_REFRESH_PID" 2>/dev/null; then
         kill "$SUDO_REFRESH_PID" 2>/dev/null || true
     fi
 
-    if [ $exit_code -ne 0 ] && [ "$SETUP_IN_PROGRESS" = true ]; then
+    if [[ $exit_code -ne 0 ]] && [[ "$SETUP_IN_PROGRESS" = true ]]; then
         local line_number=$1
         log_error "Script exited with error code $exit_code on line ${line_number}."
 
-        if [ -f "$ROLLBACK_LOG" ] && [ -s "$ROLLBACK_LOG" ]; then
+        if [[ -f "$ROLLBACK_LOG" ]] && [[ -s "$ROLLBACK_LOG" ]]; then
             echo ""
             log_warn "Setup did not complete successfully."
             log_warn "A rollback log has been created at: $ROLLBACK_LOG"
 
-            if [ -t 0 ]; then
+            if [[ -t 0 ]]; then
                 read -rp "Do you want to roll back changes? (y/N): " rollback_choice
                 case $rollback_choice in
                     [Yy]* )
@@ -120,7 +120,7 @@ cleanup() {
                 log_info "You can manually roll back by reviewing: $ROLLBACK_LOG"
             fi
         fi
-    elif [ $exit_code -eq 0 ] && [ -f "$ROLLBACK_LOG" ]; then
+    elif [[ $exit_code -eq 0 ]] && [[ -f "$ROLLBACK_LOG" ]]; then
         rm -f "$ROLLBACK_LOG"
     fi
 }

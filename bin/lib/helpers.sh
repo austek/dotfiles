@@ -29,7 +29,7 @@ download_with_cache() {
     mkdir -p "$cache_dir" 2>/dev/null || true
     local cached_file="$cache_dir/$cache_key"
 
-    if [ -s "$cached_file" ] && cp -- "$cached_file" "$dest" 2>/dev/null; then
+    if [[ -s "$cached_file" ]] && cp -- "$cached_file" "$dest" 2>/dev/null; then
         DOWNLOAD_CACHE_HIT=true
         return 0
     fi
@@ -63,7 +63,7 @@ install_from_url() {
         return 0
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would fetch $name latest release"
         log_dry_run "Would download and install $name"
         return 0
@@ -96,7 +96,7 @@ install_from_url() {
         log_warn "Continuing with setup..."
         return 0
     fi
-    [ "$DOWNLOAD_CACHE_HIT" = true ] && log_info "(using cached download)"
+    [[ "$DOWNLOAD_CACHE_HIT" = true ]] && log_info "(using cached download)"
 
     case "$extract_kind" in
         targz)

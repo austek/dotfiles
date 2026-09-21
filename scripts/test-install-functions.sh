@@ -34,7 +34,7 @@ assert_contains() {
 
 assert_exit_code() {
     local actual="$1" expected="$2" scenario="$3"
-    if [ "$actual" -eq "$expected" ]; then
+    if [[ "$actual" -eq "$expected" ]]; then
         PASS_COUNT=$((PASS_COUNT + 1))
     else
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -44,7 +44,7 @@ assert_exit_code() {
 
 assert_called() {
     local marker="$1" scenario="$2" what="$3"
-    if [ -f "$STUB_DIR/$marker" ]; then
+    if [[ -f "$STUB_DIR/$marker" ]]; then
         PASS_COUNT=$((PASS_COUNT + 1))
     else
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -54,7 +54,7 @@ assert_called() {
 
 assert_not_called() {
     local marker="$1" scenario="$2" what="$3"
-    if [ ! -f "$STUB_DIR/$marker" ]; then
+    if [[ ! -f "$STUB_DIR/$marker" ]]; then
         PASS_COUNT=$((PASS_COUNT + 1))
     else
         FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -65,7 +65,7 @@ assert_not_called() {
 
 curl() {
     touch "$STUB_DIR/curl_called"
-    if [ "${STUB_CURL_FAIL:-false}" = true ]; then
+    if [[ "${STUB_CURL_FAIL:-false}" = true ]]; then
         return 1
     fi
     printf '%s' "${STUB_CURL_OUTPUT:-}"
@@ -74,7 +74,7 @@ curl() {
 download_with_cache() {
     touch "$STUB_DIR/download_called"
     DOWNLOAD_CACHE_HIT=false
-    if [ "${STUB_DOWNLOAD_FAIL:-false}" = true ]; then
+    if [[ "${STUB_DOWNLOAD_FAIL:-false}" = true ]]; then
         return 1
     fi
     : > "$4"
@@ -88,7 +88,7 @@ sudo() {
 
 tar() {
     touch "$STUB_DIR/tar_called"
-    if [ "${STUB_EXTRACT_FAIL:-false}" = true ]; then
+    if [[ "${STUB_EXTRACT_FAIL:-false}" = true ]]; then
         return 1
     fi
     return 0
@@ -96,14 +96,14 @@ tar() {
 
 unzip() {
     touch "$STUB_DIR/unzip_called"
-    if [ "${STUB_EXTRACT_FAIL:-false}" = true ]; then
+    if [[ "${STUB_EXTRACT_FAIL:-false}" = true ]]; then
         return 1
     fi
     # install_awscli_step runs "$temp_dir/aws/install" directly, with no stubbed
     # command in between, so this unzip stub must materialize whatever the
     # scenario staged under $STUB_DIR/aws into the real dest dir (-d DEST).
     local dest_dir="${*: -1}"
-    [ -d "$STUB_DIR/aws" ] && cp -r "$STUB_DIR/aws" "$dest_dir/"
+    [[ -d "$STUB_DIR/aws" ]] && cp -r "$STUB_DIR/aws" "$dest_dir/"
     return 0
 }
 
@@ -131,7 +131,7 @@ apt-get() {
 
 install() {
     touch "$STUB_DIR/install_called"
-    if [ "${STUB_INSTALL_FAIL:-false}" = true ]; then
+    if [[ "${STUB_INSTALL_FAIL:-false}" = true ]]; then
         return 1
     fi
     return 0
@@ -139,7 +139,7 @@ install() {
 
 find() {
     touch "$STUB_DIR/find_called"
-    if [ "${STUB_FIND_EMPTY:-false}" = true ]; then
+    if [[ "${STUB_FIND_EMPTY:-false}" = true ]]; then
         return 0
     fi
     printf '%s/jetbrains-toolbox/jetbrains-toolbox\n' "$STUB_DIR"
@@ -159,12 +159,12 @@ reset_stubs() {
     # Stubs replace each tool's real already-installed check (`command -v`,
     # `dpkg -l`, etc.) so "not installed" scenarios aren't flaky on a machine
     # that has the tool for real. check_fn's own logic isn't exercised here.
-    lazydocker_is_installed() { [ "${STUB_ALREADY_INSTALLED:-false}" = true ]; }
-    istioctl_is_installed() { [ "${STUB_ALREADY_INSTALLED:-false}" = true ]; }
-    zoom_is_installed() { [ "${STUB_ALREADY_INSTALLED:-false}" = true ]; }
-    slack_is_installed() { [ "${STUB_ALREADY_INSTALLED:-false}" = true ]; }
-    jetbrains_toolbox_is_installed() { [ "${STUB_ALREADY_INSTALLED:-false}" = true ]; }
-    awscli_is_installed() { [ "${STUB_ALREADY_INSTALLED:-false}" = true ]; }
+    lazydocker_is_installed() { [[ "${STUB_ALREADY_INSTALLED:-false}" = true ]]; }
+    istioctl_is_installed() { [[ "${STUB_ALREADY_INSTALLED:-false}" = true ]]; }
+    zoom_is_installed() { [[ "${STUB_ALREADY_INSTALLED:-false}" = true ]]; }
+    slack_is_installed() { [[ "${STUB_ALREADY_INSTALLED:-false}" = true ]]; }
+    jetbrains_toolbox_is_installed() { [[ "${STUB_ALREADY_INSTALLED:-false}" = true ]]; }
+    awscli_is_installed() { [[ "${STUB_ALREADY_INSTALLED:-false}" = true ]]; }
 }
 
 SCENARIOS=()
@@ -639,7 +639,7 @@ PACKAGES_TO_INSTALL=()
 determine_packages_to_install >/dev/null 2>&1
 assert_contains "${PACKAGES_TO_INSTALL[*]}" "foo" "package-file override: includes foo"
 assert_contains "${PACKAGES_TO_INSTALL[*]}" "bar" "package-file override: includes bar"
-if [ "${#PACKAGES_TO_INSTALL[@]}" -eq 2 ]; then
+if [[ "${#PACKAGES_TO_INSTALL[@]}" -eq 2 ]]; then
     PASS_COUNT=$((PASS_COUNT + 1))
 else
     FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -662,7 +662,7 @@ MACHINE_PRESET=""
 
 echo
 echo "Passed: $PASS_COUNT  Failed: $FAIL_COUNT"
-if [ "$FAIL_COUNT" -gt 0 ]; then
+if [[ "$FAIL_COUNT" -gt 0 ]]; then
     printf 'FAILURES:\n'
     printf '  - %s\n' "${FAILURES[@]}"
     exit 1

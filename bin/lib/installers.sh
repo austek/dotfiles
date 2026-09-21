@@ -6,9 +6,9 @@ set -euo pipefail
 
 install_sdkman() {
     log_info "Installing SDKMAN..."
-    if [ -d "$HOME/.sdkman" ]; then
+    if [[ -d "$HOME/.sdkman" ]]; then
         log_info "SDKMAN is already installed. Skipping."
-    elif [ "$DRY_RUN" = true ]; then
+    elif [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would download and install SDKMAN from https://get.sdkman.io"
     else
         log_info "Downloading and running SDKMAN install script..."
@@ -19,9 +19,9 @@ install_sdkman() {
 
 install_omz() {
     log_info "Installing Oh My Zsh..."
-    if [ -d "$HOME/.oh-my-zsh" ]; then
+    if [[ -d "$HOME/.oh-my-zsh" ]]; then
         log_info "Oh My Zsh is already installed. Skipping."
-    elif [ "$DRY_RUN" = true ]; then
+    elif [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would download and install Oh My Zsh"
     else
         log_info "Downloading and running Oh My Zsh install script..."
@@ -33,12 +33,12 @@ install_omz() {
 install_nvm() {
     log_info "Installing nvm (Node Version Manager)..."
 
-    if [ -d "$HOME/.nvm" ]; then
+    if [[ -d "$HOME/.nvm" ]]; then
         log_info "NVM directory already exists. Skipping."
         return 0
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would fetch NVM latest release from GitHub API"
         log_dry_run "Would download and run NVM install script"
         log_dry_run "Would install latest LTS version of Node.js"
@@ -48,7 +48,7 @@ install_nvm() {
     local nvm_install_script_url
     nvm_install_script_url=$(curl -s "https://api.github.com/repos/nvm-sh/nvm/releases/latest" | grep "browser_download_url.*install.sh" | cut -d '"' -f 4 || true)
 
-    if [ -z "$nvm_install_script_url" ]; then
+    if [[ -z "$nvm_install_script_url" ]]; then
         log_warn "Could not get NVM install script URL. Trying default."
         log_warn "Visit: https://github.com/nvm-sh/nvm#installing-and-updating"
         nvm_install_script_url="https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh"
@@ -62,7 +62,7 @@ install_nvm() {
         nvm_install_status=$?
     fi
 
-    if [ $nvm_install_status -ne 0 ]; then
+    if [[ $nvm_install_status -ne 0 ]]; then
         log_error "NVM install script failed. Visit: https://github.com/nvm-sh/nvm#installing-and-updating"
         log_warn "Continuing with setup..."
         return 0
@@ -70,9 +70,9 @@ install_nvm() {
 
     export NVM_DIR="$HOME/.nvm"
     # shellcheck source=/dev/null
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [[ -s "$NVM_DIR/nvm.sh" ]] && \. "$NVM_DIR/nvm.sh"
     # shellcheck source=/dev/null
-    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    [[ -s "$NVM_DIR/bash_completion" ]] && \. "$NVM_DIR/bash_completion"
 
     if ! command -v nvm &> /dev/null; then
         log_warn "NVM command not available in current shell. Node.js installation will be skipped."
@@ -88,7 +88,7 @@ install_nvm() {
         node_install_status=$?
     fi
 
-    if [ $node_install_status -ne 0 ]; then
+    if [[ $node_install_status -ne 0 ]]; then
         log_error "Failed to install Node.js LTS. Please check nvm logs."
         log_error "Visit: https://github.com/nvm-sh/nvm#installing-and-updating"
         log_warn "Continuing with setup..."
@@ -107,7 +107,7 @@ lazydocker_is_installed() { command -v lazydocker &> /dev/null; }
 resolve_lazydocker() {
     local version
     version=$(curl -s "https://api.github.com/repos/jesseduffield/lazydocker/releases/latest" | grep -Po '"tag_name": "v\K[^"]*' || true)
-    if [ -z "$version" ]; then
+    if [[ -z "$version" ]]; then
         return 1
     fi
     printf '%s\t%s\t%s\n' "$version" \
@@ -130,7 +130,7 @@ resolve_zoom() {
     local url="https://zoom.us/client/latest/zoom_amd64.deb"
     local version
     version=$(curl -sI --max-time 15 "$url" | grep -i '^location:' | tail -1 | grep -oP '/prod/\K[0-9.]+' || true)
-    if [ -z "$version" ]; then
+    if [[ -z "$version" ]]; then
         version="latest"
     fi
     printf '%s\t%s\t%s\n' "$version" "$url" "zoom_amd64-$version.deb"
@@ -173,13 +173,13 @@ install_slack() {
     install_from_url "Slack" slack_is_installed resolve_slack deb install_slack_step
 }
 
-jetbrains_toolbox_is_installed() { [ -f "$HOME/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox" ]; }
+jetbrains_toolbox_is_installed() { [[ -f "$HOME/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox" ]]; }
 
 resolve_jetbrains_toolbox() {
     local url
     url=$(curl -s 'https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release' \
         | grep -oP '"linux":\{"link":"\K[^"]+' || true)
-    if [ -z "$url" ]; then
+    if [[ -z "$url" ]]; then
         return 1
     fi
     printf '%s\t%s\t%s\n' "" "$url" "$(basename "$url")"
@@ -189,7 +189,7 @@ install_jetbrains_toolbox_step() {
     local temp_dir="$1"
     local extracted_dir
     extracted_dir=$(find "$temp_dir" -name "jetbrains-toolbox" -type f | head -1 | xargs dirname)
-    if [ -z "$extracted_dir" ]; then
+    if [[ -z "$extracted_dir" ]]; then
         log_error "Could not find jetbrains-toolbox binary in archive."
         return 1
     fi
@@ -217,7 +217,7 @@ resolve_antigravity_ide_build() {
         | grep -oP "https://edgedl\.me\.gvt1\.com/edgedl/release2/[^\"'\\\\ /]+/antigravity/stable/[0-9][^\"'\\\\ ]*/$arch_dir/Antigravity%20IDE\.tar\.gz" \
         | head -1) || true
 
-    if [ -z "$download_url" ]; then
+    if [[ -z "$download_url" ]]; then
         log_warn "Could not resolve the latest build. Falling back to the pinned URL." >&2
         download_url="$pinned_url"
     fi
@@ -241,7 +241,7 @@ fetch_and_extract_antigravity_ide() {
     local cached_tarball="$cache_dir/$build.tar.gz"
     mkdir -p "$cache_dir"
 
-    if [ -s "$cached_tarball" ]; then
+    if [[ -s "$cached_tarball" ]]; then
         log_info "Using cached Antigravity IDE ${version:-unknown} tarball." >&2
         cp -- "$cached_tarball" "$tarball_path"
     else
@@ -266,9 +266,9 @@ fetch_and_extract_antigravity_ide() {
     local extracted_bin
     extracted_bin=$(find "$temp_dir" -maxdepth 2 -type f -name antigravity-ide | head -1)
     local extracted_dir=""
-    [ -n "$extracted_bin" ] && extracted_dir=$(dirname -- "$extracted_bin")
+    [[ -n "$extracted_bin" ]] && extracted_dir=$(dirname -- "$extracted_bin")
 
-    if [ -z "$extracted_dir" ]; then
+    if [[ -z "$extracted_dir" ]]; then
         log_error "Could not find the antigravity-ide binary in the archive."
         log_warn "Continuing with setup..." >&2
         return 1
@@ -306,7 +306,7 @@ place_antigravity_ide() {
         return 1
     fi
     # Electron's SUID sandbox helper; without root ownership Ubuntu's userns restriction blocks startup.
-    if [ -f "$staging_dir/chrome-sandbox" ]; then
+    if [[ -f "$staging_dir/chrome-sandbox" ]]; then
         if ! sudo chmod 4755 "$staging_dir/chrome-sandbox"; then
             log_error "Failed to set the SUID bit on chrome-sandbox."
             log_warn "Continuing with setup..."
@@ -322,7 +322,7 @@ place_antigravity_ide() {
         log_error "Failed to move staged Antigravity IDE into $install_dir."
         log_warn "Continuing with setup..."
         sudo rm -rf -- "$staging_dir"
-        [ -d "$install_dir.old" ] && sudo mv -- "$install_dir.old" "$install_dir"
+        [[ -d "$install_dir.old" ]] && sudo mv -- "$install_dir.old" "$install_dir"
         return 1
     fi
     sudo rm -rf -- "$install_dir.old"
@@ -364,7 +364,7 @@ EOF
 
 # Removes the legacy "Antigravity" (pre-rename) install this replaces, if present.
 remove_legacy_antigravity() {
-    if [ -d /opt/antigravity ]; then
+    if [[ -d /opt/antigravity ]]; then
         sudo rm -rf -- /opt/antigravity
         sudo rm -f -- /usr/local/bin/antigravity /usr/share/applications/antigravity.desktop /usr/share/icons/hicolor/512x512/apps/antigravity.png
         sudo update-desktop-database /usr/share/applications 2>/dev/null || true
@@ -391,7 +391,7 @@ install_antigravity_ide() {
     local icon_path="/usr/share/icons/hicolor/512x512/apps/antigravity-ide.png"
     local desktop_path="/usr/share/applications/antigravity-ide.desktop"
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would resolve the latest Antigravity IDE build from https://antigravity.google/download"
         log_dry_run "Would install Antigravity IDE to $install_dir with a launcher and desktop entry"
         return 0
@@ -400,7 +400,7 @@ install_antigravity_ide() {
     local download_url build version
     IFS=$'\t' read -r download_url build version <<< "$(resolve_antigravity_ide_build "$arch_dir")"
 
-    if [ -f "$build_file" ] && [ "$(cat "$build_file")" = "$build" ]; then
+    if [[ -f "$build_file" ]] && [[ "$(cat "$build_file")" = "$build" ]]; then
         log_info "Antigravity IDE $version is already installed. Skipping."
         return 0
     fi
@@ -426,7 +426,7 @@ install_antigravity_ide_icon() {
     local src="$1"
     local dest="$2"
 
-    if [ ! -f "$src" ]; then
+    if [[ ! -f "$src" ]]; then
         log_warn "Antigravity IDE icon not found at $src; the launcher will use a generic icon."
         return 0
     fi
@@ -447,7 +447,7 @@ istioctl_is_installed() { command -v istioctl &> /dev/null; }
 resolve_istioctl() {
     local version
     version=$(curl -s "https://api.github.com/repos/istio/istio/releases/latest" | grep -Po '"tag_name": "\K[^"]*' || true)
-    if [ -z "$version" ]; then
+    if [[ -z "$version" ]]; then
         return 1
     fi
     printf '%s\t%s\t%s\n' "$version" \
@@ -487,7 +487,7 @@ zizmor_is_installed() { command -v zizmor &> /dev/null; }
 resolve_zizmor() {
     local version
     version=$(curl -s "https://api.github.com/repos/zizmorcore/zizmor/releases/latest" | grep -Po '"tag_name": "\K[^"]*' || true)
-    if [ -z "$version" ]; then
+    if [[ -z "$version" ]]; then
         return 1
     fi
     printf '%s\t%s\t%s\n' "$version" \
@@ -517,7 +517,7 @@ install_coderabbit() {
         return 0
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would install the CodeRabbit CLI via https://cli.coderabbit.ai's install script."
         return 0
     fi
@@ -542,7 +542,7 @@ install_ruff() {
         return 0
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would install ruff via pipx."
         return 0
     fi

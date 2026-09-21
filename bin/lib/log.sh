@@ -6,12 +6,12 @@ set -euo pipefail
 # INFO/SUCCESS are step narration — hidden by default, shown at -v and up.
 # WARNING/ERROR/DRY-RUN are actionable and always shown regardless of verbosity.
 log_info() {
-    [ "$VERBOSITY" -ge 1 ] || return 0
+    [[ "$VERBOSITY" -ge 1 ]] || return 0
     echo -e "${COLOR_CYAN}[INFO] $1${COLOR_RESET}"
 }
 
 log_success() {
-    [ "$VERBOSITY" -ge 1 ] || return 0
+    [[ "$VERBOSITY" -ge 1 ]] || return 0
     echo -e "${COLOR_GREEN}[SUCCESS] $1${COLOR_RESET}"
 }
 
@@ -35,7 +35,7 @@ log_error() {
 }
 
 log_dry_run() {
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         echo -e "${COLOR_YELLOW}[DRY-RUN] $1${COLOR_RESET}"
         return 0
     fi
@@ -46,7 +46,7 @@ log_dry_run() {
 # always surface the captured output first, regardless of verbosity, so
 # nothing is lost, only hidden on the happy path.
 quiet_run() {
-    if [ "$VERBOSITY" -ge 2 ]; then
+    if [[ "$VERBOSITY" -ge 2 ]]; then
         "$@"
         return $?
     fi
@@ -59,7 +59,7 @@ quiet_run() {
     else
         status=$?
     fi
-    if [ $status -ne 0 ]; then
+    if [[ $status -ne 0 ]]; then
         printf '%s\n' "$output" >&2
     fi
     return $status
