@@ -302,7 +302,7 @@ configure_rtk_cli() {
     fi
 
     log_info "rtk CLI not found; installing..."
-    if curl --proto '=https' -fsSL "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" | sh; then
+    if curl_https -fsSL "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" | sh; then
         log_success "rtk CLI installed ($(command_exists rtk && rtk --version 2>/dev/null))."
     else
         log_error "Failed to install rtk. Install it manually: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh"

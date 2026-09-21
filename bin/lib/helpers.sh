@@ -9,6 +9,10 @@ command_exists() {
     command -v "$name" >/dev/null 2>&1
 }
 
+curl_https() {
+    curl --proto '=https' "$@"
+}
+
 print_resolved() {
     local version="$1" url="$2" cache_key="$3"
     printf '%s\t%s\t%s\n' "$version" "$url" "$cache_key"
@@ -41,7 +45,7 @@ download_with_cache() {
     fi
 
     DOWNLOAD_CACHE_HIT=false
-    if ! curl --proto '=https' -sL -o "$dest" "$url"; then
+    if ! curl_https -sL -o "$dest" "$url"; then
         return 1
     fi
 

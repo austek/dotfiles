@@ -244,11 +244,11 @@ download_apt_gpg_keys() {
             curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --yes --output /usr/share/keyrings/1password-archive-keyring.gpg
             curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --yes --output /usr/share/debsig/keyrings/AC2D62742012EA22/debsig.gpg
         fi
-        if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then curl --proto '=https' -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/docker.gpg; fi
-        if array_contains "gh" "${PACKAGES_TO_INSTALL[@]}"; then curl --proto '=https' -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/githubcli-archive-keyring.gpg; fi
-        if [[ "$teleport_selected" -eq 1 ]]; then curl --proto '=https' -fsSL https://apt.releases.teleport.dev/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/teleport-archive-keyring.gpg; fi
-        if [[ "$pgadmin_selected" -eq 1 ]]; then curl --proto '=https' -fsSL https://www.pgadmin.org/static/packages_pgadmin_org.pub | sudo gpg --dearmor --yes -o /usr/share/keyrings/pgadmin4-archive-keyring.gpg; fi
-        if [[ "$postgresql_selected" -eq 1 ]]; then curl --proto '=https' -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/postgresql-archive-keyring.gpg; fi
+        if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then curl_https -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/docker.gpg; fi
+        if array_contains "gh" "${PACKAGES_TO_INSTALL[@]}"; then curl_https -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/githubcli-archive-keyring.gpg; fi
+        if [[ "$teleport_selected" -eq 1 ]]; then curl_https -fsSL https://apt.releases.teleport.dev/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/teleport-archive-keyring.gpg; fi
+        if [[ "$pgadmin_selected" -eq 1 ]]; then curl_https -fsSL https://www.pgadmin.org/static/packages_pgadmin_org.pub | sudo gpg --dearmor --yes -o /usr/share/keyrings/pgadmin4-archive-keyring.gpg; fi
+        if [[ "$postgresql_selected" -eq 1 ]]; then curl_https -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/postgresql-archive-keyring.gpg; fi
     fi
 }
 

@@ -25,7 +25,7 @@ install_omz() {
         log_dry_run "Would download and install Oh My Zsh"
     else
         log_info "Downloading and running Oh My Zsh install script..."
-        sh -c "$(curl --proto '=https' -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        sh -c "$(curl_https -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
         log_success "Oh My Zsh installed."
     fi
 }
@@ -149,7 +149,7 @@ slack_is_installed() { dpkg -l | grep -q "^ii.*slack-desktop"; }
 
 resolve_slack() {
     local version
-    version=$(curl --proto '=https' -sL "https://slack.com/downloads/linux" | grep -oP 'Version \K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+    version=$(curl_https -sL "https://slack.com/downloads/linux" | grep -oP 'Version \K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
     if [[ -z "$version" ]]; then
         return 1
     fi
@@ -246,7 +246,7 @@ fetch_and_extract_antigravity_ide() {
         cp -- "$cached_tarball" "$tarball_path"
     else
         log_info "Downloading Antigravity IDE ${version:-unknown} from $download_url..." >&2
-        if ! curl --proto '=https' -sL -o "$tarball_path" "$download_url"; then
+        if ! curl_https -sL -o "$tarball_path" "$download_url"; then
             log_error "Failed to download Antigravity IDE from $download_url"
             log_warn "$MSG_CONTINUING_SETUP" >&2
             return 1
@@ -522,7 +522,7 @@ install_coderabbit() {
         return 0
     fi
 
-    if curl --proto '=https' -fsSL "https://cli.coderabbit.ai/install.sh" | sh; then
+    if curl_https -fsSL "https://cli.coderabbit.ai/install.sh" | sh; then
         log_success "CodeRabbit CLI installed ($(coderabbit_is_installed && coderabbit --version 2>/dev/null))."
     else
         log_error "Failed to install CodeRabbit CLI. Install it manually: curl -fsSL https://cli.coderabbit.ai/install.sh | sh"
