@@ -126,12 +126,13 @@ def test_main_uncommitted_within_limit_uses_simple_review(tmp_path):
     assert ("coderabbit", "review", "--uncommitted", "--agent") in [c[0] for c in run.calls]
 
 
-def test_main_uncommitted_over_limit_batches_via_stash_create(tmp_path):
+def test_main_uncommitted_over_limit_snapshots_untracked_files(tmp_path):
     responses = {
         ("git", "rev-parse", "--show-toplevel"): ok(str(tmp_path / "repo") + "\n"),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): ok("main\n"),
-        ("git", "status", "--porcelain"): ok(" M a.py\n M b.py\n"),
-        ("git", "stash", "create"): ok("deadbeef\n"),
+        ("git", "status", "--porcelain"): ok(" M a.py\n?? new.py\n"),
+        ("git", "write-tree"): ok("treesha\n"),
+        ("git", "commit-tree"): ok("deadbeef\n"),
         ("coderabbit", "review"): sequence(["REVIEW1\n", "REVIEW2\n"]),
     }
     run = FakeRun(responses)
@@ -142,6 +143,9 @@ def test_main_uncommitted_over_limit_batches_via_stash_create(tmp_path):
     assert "Batch 2/2" in content
     assert "REVIEW2" in content
     assert any(c[0][:2] == ("git", "worktree") and c[0][2] == "add" for c in run.calls)
+    assert ("git", "add", "-A") in [c[0] for c in run.calls]
+    assert not any(c[0][:3] == ("git", "stash", "create") for c in run.calls)
+    assert any(c[0][:3] == ("git", "ls-tree", "-r") and "deadbeef" in c[0] and "new.py" in c[0] for c in run.calls)
 
 
 def test_main_pr_uses_existing_review_when_present(tmp_path):
