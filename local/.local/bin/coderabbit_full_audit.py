@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-FREE_TIER_CEILING = 150
+FREE_TIER_CEILING = 100
 EXPORT_FILE = Path.home() / ".claude" / "scratches" / "handoff" / "coderabbit_audit.md"
 
 EXAMPLES = """\
@@ -165,7 +165,7 @@ def uncommitted_files(run, cwd=None) -> list[str]:
 
 
 def branch_diff_files(run, target_branch: str, cwd=None) -> list[str]:
-    result = _git(run, "diff", "--name-only", f"{target_branch}...HEAD", cwd=cwd)
+    result = _git(run, "diff", "--name-only", "--no-renames", f"{target_branch}...HEAD", cwd=cwd)
     return [f for f in result.stdout.splitlines() if f]
 
 
@@ -213,26 +213,38 @@ def _setup_baseline(run, worktree_dir: Path, base_branch: str, baseline_mode: st
         _git(run, "checkout", "-b", base_branch, base_ref, cwd=worktree_dir)
 
 
+def _stage_batch(run, worktree_dir: Path, target_ref: str, batch_files: list[str]) -> None:
+    listed = _git(run, "ls-tree", "-r", "--name-only", target_ref, "--", *batch_files, cwd=worktree_dir)
+    present = set(listed.stdout.splitlines())
+    if present:
+        _git(run, "checkout", target_ref, "--", *sorted(present), cwd=worktree_dir)
+    deleted = [f for f in batch_files if f not in present]
+    if deleted:
+        _git(run, "rm", "-q", "--ignore-unmatch", "--", *deleted, cwd=worktree_dir)
+    _git(run, "add", ".", cwd=worktree_dir)
+
+
 def _run_one_batch(run, worktree_dir: Path, base_branch: str, target_ref: str, batch_files: list[str], batch_num: int, total: int) -> int:
     code_branch = f"{base_branch}-code-{batch_num}"
     _git(run, "checkout", "-b", code_branch, base_branch, cwd=worktree_dir)
-    _git(run, "checkout", target_ref, "--", *batch_files, cwd=worktree_dir)
-    _git(run, "add", ".", cwd=worktree_dir)
-    _git(run, "commit", "-m", f"batch {batch_num}/{total} snapshot for audit", cwd=worktree_dir)
-    result = run(
-        ["coderabbit", "review", "--base", base_branch, "--agent"],
-        cwd=worktree_dir,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        _stage_batch(run, worktree_dir, target_ref, batch_files)
+        _git(run, "commit", "-m", f"batch {batch_num}/{total} snapshot for audit", cwd=worktree_dir)
+        result = run(
+            ["coderabbit", "review", "--base", base_branch, "--agent"],
+            cwd=worktree_dir,
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        _git(run, "checkout", "--force", base_branch, cwd=worktree_dir, check=False)
+        _git(run, "branch", "-D", code_branch, cwd=worktree_dir, check=False)
     if total > 1:
         _append_export(f"\n## Batch {batch_num}/{total} ({len(batch_files)} file(s))\n\n" + result.stdout)
     else:
         _append_export(result.stdout)
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr)
-    _git(run, "checkout", base_branch, cwd=worktree_dir, check=False)
-    _git(run, "branch", "-D", code_branch, cwd=worktree_dir, check=False)
     return result.returncode
 
 
