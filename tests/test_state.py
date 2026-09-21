@@ -2,15 +2,15 @@ from dotfiles_setup.state import MachineState, load_state, save_state
 
 
 def _sample_state(**overrides):
-    fields = dict(
-        preset_name="work",
-        backend="apt",
-        package_file="/home/user/.config/dotfiles/packages/work.txt",
-        applied_package_names=("curl", "zsh"),
-        overlay_root=None,
-        created_at="2026-09-10T00:00:00",
-        updated_at="2026-09-10T00:00:00",
-    )
+    fields = {
+        "preset_name": "work",
+        "backend": "apt",
+        "package_file": "/home/user/.config/dotfiles/packages/work.txt",
+        "applied_package_names": ("curl", "zsh"),
+        "overlay_root": None,
+        "created_at": "2026-09-10T00:00:00",
+        "updated_at": "2026-09-10T00:00:00",
+    }
     fields.update(overrides)
     return MachineState(**fields)
 

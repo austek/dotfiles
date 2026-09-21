@@ -119,10 +119,10 @@ Re-run `dotfiles-setup install --preset <name>` (the recommended command — see
 
 . *Change Configs*: Edit the files directly in their `stow` packages (e.g., `~/.dotfiles/zsh/.zshrc` or `~/.dotfiles/claude-profiles/claude_work.json`).
 
-. *Run `dotfiles-backup save`*: This helper script will automatically add all changes, commit them with a standard message, and push them to your remote repository.
+. *Run `dotfiles-backup save`*: This helper script will automatically add all changes, commit them with a standard message, push the current branch (creating `backup/<timestamp>` when on `main`), and open a pull request if none exists. `main` is protected, so merge the PR once CI is green, then run `git switch main && git pull`.
 +
 [source,bash]
-.Run the backup script to commit and push changes.
+.Run the backup script to commit changes and open a PR.
 ----
 dotfiles-backup save
 ----
