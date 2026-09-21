@@ -69,7 +69,7 @@ jobs:
 
       - name: Smoke-test the CLI entry points
         run: |
-          ./bin/dotfiles-setup install --profile work --dry-run
+          ./bin/dotfiles-setup install --preset work --dry-run
           ./bin/dotfiles-backup --help
 
       - name: Install zsh and shellcheck for completion checks
