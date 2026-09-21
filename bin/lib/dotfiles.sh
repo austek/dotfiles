@@ -10,9 +10,10 @@ configure_dotfiles() {
     # patterns are otherwise interpreted as regexes (a literal '.' in a filename would
     # match any character).
     stow_regex_escape() {
+        local path="$1"
         # shellcheck disable=SC2016  # single-quoted on purpose: this is a literal sed
         # pattern/replacement, not a shell expansion.
-        printf '%s' "$1" | sed -e 's/[.[\*^$()+?{}|\\]/\\&/g'
+        printf '%s' "$path" | sed -e 's/[.[\*^$()+?{}|\\]/\\&/g'
     }
 
     # Every path the private overlay would override (a file present in both a private
@@ -120,6 +121,7 @@ configure_dotfiles() {
         link_target=$(readlink -f "$target")
         case "$link_target" in
             "$DOTFILES_DIR"/*) rm -f -- "$target" ;;
+            *) ;;
         esac
     }
 
@@ -300,7 +302,7 @@ configure_rtk_cli() {
     fi
 
     log_info "rtk CLI not found; installing..."
-    if curl -fsSL "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" | sh; then
+    if curl --proto '=https' -fsSL "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" | sh; then
         log_success "rtk CLI installed ($(command_exists rtk && rtk --version 2>/dev/null))."
     else
         log_error "Failed to install rtk. Install it manually: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh"
@@ -434,14 +436,14 @@ configure_caveman_proxy() {
 
     if command_exists caveman; then
         log_success "caveman CLI already installed ($(caveman version 2>/dev/null | sed -n 's/.*"version": "\([^"]*\)".*/\1/p'))."
-    elif [ "$DRY_RUN" = true ]; then
-        log_dry_run "Would install the caveman CLI via: npm install -g @caveman-ai/cli"
+    elif [[ "$DRY_RUN" = true ]]; then
+        log_dry_run "Would install the caveman CLI via: npm install -g --ignore-scripts @caveman-ai/cli"
     else
         log_info "caveman CLI not found; installing..."
-        if npm install -g @caveman-ai/cli; then
+        if npm install -g --ignore-scripts @caveman-ai/cli; then
             log_success "caveman CLI installed."
         else
-            log_error "Failed to install @caveman-ai/cli via npm. Install it manually: npm install -g @caveman-ai/cli"
+            log_error "Failed to install @caveman-ai/cli via npm. Install it manually: npm install -g --ignore-scripts @caveman-ai/cli"
             return
         fi
     fi

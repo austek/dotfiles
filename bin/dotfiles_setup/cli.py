@@ -10,8 +10,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from dotfiles_setup import identity, overlay, presets, reconcile, state
+from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.log import Logger
+from dotfiles_setup.presets import Preset
 
 PRESETS = ("work", "personal", "homelab")
 
@@ -84,6 +86,29 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _write_claude_profile(
+    logger: Logger, preset: Preset, dotfiles_dir: Path, claude_dir: Path,
+    overlay_root: Path | None, preset_name: str,
+) -> None:
+    if not preset.claude_settings:
+        return
+    claude_profile_path = claude_dir / preset.claude_settings
+    if logger.dry_run_notice(f"Would write {claude_profile_path}."):
+        return
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    base_path = dotfiles_dir / "claude-profiles" / preset.claude_settings
+    merged = overlay.load_claude_settings(base_path, overlay_root, preset_name)
+    claude_profile_path.write_text(json.dumps(merged, indent=2) + "\n")
+
+
+def _log_install_failure(logger: Logger, result: InstallResult) -> None:
+    # backends/apt.py streams setup.sh output live; stdout is set only when a caller passes a capturing run (tests).
+    if result.stdout:
+        logger.error(result.stdout)
+    else:
+        logger.error(f"setup.sh exited with code {result.returncode}. See output above.")
+
+
 def _run_install(args: argparse.Namespace) -> int:
     logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
     if args.dry_run:
@@ -103,9 +128,9 @@ def _run_install(args: argparse.Namespace) -> int:
     overlay_root = overlay.find_overlay_root()
     logical_names = presets.resolve_packages(dotfiles_dir / "packages", preset)
     backend = AptBackend(dotfiles_dir=dotfiles_dir, backend_overrides=preset.backend_overrides.get("apt", {}))
-    resolved_names = tuple(sorted({backend.resolve_name(n) for n in logical_names}))
+    resolved_names = {backend.resolve_name(n) for n in logical_names}
     overlay_names = overlay.overlay_package_names(overlay_root, args.preset)
-    combined = tuple(sorted(set(resolved_names) | set(overlay_names)))
+    combined = tuple(sorted(resolved_names | set(overlay_names)))
 
     prior = state.load_state()
     package_file = state.PACKAGE_DIR / f"{args.preset}.txt"
@@ -115,13 +140,7 @@ def _run_install(args: argparse.Namespace) -> int:
         logger.info(f"Added {len(added)} new package(s) to {package_file}")
 
     claude_dir = state.STATE_DIR / "claude-profiles"
-    if preset.claude_settings:
-        claude_profile_path = claude_dir / preset.claude_settings
-        if not logger.dry_run_notice(f"Would write {claude_profile_path}."):
-            claude_dir.mkdir(parents=True, exist_ok=True)
-            base_path = dotfiles_dir / "claude-profiles" / preset.claude_settings
-            merged = overlay.load_claude_settings(base_path, overlay_root, args.preset)
-            claude_profile_path.write_text(json.dumps(merged, indent=2) + "\n")
+    _write_claude_profile(logger, preset, dotfiles_dir, claude_dir, overlay_root, args.preset)
 
     result = backend.install(
         package_file, preset_name=args.preset, claude_profile_dir=claude_dir,
@@ -130,13 +149,7 @@ def _run_install(args: argparse.Namespace) -> int:
     )
 
     if not result.succeeded:
-        # setup.sh's own output already streamed live above (backend.install no longer
-        # captures it — see apt.py) — result.stdout only ever carries anything when a
-        # caller passes a `run` that captures on its own, e.g. tests.
-        if result.stdout:
-            logger.error(result.stdout)
-        else:
-            logger.error(f"setup.sh exited with code {result.returncode}. See output above.")
+        _log_install_failure(logger, result)
         return result.returncode
 
     if not args.dry_run:

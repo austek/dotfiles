@@ -25,7 +25,7 @@ install_omz() {
         log_dry_run "Would download and install Oh My Zsh"
     else
         log_info "Downloading and running Oh My Zsh install script..."
-        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        sh -c "$(curl --proto '=https' -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
         log_success "Oh My Zsh installed."
     fi
 }
@@ -64,7 +64,7 @@ install_nvm() {
 
     if [[ $nvm_install_status -ne 0 ]]; then
         log_error "NVM install script failed. Visit: https://github.com/nvm-sh/nvm#installing-and-updating"
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 0
     fi
 
@@ -91,7 +91,7 @@ install_nvm() {
     if [[ $node_install_status -ne 0 ]]; then
         log_error "Failed to install Node.js LTS. Please check nvm logs."
         log_error "Visit: https://github.com/nvm-sh/nvm#installing-and-updating"
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 0
     fi
 
@@ -110,7 +110,7 @@ resolve_lazydocker() {
     if [[ -z "$version" ]]; then
         return 1
     fi
-    printf '%s\t%s\t%s\n' "$version" \
+    print_resolved "$version" \
         "https://github.com/jesseduffield/lazydocker/releases/latest/download/lazydocker_${version}_Linux_x86_64.tar.gz" \
         "$version.tar.gz"
 }
@@ -133,7 +133,7 @@ resolve_zoom() {
     if [[ -z "$version" ]]; then
         version="latest"
     fi
-    printf '%s\t%s\t%s\n' "$version" "$url" "zoom_amd64-$version.deb"
+    print_resolved "$version" "$url" "zoom_amd64-$version.deb"
 }
 
 install_zoom_step() {
@@ -149,11 +149,11 @@ slack_is_installed() { dpkg -l | grep -q "^ii.*slack-desktop"; }
 
 resolve_slack() {
     local version
-    version=$(curl -sL "https://slack.com/downloads/linux" | grep -oP 'Version \K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-    if [ -z "$version" ]; then
+    version=$(curl --proto '=https' -sL "https://slack.com/downloads/linux" | grep -oP 'Version \K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+    if [[ -z "$version" ]]; then
         return 1
     fi
-    printf '%s\t%s\t%s\n' "$version" \
+    print_resolved "$version" \
         "https://downloads.slack-edge.com/desktop-releases/linux/x64/${version}/slack-desktop-${version}-amd64.deb" \
         "slack-desktop-$version-amd64.deb"
 }
@@ -182,7 +182,7 @@ resolve_jetbrains_toolbox() {
     if [[ -z "$url" ]]; then
         return 1
     fi
-    printf '%s\t%s\t%s\n' "" "$url" "$(basename "$url")"
+    print_resolved "" "$url" "$(basename "$url")"
 }
 
 install_jetbrains_toolbox_step() {
@@ -226,7 +226,7 @@ resolve_antigravity_ide_build() {
     build=$(printf '%s' "$download_url" | grep -oP 'antigravity/stable/\K[^/]+') || true
     local version="${build%%-*}"
 
-    printf '%s\t%s\t%s\n' "$download_url" "$build" "$version"
+    print_resolved "$download_url" "$build" "$version"
 }
 
 # Downloads (or reuses a build-keyed cache of) the Antigravity IDE tarball into
@@ -246,9 +246,9 @@ fetch_and_extract_antigravity_ide() {
         cp -- "$cached_tarball" "$tarball_path"
     else
         log_info "Downloading Antigravity IDE ${version:-unknown} from $download_url..." >&2
-        if ! curl -sL -o "$tarball_path" "$download_url"; then
+        if ! curl --proto '=https' -sL -o "$tarball_path" "$download_url"; then
             log_error "Failed to download Antigravity IDE from $download_url"
-            log_warn "Continuing with setup..." >&2
+            log_warn "$MSG_CONTINUING_SETUP" >&2
             return 1
         fi
         # Write-then-rename so an interrupted run never leaves a corrupt cache entry.
@@ -259,7 +259,7 @@ fetch_and_extract_antigravity_ide() {
     log_info "Extracting Antigravity IDE..." >&2
     if ! tar -xzf "$tarball_path" -C "$temp_dir"; then
         log_error "Failed to extract Antigravity IDE."
-        log_warn "Continuing with setup..." >&2
+        log_warn "$MSG_CONTINUING_SETUP" >&2
         return 1
     fi
 
@@ -270,7 +270,7 @@ fetch_and_extract_antigravity_ide() {
 
     if [[ -z "$extracted_dir" ]]; then
         log_error "Could not find the antigravity-ide binary in the archive."
-        log_warn "Continuing with setup..." >&2
+        log_warn "$MSG_CONTINUING_SETUP" >&2
         return 1
     fi
 
@@ -290,18 +290,18 @@ place_antigravity_ide() {
     sudo rm -rf -- "$staging_dir"
     if ! sudo mkdir -p "$staging_dir"; then
         log_error "Failed to create $staging_dir."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 1
     fi
     if ! sudo cp -r "$extracted_dir"/. "$staging_dir/"; then
         log_error "Failed to copy Antigravity IDE into $staging_dir."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         sudo rm -rf -- "$staging_dir"
         return 1
     fi
     if ! sudo chown -R root:root "$staging_dir"; then
         log_error "Failed to set ownership on $staging_dir."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         sudo rm -rf -- "$staging_dir"
         return 1
     fi
@@ -309,7 +309,7 @@ place_antigravity_ide() {
     if [[ -f "$staging_dir/chrome-sandbox" ]]; then
         if ! sudo chmod 4755 "$staging_dir/chrome-sandbox"; then
             log_error "Failed to set the SUID bit on chrome-sandbox."
-            log_warn "Continuing with setup..."
+            log_warn "$MSG_CONTINUING_SETUP"
             sudo rm -rf -- "$staging_dir"
             return 1
         fi
@@ -320,7 +320,7 @@ place_antigravity_ide() {
     sudo mv -- "$install_dir" "$install_dir.old" 2>/dev/null || true
     if ! sudo mv -- "$staging_dir" "$install_dir"; then
         log_error "Failed to move staged Antigravity IDE into $install_dir."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         sudo rm -rf -- "$staging_dir"
         [[ -d "$install_dir.old" ]] && sudo mv -- "$install_dir.old" "$install_dir"
         return 1
@@ -329,7 +329,7 @@ place_antigravity_ide() {
 
     if ! sudo ln -sfn "$install_dir/antigravity-ide" /usr/local/bin/antigravity-ide; then
         log_error "Failed to symlink /usr/local/bin/antigravity-ide."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 1
     fi
 
@@ -349,14 +349,14 @@ MimeType=x-scheme-handler/antigravity-ide;
 EOF
     then
         log_error "Failed to write $desktop_path."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 1
     fi
     sudo update-desktop-database /usr/share/applications 2>/dev/null || true
 
     if ! printf '%s\n' "$build" | sudo tee "$build_file" > /dev/null; then
         log_error "Failed to record the installed build in $build_file."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 1
     fi
     log_success "Antigravity IDE ${version:-unknown} installed to $install_dir."
@@ -381,7 +381,7 @@ install_antigravity_ide() {
         aarch64 | arm64) arch_dir="linux-arm" ;;
         *)
             log_error "No Antigravity IDE build for architecture $(uname -m)."
-            log_warn "Continuing with setup..."
+            log_warn "$MSG_CONTINUING_SETUP"
             return 0
             ;;
     esac
@@ -450,7 +450,7 @@ resolve_istioctl() {
     if [[ -z "$version" ]]; then
         return 1
     fi
-    printf '%s\t%s\t%s\n' "$version" \
+    print_resolved "$version" \
         "https://github.com/istio/istio/releases/download/${version}/istio-${version}-linux-amd64.tar.gz" \
         "istio-$version-linux-amd64.tar.gz"
 }
@@ -470,7 +470,7 @@ awscli_is_installed() { command -v aws &> /dev/null; }
 # only runs while `aws` is absent from PATH, so a stale cache can only
 # affect retries of a not-yet-successful install, never mask an upgrade.
 resolve_awscli() {
-    printf '%s\t%s\t%s\n' "" "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" "awscliv2.zip"
+    print_resolved "" "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" "awscliv2.zip"
 }
 
 install_awscli_step() {
@@ -490,7 +490,7 @@ resolve_zizmor() {
     if [[ -z "$version" ]]; then
         return 1
     fi
-    printf '%s\t%s\t%s\n' "$version" \
+    print_resolved "$version" \
         "https://github.com/zizmorcore/zizmor/releases/download/${version}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
         "zizmor-$version.tar.gz"
 }
@@ -522,7 +522,7 @@ install_coderabbit() {
         return 0
     fi
 
-    if curl -fsSL "https://cli.coderabbit.ai/install.sh" | sh; then
+    if curl --proto '=https' -fsSL "https://cli.coderabbit.ai/install.sh" | sh; then
         log_success "CodeRabbit CLI installed ($(coderabbit_is_installed && coderabbit --version 2>/dev/null))."
     else
         log_error "Failed to install CodeRabbit CLI. Install it manually: curl -fsSL https://cli.coderabbit.ai/install.sh | sh"

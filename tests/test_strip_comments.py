@@ -26,8 +26,10 @@ def test_python_returns_source_unchanged_on_syntax_error():
 def test_c_style_strips_line_and_block_comments():
     source = "a; // line\nb; /* block */ c;\n"
     result = strip_comments(source, "js")
-    assert "//" not in result and "/*" not in result
-    assert "line" not in result and "block" not in result
+    assert "//" not in result
+    assert "/*" not in result
+    assert "line" not in result
+    assert "block" not in result
 
 
 def test_c_style_block_comment_keeps_adjacent_tokens_separated():

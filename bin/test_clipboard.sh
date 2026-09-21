@@ -21,7 +21,7 @@ if command -v pbcopy >/dev/null;  then echo -n "[macos-pbcopy] "; TOOLS_FOUND=1;
 
 if [[ $TOOLS_FOUND -eq 0 ]]; then
     echo "NONE FOUND"
-    echo "❌ Error: No clipboard utilities installed."
+    echo "❌ Error: No clipboard utilities installed." >&2
     exit 1
 else
     echo ""

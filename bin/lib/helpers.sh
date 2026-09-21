@@ -5,7 +5,13 @@
 set -euo pipefail
 
 command_exists() {
-    command -v "$1" >/dev/null 2>&1
+    local name="$1"
+    command -v "$name" >/dev/null 2>&1
+}
+
+print_resolved() {
+    local version="$1" url="$2" cache_key="$3"
+    printf '%s\t%s\t%s\n' "$version" "$url" "$cache_key"
 }
 
 array_contains() {
@@ -35,7 +41,7 @@ download_with_cache() {
     fi
 
     DOWNLOAD_CACHE_HIT=false
-    if ! curl -sL -o "$dest" "$url"; then
+    if ! curl --proto '=https' -sL -o "$dest" "$url"; then
         return 1
     fi
 
@@ -72,7 +78,7 @@ install_from_url() {
     local resolved
     if ! resolved=$("$resolve_fn"); then
         log_error "Failed to resolve $name download URL."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 0
     fi
     local version url cache_key rest
@@ -93,7 +99,7 @@ install_from_url() {
     log_info "Fetching $name${version:+ v$version}..."
     if ! download_with_cache "$name" "$cache_key" "$url" "$artifact_path"; then
         log_error "Failed to download $name from $url"
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 0
     fi
     [[ "$DOWNLOAD_CACHE_HIT" = true ]] && log_info "(using cached download)"
@@ -102,25 +108,29 @@ install_from_url() {
         targz)
             if ! tar xf "$artifact_path" -C "$temp_dir"; then
                 log_error "Failed to extract $name from tarball."
-                log_warn "Continuing with setup..."
+                log_warn "$MSG_CONTINUING_SETUP"
                 return 0
             fi
             ;;
         zip)
             if ! unzip -q "$artifact_path" -d "$temp_dir"; then
                 log_error "Failed to extract $name installer."
-                log_warn "Continuing with setup..."
+                log_warn "$MSG_CONTINUING_SETUP"
                 return 0
             fi
             ;;
         deb)
             : # install_fn handles dpkg -i directly against the raw artifact_path
             ;;
+        *)
+            log_error "Unknown extract kind '$extract_kind' for $name."
+            return 1
+            ;;
     esac
 
     if ! "$install_fn" "$temp_dir" "$version" "$artifact_path"; then
         log_error "Failed to install $name."
-        log_warn "Continuing with setup..."
+        log_warn "$MSG_CONTINUING_SETUP"
         return 0
     fi
 

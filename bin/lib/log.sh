@@ -3,6 +3,9 @@
 
 set -euo pipefail
 
+# shellcheck disable=SC2034  # consumed by helpers.sh and installers.sh
+MSG_CONTINUING_SETUP="Continuing with setup..."
+
 # INFO/SUCCESS are step narration — hidden by default, shown at -v and up.
 # WARNING/ERROR/DRY-RUN are actionable and always shown regardless of verbosity.
 log_info() {

@@ -96,11 +96,12 @@ main() {
                     log_error "--verbosity requires a value (0-6)."
                     exit 1
                 fi
-                if ! [[ "$2" =~ ^[0-9]+$ ]] || [[ "$2" -gt 6 ]]; then
-                    log_error "--verbosity must be an integer from 0 to 6, got '$2'."
+                local verbosity_arg="$2"
+                if ! [[ "$verbosity_arg" =~ ^[0-9]+$ ]] || [[ "$verbosity_arg" -gt 6 ]]; then
+                    log_error "--verbosity must be an integer from 0 to 6, got '$verbosity_arg'."
                     exit 1
                 fi
-                VERBOSITY="$2"
+                VERBOSITY="$verbosity_arg"
                 shift 2
                 ;;
             -h|--help)
@@ -120,7 +121,8 @@ main() {
                 exit 0
                 ;;
             *)
-                log_error "Unknown option: $1"
+                local unknown_option="$1"
+                log_error "Unknown option: $unknown_option"
                 echo "Use --help for usage information"
                 exit 1
                 ;;
