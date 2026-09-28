@@ -73,4 +73,6 @@ def test_git_calls_ignore_repo_location_env(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(argv, 0, stdout="0\n", stderr="")
 
     pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
-    assert envs and all("GIT_DIR" not in e and e["GIT_SSH_COMMAND"] == "ssh -i key" for e in envs)
+    assert envs
+    assert all("GIT_DIR" not in e for e in envs)
+    assert all(e["GIT_SSH_COMMAND"] == "ssh -i key" for e in envs)
