@@ -35,3 +35,6 @@ gradle/.gradle/*
 .pytest_cache/
 .coverage
 /.venv/
+
+# Claude app-synced skills (managed by the app, never stowed)
+claude/.claude/skills/synced/

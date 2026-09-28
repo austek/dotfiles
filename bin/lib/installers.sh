@@ -504,6 +504,28 @@ install_zizmor() {
     install_from_url "zizmor" zizmor_is_installed resolve_zizmor targz install_zizmor_step
 }
 
+mcp_grafana_is_installed() { command -v mcp-grafana &> /dev/null; }
+
+resolve_mcp_grafana() {
+    local version
+    version=$(curl -s "https://api.github.com/repos/grafana/mcp-grafana/releases/latest" | grep -Po '"tag_name": "\K[^"]*' || true)
+    if [[ -z "$version" ]]; then
+        return 1
+    fi
+    print_resolved "$version" \
+        "https://github.com/grafana/mcp-grafana/releases/download/${version}/mcp-grafana_Linux_x86_64.tar.gz" \
+        "mcp-grafana-$version.tar.gz"
+}
+
+install_mcp_grafana_step() {
+    local temp_dir="$1"
+    sudo install "$temp_dir/mcp-grafana" /usr/local/bin
+}
+
+install_mcp_grafana() {
+    install_from_url "mcp-grafana" mcp_grafana_is_installed resolve_mcp_grafana targz install_mcp_grafana_step
+}
+
 coderabbit_is_installed() { command -v coderabbit &> /dev/null; }
 
 # No apt candidate and no plain-binary GitHub release asset (installer script

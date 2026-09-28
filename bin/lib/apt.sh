@@ -438,7 +438,7 @@ configure_apt_sources() {
 install_packages() {
     log_step "Step 4: Installing packages..."
 
-    local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "ruff" "coderabbit")
+    local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit")
 
     if array_contains "oh-my-zsh" "${PACKAGES_TO_INSTALL[@]}"; then
         install_omz
@@ -463,6 +463,9 @@ install_packages() {
     fi
     if array_contains "zizmor" "${PACKAGES_TO_INSTALL[@]}"; then
         install_zizmor
+    fi
+    if array_contains "mcp-grafana" "${PACKAGES_TO_INSTALL[@]}"; then
+        install_mcp_grafana
     fi
     if array_contains "ruff" "${PACKAGES_TO_INSTALL[@]}"; then
         install_ruff
