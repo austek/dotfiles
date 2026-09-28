@@ -61,3 +61,16 @@ def test_missing_upstream_warns(tmp_path, capsys):
     run, _ = _fake_run({"rev-list": (128, "")})
     pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
     assert "upstream" in capsys.readouterr().out
+
+
+def test_git_calls_ignore_repo_location_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_DIR", "/elsewhere/.git")
+    monkeypatch.setenv("GIT_SSH_COMMAND", "ssh -i key")
+    envs = []
+
+    def run(argv, **kwargs):
+        envs.append(kwargs["env"])
+        return subprocess.CompletedProcess(argv, 0, stdout="0\n", stderr="")
+
+    pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
+    assert envs and all("GIT_DIR" not in e and e["GIT_SSH_COMMAND"] == "ssh -i key" for e in envs)

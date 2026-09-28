@@ -1,14 +1,24 @@
 """Fast-forwards the dotfiles checkout before an install so presets and packages are current."""
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
 from dotfiles_setup.log import Logger
 
+_REPO_LOCATION_VARS = (
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX",
+)
+
+
+def _scrubbed_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in _REPO_LOCATION_VARS}
+
 
 def _git(repo: Path, *args: str, run=subprocess.run) -> subprocess.CompletedProcess:
-    return run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    return run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=_scrubbed_env())
 
 
 def _behind_count(repo: Path, run) -> int | None:
