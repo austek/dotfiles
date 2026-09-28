@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dotfiles_setup import identity, overlay, presets, reconcile, state
+from dotfiles_setup import identity, overlay, presets, reconcile, state, update
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.log import Logger
@@ -116,6 +116,7 @@ def _run_install(args: argparse.Namespace) -> int:
     logger.step("Starting Ubuntu Dotfiles Setup...")
 
     dotfiles_dir = _dotfiles_dir()
+    update.pull_if_behind(dotfiles_dir, logger)
     if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
         identity.ensure_git_identity(force=args.reconfigure)
 
