@@ -36,7 +36,7 @@
   - *Title*: `[Jira ID]: [summary]` — adapt to your ticketing system's key format.
   - *Sections*: `### Description of your changes` (≤120 words), `### JIRA reference`, `### Impact Analysis` (≤60 words), `#### Checklist`.
   - *Constraints*: No `####` sub-headers. Comments ≤3 sentences. Extended details belong in commit body.
-- **PR Skills**: Personal/OSS repos — `create-pr-oss`, `review-pr-oss`, `land-pr-oss` (open, review a teammate's PR, drive your own PR to green + address feedback; `land-pr-oss` also resolves threads it fixes). For an internal org's repos, add equivalent `*-oss`-shaped skills scoped to that org's conventions (CODEOWNERS, PR template, issue tracker) via your private overlay — see AGENTS.md's "Presets and Portability".
+- **PR Skills**: Personal/OSS repos — `create-pr-oss`, `review-pr-oss`, `land-pr-oss` (plugin `pr-workflow-oss@ustekai-skills`; open, review a teammate's PR, drive your own PR to green + address feedback; `land-pr-oss` also resolves threads it fixes). For an internal org's repos, add equivalent `*-oss`-shaped skills scoped to that org's conventions (CODEOWNERS, PR template, issue tracker) via your private overlay — see AGENTS.md's "Presets and Portability".
 - **Ticketing/CI integrations**: If your org has a ticketing system or CI/build server with its own conventions (Jira/Jenkins, Linear/CircleCI, etc.), add skills for them the same way — private overlay, not this public repo.
 - **Tests**: Prefer your org's flaky-test-hunting tooling over ad hoc local reruns, if it has one.
 - **Repos**: Push to/pull from your org's artifact repository, if it runs one — configure via your private overlay, not hardcoded here.

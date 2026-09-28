@@ -29,7 +29,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - The setup script handles securely downloading the latest GPG keys.
 
 ### 5. Claude Code Skills
-- Shareable Claude Code skills and commands live in a separate public marketplace repo, [austek/claude-skills](https://github.com/austek/claude-skills), referenced from `claude/.claude/settings.json`'s `extraKnownMarketplaces`/`enabledPlugins`.
+- Shareable Claude Code skills and commands live in a separate public marketplace repo, [austek/claude-skills](https://github.com/austek/claude-skills) (marketplace name `ustekai-skills`, so plugin keys read `<plugin>@ustekai-skills`), referenced from `claude/.claude/settings.json`'s `extraKnownMarketplaces`/`enabledPlugins`.
 - This repo carries no vendored skills or commands of its own.
 - To add a new skill, author it in `austek/claude-skills`, not here.
 
