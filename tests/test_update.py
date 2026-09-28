@@ -48,3 +48,16 @@ def test_fetch_failure_is_not_fatal(tmp_path):
 def test_failed_fast_forward_returns_false(tmp_path):
     run, _ = _fake_run({"rev-list": (0, "1\n"), "pull": (1, "")})
     assert pull_if_behind(tmp_path, Logger(dry_run=False), run=run) is False
+
+
+def test_missing_git_is_not_fatal(tmp_path):
+    def run(argv, **_):
+        raise FileNotFoundError("git")
+
+    assert pull_if_behind(tmp_path, Logger(dry_run=False), run=run) is False
+
+
+def test_missing_upstream_warns(tmp_path, capsys):
+    run, _ = _fake_run({"rev-list": (128, "")})
+    pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
+    assert "upstream" in capsys.readouterr().out

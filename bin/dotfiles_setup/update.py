@@ -18,11 +18,19 @@ def _behind_count(repo: Path, run) -> int | None:
 
 def pull_if_behind(repo: Path, logger: Logger, run=subprocess.run) -> bool:
     """Fetches upstream and fast-forwards when behind; returns True if it pulled. Never fails the install."""
-    if _git(repo, "fetch", "--quiet", run=run).returncode != 0:
+    try:
+        fetched = _git(repo, "fetch", "--quiet", run=run)
+    except FileNotFoundError:
+        logger.warn("git is not installed; skipping dotfiles update.")
+        return False
+    if fetched.returncode != 0:
         logger.warn("Could not fetch dotfiles updates; continuing with the current checkout.")
         return False
     behind = _behind_count(repo, run)
-    if not behind:
+    if behind is None:
+        logger.warn("Could not determine the dotfiles upstream; continuing with the current checkout.")
+        return False
+    if behind == 0:
         return False
     if logger.dry_run_notice(f"Would pull {behind} new dotfiles commit(s)."):
         return False
