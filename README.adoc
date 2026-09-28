@@ -62,7 +62,9 @@ git clone <your-repo-url> ~/.dotfiles
 ~/.dotfiles/bin/dotfiles-setup install --preset homelab
 ----
 
-Run `dotfiles-setup install`, not `setup.sh` directly. The first time you run it for a preset on this
+Run `dotfiles-setup install`, not `setup.sh` directly. Before anything else it fetches this repo and
+fast-forwards it when new commits exist, so presets and package lists are current; a failed fetch or
+fast-forward (dirty tree, diverged branch) only warns. The first time you run it for a preset on this
 machine it prompts for your git name, email, and (optionally) an SSH signing key, and writes them to
 `~/.gitconfig.local`; it resolves the preset's package lists and forks the result to
 `~/.config/dotfiles/packages/<preset>.txt`; and it detects any `~/.dotfiles-private` overlay and layers
