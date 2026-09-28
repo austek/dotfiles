@@ -124,6 +124,7 @@ def isolated_dotfiles(tmp_path, monkeypatch):
     monkeypatch.setattr("dotfiles_setup.cli.state.STATE_FILE", tmp_path / "state" / "state.json")
     monkeypatch.setattr("dotfiles_setup.cli.state.PACKAGE_DIR", tmp_path / "state" / "packages")
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: None)
+    monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda *a, **kw: False)
     monkeypatch.setattr("dotfiles_setup.cli.identity.ensure_git_identity", lambda **kw: tmp_path / "gitconfig.local")
 
     def fake_run(argv, **kwargs):
@@ -285,3 +286,10 @@ def test_install_omits_private_root_when_no_overlay(isolated_dotfiles, monkeypat
 def test_install_raises_helpful_error_for_unknown_preset(isolated_dotfiles, capsys):
     assert main(["install", "--preset", "nonexistent"]) == 1
     assert "nonexistent" in capsys.readouterr().err
+
+
+def test_install_checks_for_dotfiles_updates_first(isolated_dotfiles, monkeypatch):
+    seen = []
+    monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda repo, logger: seen.append(repo) or False)
+    main(["install", "--preset", "homelab"])
+    assert seen == [isolated_dotfiles[0]]
