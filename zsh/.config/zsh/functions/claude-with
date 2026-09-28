@@ -5,11 +5,13 @@ claude-with() {
   local -A restore_commands=(
     idea                 "claude mcp add --transport http idea http://127.0.0.1:64342/stream -s local"
     sonarqube            "claude mcp add sonarqube -s local -- sonar run mcp"
+    grafana              "claude mcp add grafana -s local -e GRAFANA_URL=https://hominux.duckdns.org/grafana -e GRAFANA_SERVICE_ACCOUNT_TOKEN=\$GRAFANA_SERVICE_ACCOUNT_TOKEN -- mcp-grafana"
     datadog              "claude plugin enable datadog@claude-plugins-official -s local"
   )
   local -A revert_commands=(
     idea                 "claude mcp remove idea -s local"
     sonarqube            "claude mcp remove sonarqube -s local"
+    grafana              "claude mcp remove grafana -s local"
     datadog              "claude plugin disable datadog@claude-plugins-official -s local"
   )
 
@@ -42,6 +44,10 @@ claude-with() {
     fi
     if [[ "$line" == *'DEVELOCITY_MCP_TOKEN'* && -z "$DEVELOCITY_MCP_TOKEN" ]]; then
       echo "claude-with: \$DEVELOCITY_MCP_TOKEN is not set (check ~/.zshrc.secret)" >&2
+      continue
+    fi
+    if [[ "$line" == *'GRAFANA_SERVICE_ACCOUNT_TOKEN'* && -z "$GRAFANA_SERVICE_ACCOUNT_TOKEN" ]]; then
+      echo "claude-with: \$GRAFANA_SERVICE_ACCOUNT_TOKEN is not set (check ~/.zshrc.secret)" >&2
       continue
     fi
     echo "claude-with: enabling $name (local scope)..."

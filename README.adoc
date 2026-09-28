@@ -146,7 +146,7 @@ Packages listed in `.stow-packages` are stowed unfolded (one symlink per file) s
 
 === Claude Code Skills
 
-Shareable Claude Code skills and commands live in a separate public repo, https://github.com/austek/claude-skills[austek/claude-skills], packaged as a Claude Code plugin marketplace and referenced from `claude/.claude/settings.json`.
+Shareable Claude Code skills and commands live in a separate public repo, https://github.com/austek/claude-skills[austek/claude-skills], packaged as a Claude Code plugin marketplace named `ustekai-skills` (plugin keys read `<plugin>@ustekai-skills`) and referenced from `claude/.claude/settings.json`.
 This repo carries no vendored skills or commands of its own.
 Add a new skill there, not here.
 
