@@ -59,3 +59,28 @@ def load_claude_settings(base_path: Path, overlay_root: Path | None, preset_name
         else None
     )
     return merge_claude_settings(base, overlay)
+
+
+def _union(base: list, extra: list) -> list:
+    return [*base, *(item for item in extra if item not in base)]
+
+
+def merge_settings(base: dict, overlay: dict) -> dict:
+    merged = dict(base)
+    for key, value in overlay.items():
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = merge_settings(current, value)
+        elif isinstance(value, list) and isinstance(current, list):
+            merged[key] = _union(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_settings(base_path: Path, overlay_root: Path | None) -> dict:
+    base = json.loads(base_path.read_text())
+    overlay_path = overlay_root / "claude-settings" / "settings.json" if overlay_root else None
+    if overlay_path is None or not overlay_path.is_file():
+        return base
+    return merge_settings(base, json.loads(overlay_path.read_text()))

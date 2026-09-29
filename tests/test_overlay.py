@@ -3,7 +3,9 @@ import json
 from dotfiles_setup.overlay import (
     find_overlay_root,
     load_claude_settings,
+    load_settings,
     merge_claude_settings,
+    merge_settings,
     overlay_package_names,
 )
 
@@ -82,3 +84,28 @@ def test_load_claude_settings_base_only_when_no_overlay(tmp_path):
 
 def test_load_claude_settings_empty_dict_when_base_missing(tmp_path):
     assert load_claude_settings(tmp_path / "nonexistent.json", None, "work") == {}
+
+
+def test_merge_settings_unions_lists_keeping_base_order():
+    base = {"permissions": {"allow": ["a", "b"]}}
+    overlay = {"permissions": {"allow": ["b", "c"]}}
+    assert merge_settings(base, overlay) == {"permissions": {"allow": ["a", "b", "c"]}}
+
+
+def test_merge_settings_overlay_scalar_wins():
+    assert merge_settings({"x": 1}, {"x": 2}) == {"x": 2}
+
+
+def test_load_settings_returns_base_without_overlay(tmp_path):
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps({"a": 1}))
+    assert load_settings(base_path, None) == {"a": 1}
+    assert load_settings(base_path, tmp_path) == {"a": 1}
+
+
+def test_load_settings_merges_overlay_file(tmp_path):
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps({"enabledPlugins": {"a": True}}))
+    (tmp_path / "claude-settings").mkdir()
+    (tmp_path / "claude-settings" / "settings.json").write_text(json.dumps({"enabledPlugins": {"b": True}}))
+    assert load_settings(base_path, tmp_path) == {"enabledPlugins": {"a": True, "b": True}}
