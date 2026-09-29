@@ -133,14 +133,14 @@ def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None
     staged.replace(target)
 
 
-def _write_claude_settings(
-    logger: Logger, dotfiles_dir: Path, overlay_root: Path | None, claude_home: Path,
-) -> None:
+def _merged_claude_settings(dotfiles_dir: Path, overlay_root: Path | None) -> dict:
+    return overlay.load_settings(dotfiles_dir / "claude" / ".claude" / "settings.json", overlay_root)
+
+
+def _write_claude_settings(logger: Logger, merged: dict, claude_home: Path) -> None:
     target = claude_home / "settings.json"
     if logger.dry_run_notice(f"Would generate {target}."):
         return
-    base_path = dotfiles_dir / "claude" / ".claude" / "settings.json"
-    merged = overlay.load_settings(base_path, overlay_root)
     claude_home.mkdir(parents=True, exist_ok=True)
     rendered = json.dumps(merged, indent=2, ensure_ascii=False) + "\n"
     _replace_settings_target(target, rendered, datetime.now(UTC))
@@ -188,7 +188,8 @@ def _run_install(args: argparse.Namespace) -> int:
 
     claude_dir = state.STATE_DIR / "claude-profiles"
     _write_claude_profile(logger, preset, dotfiles_dir, claude_dir, overlay_root, args.preset)
-    _write_claude_settings(logger, dotfiles_dir, overlay_root, CLAUDE_HOME)
+    claude_settings = _merged_claude_settings(dotfiles_dir, overlay_root)
+    _write_claude_settings(logger, claude_settings, CLAUDE_HOME)
 
     result = backend.install(
         package_file, preset_name=args.preset, claude_profile_dir=claude_dir,
@@ -200,7 +201,7 @@ def _run_install(args: argparse.Namespace) -> int:
         _log_install_failure(logger, result)
         return result.returncode
 
-    claude_plugins.update_claude_plugins(logger)
+    claude_plugins.update_claude_plugins(logger, claude_settings)
 
     if not args.dry_run:
         state.save_state(state.MachineState(

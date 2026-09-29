@@ -102,7 +102,7 @@ def test_top_level_help_lists_install_subcommand_and_examples(capsys):
 @pytest.fixture
 def plugin_updates(monkeypatch):
     calls = []
-    monkeypatch.setattr("dotfiles_setup.cli.claude_plugins.update_claude_plugins", lambda logger: calls.append(logger))
+    monkeypatch.setattr("dotfiles_setup.cli.claude_plugins.update_claude_plugins", lambda logger, settings: calls.append(logger))
     return calls
 
 
