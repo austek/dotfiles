@@ -26,27 +26,34 @@ def _behind_count(repo: Path, run) -> int | None:
     return int(result.stdout) if result.returncode == 0 else None
 
 
-def pull_if_behind(repo: Path, logger: Logger, run=subprocess.run) -> bool:
+def pull_if_behind(repo: Path, logger: Logger, run=subprocess.run, label: str = "dotfiles") -> bool:
     """Fetches upstream and fast-forwards when behind; returns True if it pulled. Never fails the install."""
     try:
         fetched = _git(repo, "fetch", "--quiet", run=run)
     except FileNotFoundError:
-        logger.warn("git is not installed; skipping dotfiles update.")
+        logger.warn(f"git is not installed; skipping {label} update.")
         return False
     if fetched.returncode != 0:
-        logger.warn("Could not fetch dotfiles updates; continuing with the current checkout.")
+        logger.warn(f"Could not fetch {label} updates; continuing with the current checkout.")
         return False
     behind = _behind_count(repo, run)
     if behind is None:
-        logger.warn("Could not determine the dotfiles upstream; continuing with the current checkout.")
+        logger.warn(f"Could not determine the {label} upstream; continuing with the current checkout.")
         return False
     if behind == 0:
         return False
-    if logger.dry_run_notice(f"Would pull {behind} new dotfiles commit(s)."):
+    if logger.dry_run_notice(f"Would pull {behind} new {label} commit(s)."):
         return False
     pulled = _git(repo, "pull", "--ff-only", "--quiet", run=run)
     if pulled.returncode != 0:
-        logger.warn(f"Could not fast-forward dotfiles ({behind} new commit(s)): {pulled.stderr.strip()}")
+        logger.warn(f"Could not fast-forward {label} ({behind} new commit(s)): {pulled.stderr.strip()}")
         return False
-    logger.info(f"Pulled {behind} new dotfiles commit(s).")
+    logger.info(f"Pulled {behind} new {label} commit(s).")
     return True
+
+
+def pull_overlay_if_git(overlay_root: Path | None, logger: Logger, run=subprocess.run) -> bool:
+    """Pulls the private overlay when it is a git checkout; a bare local overlay directory is left alone."""
+    if overlay_root is None or not (overlay_root / ".git").exists():
+        return False
+    return pull_if_behind(overlay_root, logger, run=run, label="dotfiles-private")

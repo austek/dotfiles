@@ -293,3 +293,13 @@ def test_install_checks_for_dotfiles_updates_first(isolated_dotfiles, monkeypatc
     monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda repo, logger: seen.append(repo) or False)
     main(["install", "--preset", "homelab"])
     assert seen == [isolated_dotfiles[0]]
+
+
+def test_install_pulls_private_overlay_after_dotfiles(isolated_dotfiles, monkeypatch, tmp_path):
+    private = tmp_path / "private"
+    private.mkdir()
+    seen = []
+    monkeypatch.setattr("dotfiles_setup.cli.overlay.find_overlay_root", lambda: private)
+    monkeypatch.setattr("dotfiles_setup.cli.update.pull_overlay_if_git", lambda root, logger: seen.append(root) or False)
+    main(["install", "--preset", "homelab"])
+    assert seen == [private]

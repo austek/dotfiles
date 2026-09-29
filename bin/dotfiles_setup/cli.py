@@ -117,6 +117,7 @@ def _run_install(args: argparse.Namespace) -> int:
 
     dotfiles_dir = _dotfiles_dir()
     update.pull_if_behind(dotfiles_dir, logger)
+    update.pull_overlay_if_git(overlay.find_overlay_root(), logger)
     if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
         identity.ensure_git_identity(force=args.reconfigure)
 

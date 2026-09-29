@@ -1,7 +1,7 @@
 import subprocess
 
 from dotfiles_setup.log import Logger
-from dotfiles_setup.update import pull_if_behind
+from dotfiles_setup.update import pull_if_behind, pull_overlay_if_git
 
 
 def _fake_run(responses):
@@ -76,3 +76,29 @@ def test_git_calls_ignore_repo_location_env(tmp_path, monkeypatch):
     assert envs
     assert all("GIT_DIR" not in e for e in envs)
     assert all(e["GIT_SSH_COMMAND"] == "ssh -i key" for e in envs)
+
+
+def test_overlay_pull_skips_missing_overlay():
+    run, calls = _fake_run({})
+    assert pull_overlay_if_git(None, Logger(dry_run=False), run=run) is False
+    assert calls == []
+
+
+def test_overlay_pull_skips_non_git_directory(tmp_path):
+    run, calls = _fake_run({})
+    assert pull_overlay_if_git(tmp_path, Logger(dry_run=False), run=run) is False
+    assert calls == []
+
+
+def test_overlay_pull_pulls_git_checkout(tmp_path):
+    (tmp_path / ".git").mkdir()
+    run, calls = _fake_run({"rev-list": (0, "1\n")})
+    assert pull_overlay_if_git(tmp_path, Logger(dry_run=False), run=run) is True
+    assert calls == ["fetch", "rev-list", "pull"]
+
+
+def test_overlay_pull_warning_names_private_repo(tmp_path, capsys):
+    (tmp_path / ".git").mkdir()
+    run, _ = _fake_run({"rev-list": (128, "")})
+    pull_overlay_if_git(tmp_path, Logger(dry_run=False), run=run)
+    assert "dotfiles-private upstream" in capsys.readouterr().out
