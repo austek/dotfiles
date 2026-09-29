@@ -202,6 +202,7 @@ def _run_install(args: argparse.Namespace) -> int:
         return result.returncode
 
     claude_plugins.update_claude_plugins(logger, claude_settings)
+    backend.print_completion(dry_run=args.dry_run, run=subprocess.run)
 
     if not args.dry_run:
         state.save_state(state.MachineState(
