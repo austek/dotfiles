@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dotfiles_setup import identity, overlay, presets, reconcile, state, update
+from dotfiles_setup import claude_plugins, identity, overlay, presets, reconcile, state, update
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.log import Logger
@@ -179,6 +179,8 @@ def _run_install(args: argparse.Namespace) -> int:
     if not result.succeeded:
         _log_install_failure(logger, result)
         return result.returncode
+
+    claude_plugins.update_claude_plugins(logger)
 
     if not args.dry_run:
         state.save_state(state.MachineState(

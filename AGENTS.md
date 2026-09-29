@@ -33,6 +33,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - This repo carries no vendored skills or commands of its own.
 - `~/.claude/settings.json` is generated, not stowed: `dotfiles-setup install` merges `claude/.claude/settings.json` (base) with the overlay's `claude-settings/settings.json` (objects deep-merge, lists union) and backs up a differing existing file to `settings.json.bak-<timestamp>`. Edit the base or the overlay, never the generated file.
 - To add a new skill, author it in `austek/ustekai-skills`, not here.
+- `dotfiles-setup install` ends by running `claude plugin marketplace update` and `claude plugin update` for each user-scope plugin (`bin/dotfiles_setup/claude_plugins.py`). Failures warn and never fail the install; Claude Code needs a restart to apply updates.
 
 ## Presets and Portability
 - Presets are manifests at `presets/<name>.json` (this repo ships `work`, `personal`, `homelab`); each lists which `packages/` files to install and which `claude-profiles/*.json` supplies Claude Code settings. Add a machine type by dropping in a new `presets/<name>.json`, not by editing code.
