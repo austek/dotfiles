@@ -116,3 +116,13 @@ def test_failing_action_continues_with_the_rest():
     run, calls = _fake_run({"install": (1, "")})
     update_claude_plugins(Logger(dry_run=False), SETTINGS, run=run)
     assert ("update", "a@m", "--scope", "user") in calls
+
+
+def test_every_installed_plugin_is_updated_and_progress_is_logged(capsys):
+    many = [{"id": f"p{i}@m", "scope": "user"} for i in range(9)]
+    settings = {**SETTINGS, "enabledPlugins": {p["id"]: True for p in many}}
+    run, calls = _fake_run(installed=many)
+    update_claude_plugins(Logger(dry_run=False, verbosity=1), settings, run=run)
+    updated = {c[1] for c in calls if c[0] == "update" and len(c) > 1 and c[1].startswith("p")}
+    assert updated == {p["id"] for p in many}
+    assert "Running: update p0@m" in capsys.readouterr().out

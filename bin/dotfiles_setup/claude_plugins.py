@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from dotfiles_setup.log import Logger
 
 LEGACY_MARKETPLACES = frozenset({"claude-skills"})
+UPDATE_WORKERS = 4
 
 
 @dataclass(frozen=True)
@@ -102,9 +104,19 @@ def _snapshot(run) -> tuple[frozenset[str], tuple[str, ...]] | None:
 def _apply(action: Action, logger: Logger, run) -> None:
     if logger.dry_run_notice(f"Would {action.label}."):
         return
+    logger.info(f"Running: {action.label}")
     result = _claude(*action.args, run=run)
     if result.returncode != 0:
         logger.warn(f"Could not {action.label}: {result.stderr.strip() or result.stdout.strip()}")
+
+
+def _apply_all(actions: tuple[Action, ...], logger: Logger, run) -> None:
+    updates = [a for a in actions if a.args[0] == "update"]
+    for action in (a for a in actions if a not in updates):
+        _apply(action, logger, run)
+    workers = 1 if logger.dry_run else UPDATE_WORKERS
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(lambda a: _apply(a, logger, run), updates))
 
 
 def update_claude_plugins(logger: Logger, settings: dict, run=subprocess.run) -> None:
@@ -115,8 +127,7 @@ def update_claude_plugins(logger: Logger, settings: dict, run=subprocess.run) ->
             logger.warn("Could not list Claude Code plugins; skipping plugin sync.")
             return
         actions = plan_actions(settings, *snapshot)
-        for action in actions:
-            _apply(action, logger, run)
+        _apply_all(actions, logger, run)
     except FileNotFoundError:
         logger.warn("claude is not installed; skipping plugin sync.")
         return
