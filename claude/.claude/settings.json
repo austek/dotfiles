@@ -1,8 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh api repos/compress4j/*/rulesets/*:*)",
-      "Bash(gh api repos/ZirekHQ/*/rulesets:*)",
+      "Bash(gh api repos/compress4j/*/rulesets/*)",
+      "Bash(gh api repos/ZirekHQ/*/rulesets*)",
       "mcp__serena__*"
     ],
     "defaultMode": "auto"
