@@ -69,14 +69,15 @@ ZSH_THEME="robbyrussell"
 # or set a custom format using the strftime function format specifications,
 # see 'man strftime' for details.
 HIST_STAMPS="yyyy-mm-dd"
-#setopt HIST_EXPIRE_DUPS_FIRST
 setopt HIST_IGNORE_DUPS
 setopt HIST_IGNORE_ALL_DUPS
 setopt HIST_IGNORE_SPACE
-#setopt HIST_FIND_NO_DUPS
-#setopt HIST_SAVE_NO_DUPS
+setopt HIST_REDUCE_BLANKS
+setopt HIST_SAVE_NO_DUPS
+setopt HIST_FIND_NO_DUPS
 
-export HIST_IGNORE_PATTERN='(git reset*|reboot|shutdown|cat|cd|cp|echo|exit|export|history|less|ll|ln|ls|man|mkdir|mv|ps|pwd|rm|tail|tree|where|which|..|~)'
+# The trailing (| *) makes each entry match bare or with arguments, but not prefixes: ls is ignored, lsof is saved.
+HISTORY_IGNORE='(git reset*|git status|git log|git diff|git branch|reboot|shutdown|cat|cd|cp|echo|exit|export|history|less|ll|ln|ls|man|mkcd|mkdir|mv|ps|pwd|rm|tail|head|multitail|tar|tree|touch|unzip|wc|wget|whence|where|which|zip|apt|apt-get|dpkg|pacman|clear|df|du|free|ping|dig|nslookup|ip|ifconfig|netstat|ss|nmap|lsusb|lsmod|lspci|dmidecode|glxinfo|kill|killall|source|deactivate|claude --resume*|claude-burst --resume*|chmod *|..|~)(| *)'
 
 # Would you like to use another custom folder than $ZSH/custom?
 # ZSH_CUSTOM=$DOTFILES/omz/custom

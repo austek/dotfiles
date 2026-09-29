@@ -1,6 +1,6 @@
 # Temporarily enables MCP servers/plugins (local scope) for one claude session,
-# reverting them on exit. Add your own entries to restore_commands/revert_commands
-# for org-specific MCP servers. Usage: claude-with <name> [<name> ...] [-- <claude-args...>]
+# reverting them on exit. Org-specific entries go in ~/.config/zsh/claude-with.d/*.zsh,
+# which add to restore_commands/revert_commands. Usage: claude-with <name> [<name> ...] [-- <claude-args...>]
 claude-with() {
   local -A restore_commands=(
     idea                 "claude mcp add --transport http idea http://127.0.0.1:64342/stream -s local"
@@ -14,6 +14,11 @@ claude-with() {
     grafana              "claude mcp remove grafana -s local"
     datadog              "claude plugin disable datadog@claude-plugins-official -s local"
   )
+
+  local extension
+  for extension in "$HOME"/.config/zsh/claude-with.d/*.zsh(N); do
+    source "$extension"
+  done
 
   if [[ $# -eq 0 ]]; then
     echo "Usage: claude-with <name> [<name> ...] [-- <claude-args>]" >&2
