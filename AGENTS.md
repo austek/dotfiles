@@ -20,7 +20,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - `snapd` is automatically removed and blocked via an `apt` preference file in the `system/` package. Do not write scripts that rely on snap packages.
 
 ### 3. Preset-Aware Setup
-- The setup is preset-aware; the `setup.sh` script requires a `--preset work`, `--preset personal`, or `--preset homelab` argument.
+- The setup is preset-aware; `setup.sh` requires a `--preset work`, `--preset personal`, or `--preset homelab` argument. `dotfiles-setup install` requires `--preset` only on a machine with no saved preset; otherwise it reuses the saved one, and an explicit `--preset` overrides and replaces it.
 - It builds configuration files based on the chosen preset.
 - Per-preset Claude Code settings are stored in `~/.dotfiles/claude-profiles/`. See "Presets and Portability" below for how a preset's package list is resolved and forked per machine.
 
