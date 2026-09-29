@@ -109,3 +109,7 @@ def test_load_settings_merges_overlay_file(tmp_path):
     (tmp_path / "claude-settings").mkdir()
     (tmp_path / "claude-settings" / "settings.json").write_text(json.dumps({"enabledPlugins": {"b": True}}))
     assert load_settings(base_path, tmp_path) == {"enabledPlugins": {"a": True, "b": True}}
+
+
+def test_merge_settings_deduplicates_repeats_within_the_overlay_list():
+    assert merge_settings({"allow": ["a"]}, {"allow": ["b", "b"]}) == {"allow": ["a", "b"]}

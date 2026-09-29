@@ -62,7 +62,11 @@ def load_claude_settings(base_path: Path, overlay_root: Path | None, preset_name
 
 
 def _union(base: list, extra: list) -> list:
-    return [*base, *(item for item in extra if item not in base)]
+    result = list(base)
+    for item in extra:
+        if item not in result:
+            result.append(item)
+    return result
 
 
 def merge_settings(base: dict, overlay: dict) -> dict:

@@ -356,18 +356,16 @@ def test_install_keeps_existing_settings_when_staging_fails(isolated_dotfiles, t
     claude_home = tmp_path / "claude-home"
     claude_home.mkdir()
     (claude_home / "settings.json").write_text('{"hand": "edited"}')
-    real_write_text = Path.write_text
 
-    def failing_write_text(self, *args, **kwargs):
-        if self.name.endswith(".tmp"):
-            raise OSError("disk full")
-        return real_write_text(self, *args, **kwargs)
+    def failing_fdopen(*args, **kwargs):
+        raise OSError("disk full")
 
-    monkeypatch.setattr(Path, "write_text", failing_write_text)
+    monkeypatch.setattr("dotfiles_setup.cli.os.fdopen", failing_fdopen)
     with pytest.raises(OSError):
         main(["install", "--preset", "homelab"])
     assert (claude_home / "settings.json").read_text() == '{"hand": "edited"}'
     assert not list(claude_home.glob("settings.json.bak-*"))
+    assert not list(claude_home.glob("settings.json.*.tmp"))
 
 
 def test_install_leaves_identical_settings_untouched(isolated_dotfiles, tmp_path):
@@ -395,3 +393,18 @@ def test_install_skips_claude_plugin_update_when_the_backend_fails(isolated_dotf
     monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
     main(["install", "--preset", "homelab"])
     assert plugin_updates == []
+
+
+def test_settings_replacement_leaves_a_preexisting_shared_tmp_file_alone(tmp_path):
+    from datetime import UTC, datetime
+
+    from dotfiles_setup.cli import _replace_settings_target
+
+    target = tmp_path / "settings.json"
+    target.write_text("old")
+    other_install = tmp_path / "settings.json.tmp"
+    other_install.write_text("in flight")
+    _replace_settings_target(target, "new", datetime.now(UTC))
+    assert target.read_text() == "new"
+    assert other_install.read_text() == "in flight"
+    assert sorted(p.name for p in tmp_path.glob("settings.json.*.tmp")) == []

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -102,12 +104,22 @@ def _write_claude_profile(
     claude_profile_path.write_text(json.dumps(merged, indent=2) + "\n")
 
 
+def _stage(target: Path, rendered: str) -> Path:
+    descriptor, name = tempfile.mkstemp(dir=target.parent, prefix=f"{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as staged:
+            staged.write(rendered)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+    return Path(name)
+
+
 def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None:
     existing = target.is_file() and not target.is_symlink()
     if existing and target.read_text(encoding="utf-8") == rendered:
         return
-    staged = target.with_name(f"{target.name}.tmp")
-    staged.write_text(rendered, encoding="utf-8")
+    staged = _stage(target, rendered)
     if existing:
         target.rename(target.with_name(f"{target.name}.bak-{now:%Y%m%d%H%M%S}"))
     staged.replace(target)
