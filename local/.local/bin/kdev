@@ -40,22 +40,22 @@ case "$cmd" in
         else
             kind create cluster --name "$CLUSTER_NAME" \
                 --config "$CONFIG_PATH" \
-                --image "kindest/node:${K8S_VERSION}"
+                --image "kindest/node:${K8S_VERSION}" || exit 1
 
             echo "⏳ Waiting for API server..."
-            kubectl wait --namespace kube-system \
+            kubectl --context "kind-${CLUSTER_NAME}" wait --namespace kube-system \
                 --for=condition=ready pod \
                 --selector=component=kube-apiserver \
-                --timeout=90s
+                --timeout=90s || exit 1
 
             echo "🚧 Installing Ingress Controller..."
-            kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+            kubectl --context "kind-${CLUSTER_NAME}" apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml || exit 1
 
             echo "⏳ Waiting for Ingress..."
-            kubectl wait --namespace ingress-nginx \
+            kubectl --context "kind-${CLUSTER_NAME}" wait --namespace ingress-nginx \
                 --for=condition=ready pod \
                 --selector=app.kubernetes.io/component=controller \
-                --timeout=120s
+                --timeout=120s || exit 1
         fi
         echo "✅ Environment Ready!"
         ;;
@@ -121,7 +121,7 @@ case "$cmd" in
     status)
         kubectl cluster-info --context "kind-${CLUSTER_NAME}"
         echo ""
-        kubectl get nodes -o wide
+        kubectl --context "kind-${CLUSTER_NAME}" get nodes -o wide
         ;;
 
     *)

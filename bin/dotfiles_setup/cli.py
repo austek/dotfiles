@@ -103,11 +103,14 @@ def _write_claude_profile(
 
 
 def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None:
-    if target.is_symlink():
-        target.unlink()
-    elif target.is_file() and target.read_text() != rendered:
+    existing = target.is_file() and not target.is_symlink()
+    if existing and target.read_text(encoding="utf-8") == rendered:
+        return
+    staged = target.with_name(f"{target.name}.tmp")
+    staged.write_text(rendered, encoding="utf-8")
+    if existing:
         target.rename(target.with_name(f"{target.name}.bak-{now:%Y%m%d%H%M%S}"))
-    target.write_text(rendered)
+    staged.replace(target)
 
 
 def _write_claude_settings(

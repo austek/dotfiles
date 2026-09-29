@@ -79,8 +79,8 @@ def merge_settings(base: dict, overlay: dict) -> dict:
 
 
 def load_settings(base_path: Path, overlay_root: Path | None) -> dict:
-    base = json.loads(base_path.read_text())
+    base = json.loads(base_path.read_text(encoding="utf-8"))
     overlay_path = overlay_root / "claude-settings" / "settings.json" if overlay_root else None
     if overlay_path is None or not overlay_path.is_file():
         return base
-    return merge_settings(base, json.loads(overlay_path.read_text()))
+    return merge_settings(base, json.loads(overlay_path.read_text(encoding="utf-8")))

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from dotfiles_setup import overlay, state
@@ -342,3 +343,30 @@ def test_install_replaces_settings_symlink_without_writing_through(isolated_dotf
 def test_dry_run_skips_claude_settings_write(isolated_dotfiles, tmp_path):
     assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
     assert not (tmp_path / "claude-home" / "settings.json").exists()
+
+
+def test_install_keeps_existing_settings_when_staging_fails(isolated_dotfiles, tmp_path, monkeypatch):
+    claude_home = tmp_path / "claude-home"
+    claude_home.mkdir()
+    (claude_home / "settings.json").write_text('{"hand": "edited"}')
+    real_write_text = Path.write_text
+
+    def failing_write_text(self, *args, **kwargs):
+        if self.name.endswith(".tmp"):
+            raise OSError("disk full")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write_text)
+    with pytest.raises(OSError):
+        main(["install", "--preset", "homelab"])
+    assert (claude_home / "settings.json").read_text() == '{"hand": "edited"}'
+    assert not list(claude_home.glob("settings.json.bak-*"))
+
+
+def test_install_leaves_identical_settings_untouched(isolated_dotfiles, tmp_path):
+    assert main(["install", "--preset", "homelab"]) == 0
+    settings = tmp_path / "claude-home" / "settings.json"
+    before = settings.stat().st_mtime_ns
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert settings.stat().st_mtime_ns == before
+    assert not list(settings.parent.glob("settings.json.bak-*"))
