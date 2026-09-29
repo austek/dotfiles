@@ -1,3 +1,4 @@
 zizmor
 ruff
 coderabbit
+mcp-grafana
