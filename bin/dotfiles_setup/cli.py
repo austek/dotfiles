@@ -4,18 +4,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dotfiles_setup import identity, overlay, presets, reconcile, state, update
+from dotfiles_setup import (
+    claude_plugins,
+    identity,
+    overlay,
+    presets,
+    reconcile,
+    state,
+    update,
+)
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.log import Logger
 from dotfiles_setup.presets import Preset
 
 PRESETS = ("work", "personal", "homelab")
+CLAUDE_HOME = Path.home() / ".claude"
 
 
 class _AddVerbosity(argparse.Action):
@@ -101,6 +112,40 @@ def _write_claude_profile(
     claude_profile_path.write_text(json.dumps(merged, indent=2) + "\n")
 
 
+def _stage(target: Path, rendered: str) -> Path:
+    descriptor, name = tempfile.mkstemp(dir=target.parent, prefix=f"{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as staged:
+            staged.write(rendered)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+    return Path(name)
+
+
+def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None:
+    existing = target.is_file() and not target.is_symlink()
+    if existing and target.read_text(encoding="utf-8") == rendered:
+        return
+    staged = _stage(target, rendered)
+    if existing:
+        target.rename(target.with_name(f"{target.name}.bak-{now:%Y%m%d%H%M%S}"))
+    staged.replace(target)
+
+
+def _write_claude_settings(
+    logger: Logger, dotfiles_dir: Path, overlay_root: Path | None, claude_home: Path,
+) -> None:
+    target = claude_home / "settings.json"
+    if logger.dry_run_notice(f"Would generate {target}."):
+        return
+    base_path = dotfiles_dir / "claude" / ".claude" / "settings.json"
+    merged = overlay.load_settings(base_path, overlay_root)
+    claude_home.mkdir(parents=True, exist_ok=True)
+    rendered = json.dumps(merged, indent=2, ensure_ascii=False) + "\n"
+    _replace_settings_target(target, rendered, datetime.now(UTC))
+
+
 def _log_install_failure(logger: Logger, result: InstallResult) -> None:
     # backends/apt.py streams setup.sh output live; stdout is set only when a caller passes a capturing run (tests).
     if result.stdout:
@@ -143,6 +188,7 @@ def _run_install(args: argparse.Namespace) -> int:
 
     claude_dir = state.STATE_DIR / "claude-profiles"
     _write_claude_profile(logger, preset, dotfiles_dir, claude_dir, overlay_root, args.preset)
+    _write_claude_settings(logger, dotfiles_dir, overlay_root, CLAUDE_HOME)
 
     result = backend.install(
         package_file, preset_name=args.preset, claude_profile_dir=claude_dir,
@@ -153,6 +199,8 @@ def _run_install(args: argparse.Namespace) -> int:
     if not result.succeeded:
         _log_install_failure(logger, result)
         return result.returncode
+
+    claude_plugins.update_claude_plugins(logger)
 
     if not args.dry_run:
         state.save_state(state.MachineState(

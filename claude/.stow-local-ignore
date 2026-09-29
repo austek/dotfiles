@@ -1,2 +1,4 @@
 # Claude app-managed sync output; real files live in ~/.claude/skills/synced
 ^/\.claude/skills/synced
+# Generated into ~/.claude by dotfiles-setup (base + overlay); stowing it would conflict.
+^/\.claude/settings\.json

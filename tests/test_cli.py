@@ -100,7 +100,14 @@ def test_top_level_help_lists_install_subcommand_and_examples(capsys):
 
 
 @pytest.fixture
-def isolated_dotfiles(tmp_path, monkeypatch):
+def plugin_updates(monkeypatch):
+    calls = []
+    monkeypatch.setattr("dotfiles_setup.cli.claude_plugins.update_claude_plugins", lambda logger: calls.append(logger))
+    return calls
+
+
+@pytest.fixture
+def isolated_dotfiles(tmp_path, monkeypatch, plugin_updates):
     """A minimal fake dotfiles_dir with one preset + its package files, plus
     state/overlay redirected into tmp_path so tests never touch the real
     machine's ~/.config/dotfiles or ~/.dotfiles-private."""
@@ -117,7 +124,11 @@ def isolated_dotfiles(tmp_path, monkeypatch):
     (dotfiles_dir / "packages" / "apt_common.txt").write_text("zsh\ncurl\n")
     (dotfiles_dir / "claude-profiles" / "claude_homelab.json").write_text(json.dumps({"enabledPlugins": {}}))
 
+    (dotfiles_dir / "claude" / ".claude").mkdir(parents=True)
+    (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps({"model": "base"}))
+
     monkeypatch.setattr("dotfiles_setup.cli._dotfiles_dir", lambda: dotfiles_dir)
+    monkeypatch.setattr("dotfiles_setup.cli.CLAUDE_HOME", tmp_path / "claude-home")
     monkeypatch.setattr(state, "STATE_DIR", tmp_path / "state")
     monkeypatch.setattr(state, "STATE_FILE", tmp_path / "state" / "state.json")
     monkeypatch.setattr(state, "PACKAGE_DIR", tmp_path / "state" / "packages")
@@ -303,3 +314,96 @@ def test_install_pulls_private_overlay_after_dotfiles(isolated_dotfiles, monkeyp
     monkeypatch.setattr("dotfiles_setup.cli.update.pull_overlay_if_git", lambda root, logger: seen.append(root) or False)
     main(["install", "--preset", "homelab"])
     assert seen == [private]
+
+
+def test_install_generates_claude_settings_from_base_and_overlay(isolated_dotfiles, monkeypatch, tmp_path):
+    private_root = tmp_path / "private"
+    (private_root / "claude-settings").mkdir(parents=True)
+    (private_root / "claude-settings" / "settings.json").write_text(json.dumps({"extra": True}))
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+    assert main(["install", "--preset", "homelab"]) == 0
+    generated = json.loads((tmp_path / "claude-home" / "settings.json").read_text())
+    assert generated == {"model": "base", "extra": True}
+
+
+def test_install_backs_up_a_differing_settings_file(isolated_dotfiles, tmp_path):
+    claude_home = tmp_path / "claude-home"
+    claude_home.mkdir()
+    (claude_home / "settings.json").write_text('{"hand": "edited"}')
+    assert main(["install", "--preset", "homelab"]) == 0
+    (backup,) = claude_home.glob("settings.json.bak-*")
+    assert json.loads(backup.read_text()) == {"hand": "edited"}
+
+
+def test_install_replaces_settings_symlink_without_writing_through(isolated_dotfiles, tmp_path):
+    claude_home = tmp_path / "claude-home"
+    claude_home.mkdir()
+    repo_copy = tmp_path / "repo-settings.json"
+    repo_copy.write_text('{"tracked": true}')
+    (claude_home / "settings.json").symlink_to(repo_copy)
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert not (claude_home / "settings.json").is_symlink()
+    assert repo_copy.read_text() == '{"tracked": true}'
+
+
+def test_dry_run_skips_claude_settings_write(isolated_dotfiles, tmp_path):
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert not (tmp_path / "claude-home" / "settings.json").exists()
+
+
+def test_install_keeps_existing_settings_when_staging_fails(isolated_dotfiles, tmp_path, monkeypatch):
+    claude_home = tmp_path / "claude-home"
+    claude_home.mkdir()
+    (claude_home / "settings.json").write_text('{"hand": "edited"}')
+
+    def failing_fdopen(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("dotfiles_setup.cli.os.fdopen", failing_fdopen)
+    with pytest.raises(OSError):
+        main(["install", "--preset", "homelab"])
+    assert (claude_home / "settings.json").read_text() == '{"hand": "edited"}'
+    assert not list(claude_home.glob("settings.json.bak-*"))
+    assert not list(claude_home.glob("settings.json.*.tmp"))
+
+
+def test_install_leaves_identical_settings_untouched(isolated_dotfiles, tmp_path):
+    assert main(["install", "--preset", "homelab"]) == 0
+    settings = tmp_path / "claude-home" / "settings.json"
+    before = settings.stat().st_mtime_ns
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert settings.stat().st_mtime_ns == before
+    assert not list(settings.parent.glob("settings.json.bak-*"))
+
+
+def test_install_updates_claude_plugins_after_a_successful_install(isolated_dotfiles, plugin_updates):
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert len(plugin_updates) == 1
+
+
+def test_install_skips_claude_plugin_update_when_the_backend_fails(isolated_dotfiles, plugin_updates, monkeypatch):
+    def failing_run(argv, **kwargs):
+        class _Result:
+            returncode = 1
+            stdout = "boom"
+            stderr = ""
+        return _Result()
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
+    main(["install", "--preset", "homelab"])
+    assert plugin_updates == []
+
+
+def test_settings_replacement_leaves_a_preexisting_shared_tmp_file_alone(tmp_path):
+    from datetime import UTC, datetime
+
+    from dotfiles_setup.cli import _replace_settings_target
+
+    target = tmp_path / "settings.json"
+    target.write_text("old")
+    other_install = tmp_path / "settings.json.tmp"
+    other_install.write_text("in flight")
+    _replace_settings_target(target, "new", datetime.now(UTC))
+    assert target.read_text() == "new"
+    assert other_install.read_text() == "in flight"
+    assert sorted(p.name for p in tmp_path.glob("settings.json.*.tmp")) == []

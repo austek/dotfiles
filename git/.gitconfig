@@ -16,7 +16,7 @@
 	autoSetupRemote = true
 
 [pull]
-	rebase = true
+	rebase = merges
 
 [gpg "ssh"]
     allowedSignersFile = ~/.ssh/allowed_signers
@@ -46,3 +46,5 @@
 [credential "https://gist.github.com"]
 	helper =
 	helper = !/usr/bin/gh auth git-credential
+[rebase]
+	autoStash = true

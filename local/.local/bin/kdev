@@ -1,0 +1,131 @@
+#!/bin/zsh
+
+CLUSTER_NAME="dev-cluster"
+K8S_VERSION="v1.31.0"
+CONFIG_PATH="${HOME}/.config/kdev/kind-config.yaml"
+HELM_REPOS_FILE="${HOME}/.config/kdev/helm-repos.txt"
+
+mkdir -p "$(dirname "$CONFIG_PATH")"
+
+_kdev_gen_config() {
+cat <<EOF > "$CONFIG_PATH"
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - { containerPort: 80,    hostPort: 80,    protocol: TCP }  # ingress-nginx
+  - { containerPort: 443,   hostPort: 443,   protocol: TCP }  # ingress-nginx
+  - { containerPort: 30005, hostPort: 5005,  protocol: TCP }  # JVM remote debug
+  - { containerPort: 30080, hostPort: 30080, protocol: TCP }  # Istio ingress (main HTTP)
+  - { containerPort: 30410, hostPort: 30410, protocol: TCP }  # Keycloak
+  - { containerPort: 30300, hostPort: 30300, protocol: TCP }  # Grafana
+  - { containerPort: 30909, hostPort: 30909, protocol: TCP }  # Prometheus
+  - { containerPort: 30900, hostPort: 30900, protocol: TCP }  # Sonar
+  - { containerPort: 30025, hostPort: 30025, protocol: TCP }  # Mailpit UI
+  - { containerPort: 31230, hostPort: 31230, protocol: TCP }  # ArgoCD
+EOF
+}
+
+cmd=$1
+[[ $# -gt 0 ]] && shift
+
+case "$cmd" in
+    up)
+        echo "🚀 Initializing Local Dev Cluster..."
+        _kdev_gen_config
+
+        if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+            echo "⚠️  Cluster '${CLUSTER_NAME}' already exists."
+        else
+            kind create cluster --name "$CLUSTER_NAME" \
+                --config "$CONFIG_PATH" \
+                --image "kindest/node:${K8S_VERSION}" || exit 1
+        fi
+
+        echo "⏳ Waiting for API server..."
+        kubectl --context "kind-${CLUSTER_NAME}" wait --namespace kube-system \
+            --for=condition=ready pod \
+            --selector=component=kube-apiserver \
+            --timeout=90s || exit 1
+
+        echo "🚧 Installing Ingress Controller..."
+        kubectl --context "kind-${CLUSTER_NAME}" apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml || exit 1
+
+        echo "⏳ Waiting for Ingress..."
+        kubectl --context "kind-${CLUSTER_NAME}" wait --namespace ingress-nginx \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/component=controller \
+            --timeout=120s || exit 1
+        echo "✅ Environment Ready!"
+        ;;
+
+    down)
+        echo "🛑 Teardown initiated..."
+        kind delete cluster --name "$CLUSTER_NAME"
+        ;;
+
+    bounce)
+        "$0" down
+        "$0" up
+        ;;
+
+    load)
+        if [ -z "$1" ]; then
+            echo "❌ Usage: kdev load <image-name>"
+            exit 1
+        fi
+        echo "📦 Loading image: $1..."
+        kind load docker-image "$1" --name "$CLUSTER_NAME"
+        ;;
+
+    repos)
+        if ! command -v helm &> /dev/null; then
+            echo "❌ Error: 'helm' is not installed."
+            exit 1
+        fi
+
+        if [[ ! -f "$HELM_REPOS_FILE" ]]; then
+            echo "❌ No helm repos configured: $HELM_REPOS_FILE not found."
+            echo "   One '<name> <url>' per line; credentials come from gradle_prop dockerUsername/dockerPassword."
+            exit 1
+        fi
+
+        if ! command -v gradle_prop &> /dev/null; then
+             echo "⚠️  Error: 'gradle_prop' script not found."
+             echo "   Please ensure it is in your PATH to fetch credentials."
+             exit 1
+        fi
+
+        echo "🔑 Fetching credentials..."
+        repo_user=$(gradle_prop "dockerUsername")
+        repo_pass=$(gradle_prop "dockerPassword")
+
+        if [[ -z "$repo_user" || -z "$repo_pass" ]]; then
+            echo "❌ Error: Could not fetch credentials from gradle.properties"
+            exit 1
+        fi
+
+        echo "⎈ Adding Helm Repositories..."
+        while read -r repo_name repo_url; do
+            [[ -z "$repo_name" || "$repo_name" == \#* ]] && continue
+            echo "   Adding $repo_name..."
+            helm repo add "$repo_name" "$repo_url" \
+                --username "$repo_user" \
+                --password "$repo_pass"
+        done < "$HELM_REPOS_FILE"
+
+        helm repo update
+        ;;
+
+    status)
+        kubectl cluster-info --context "kind-${CLUSTER_NAME}"
+        echo ""
+        kubectl --context "kind-${CLUSTER_NAME}" get nodes -o wide
+        ;;
+
+    *)
+        echo "Usage: kdev {up|down|bounce|load|repos|status}"
+        exit 1
+        ;;
+esac

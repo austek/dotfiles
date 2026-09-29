@@ -175,10 +175,11 @@
     "ustekai-skills": {
       "source": {
         "source": "github",
-        "repo": "austek/claude-skills"
+        "repo": "austek/ustekai-skills"
       }
     }
   },
   "skipWorkflowUsageWarning": true,
-  "skipAutoPermissionPrompt": true
+  "skipAutoPermissionPrompt": true,
+  "agentPushNotifEnabled": true
 }

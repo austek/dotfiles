@@ -76,7 +76,7 @@ the `sudo` password prompt and the rest of the guided process come from.
 [NOTE]
 You can run `~/.dotfiles/bin/setup.sh --preset <name>` directly instead, but on its own it does *none* of
 the git-identity, package-fork, or overlay work above — no identity prompt, no forked/reconciled package
-list, `~/.dotfiles-private` never consulted. It just installs straight from this repo's `packages/` files
+list, `~/.dotfiles-private` never consulted, and no generated `~/.claude/settings.json`. It just installs straight from this repo's `packages/` files
 every time. Prefer `dotfiles-setup install` unless you have a specific reason to bypass it.
 
 [NOTE]
@@ -147,7 +147,7 @@ Packages listed in `.stow-packages` are stowed unfolded (one symlink per file) s
 
 === Claude Code Skills
 
-Shareable Claude Code skills and commands live in a separate public repo, https://github.com/austek/claude-skills[austek/claude-skills], packaged as a Claude Code plugin marketplace named `ustekai-skills` (plugin keys read `<plugin>@ustekai-skills`) and referenced from `claude/.claude/settings.json`.
+Shareable Claude Code skills and commands live in a separate public repo, https://github.com/austek/ustekai-skills[austek/ustekai-skills], packaged as a Claude Code plugin marketplace named `ustekai-skills` (plugin keys read `<plugin>@ustekai-skills`) and referenced from `claude/.claude/settings.json`.
 This repo carries no vendored skills or commands of its own.
 Add a new skill there, not here.
 
