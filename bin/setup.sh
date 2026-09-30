@@ -58,6 +58,28 @@ print_completion_banner() {
     log_banner "----------------------------------------------------"
 }
 
+usage() {
+    cat <<EOF
+Usage: $0 --preset <work|personal|homelab> [OPTIONS]
+
+Options:
+  --preset <work|personal|homelab>   Machine profile to set up (required)
+  --package-file <path>               Use this pre-resolved package list instead of deriving one from --preset
+  --claude-profile-dir <path>          Read claude-profiles/*.json from this directory instead of the repo's own
+  --private-root <path>                Also stow packages listed in this dir's .stow-packages (the private overlay)
+  --verbosity <0-6>                    Set VERBOSITY directly (what dotfiles-setup passes for -v/-vv/-vvv); prefer -v/-vv/-vvv by hand
+  --force-stow                         Move files that block stow into $STOW_BACKUP_ROOT/<timestamp> and stow anyway
+  --no-banner                          Skip the completion banner (dotfiles-setup prints it after its own steps)
+  --no-header                          Skip the start-up header and dry-run notice (dotfiles-setup prints them first)
+  --banner-only                        Print the completion banner and exit
+  --dry-run                   Show what would be done without executing commands
+  -v, --verbose               Show step-by-step progress (INFO/SUCCESS messages)
+  -vv                         Also show raw output from apt/stow/dpkg/etc.
+  -vvv                        Full debug: also enable bash trace (set -x)
+  -h, --help                  Show this help message
+EOF
+}
+
 main() {
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -142,23 +164,7 @@ main() {
                 shift 2
                 ;;
             -h|--help)
-                echo "Usage: $0 --preset <work|personal|homelab> [OPTIONS]"
-                echo ""
-                echo "Options:"
-                echo "  --preset <work|personal|homelab>   Machine profile to set up (required)"
-                echo "  --package-file <path>               Use this pre-resolved package list instead of deriving one from --preset"
-                echo "  --claude-profile-dir <path>          Read claude-profiles/*.json from this directory instead of the repo's own"
-                echo "  --private-root <path>                Also stow packages listed in this dir's .stow-packages (the private overlay)"
-                echo "  --verbosity <0-6>                    Set VERBOSITY directly (what dotfiles-setup passes for -v/-vv/-vvv); prefer -v/-vv/-vvv by hand"
-                echo "  --force-stow                         Move files that block stow into $STOW_BACKUP_ROOT/<timestamp> and stow anyway"
-                echo "  --no-banner                          Skip the completion banner (dotfiles-setup prints it after its own steps)"
-                echo "  --no-header                          Skip the start-up header and dry-run notice (dotfiles-setup prints them first)"
-                echo "  --banner-only                        Print the completion banner and exit"
-                echo "  --dry-run                   Show what would be done without executing commands"
-                echo "  -v, --verbose               Show step-by-step progress (INFO/SUCCESS messages)"
-                echo "  -vv                         Also show raw output from apt/stow/dpkg/etc."
-                echo "  -vvv                        Full debug: also enable bash trace (set -x)"
-                echo "  -h, --help                  Show this help message"
+                usage "$0"
                 exit 0
                 ;;
             *)
