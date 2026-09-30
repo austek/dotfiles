@@ -15,6 +15,7 @@ PACKAGE_FILE_OVERRIDE=""
 CLAUDE_PROFILE_DIR_OVERRIDE=""
 PRIVATE_ROOT=""
 NO_BANNER=false
+NO_HEADER=false
 FORCE_STOW=false
 STOW_BACKUP_ROOT="$HOME/.local/state/dotfiles/stow-backups"
 STOW_BACKUP_STAMP="$(date +%Y%m%d%H%M%S)"
@@ -116,6 +117,10 @@ main() {
                 NO_BANNER=true
                 shift
                 ;;
+            --no-header)
+                NO_HEADER=true
+                shift
+                ;;
             --banner-only)
                 BANNER_ONLY=true
                 shift
@@ -147,6 +152,7 @@ main() {
                 echo "  --verbosity <0-6>                    Set VERBOSITY directly (what dotfiles-setup passes for -v/-vv/-vvv); prefer -v/-vv/-vvv by hand"
                 echo "  --force-stow                         Move files that block stow into $STOW_BACKUP_ROOT/<timestamp> and stow anyway"
                 echo "  --no-banner                          Skip the completion banner (dotfiles-setup prints it after its own steps)"
+                echo "  --no-header                          Skip the start-up header and dry-run notice (dotfiles-setup prints them first)"
                 echo "  --banner-only                        Print the completion banner and exit"
                 echo "  --dry-run                   Show what would be done without executing commands"
                 echo "  -v, --verbose               Show step-by-step progress (INFO/SUCCESS messages)"
@@ -175,11 +181,12 @@ main() {
         set -x
     fi
 
-    if [[ "$DRY_RUN" = true ]]; then
-        log_warn "=== DRY-RUN MODE: No changes will be made ==="
+    if [[ "$NO_HEADER" = false ]]; then
+        if [[ "$DRY_RUN" = true ]]; then
+            log_warn "=== DRY-RUN MODE: No changes will be made ==="
+        fi
+        log_step "Starting Ubuntu Dotfiles Setup..."
     fi
-
-    log_step "Starting Ubuntu Dotfiles Setup..."
 
     if [[ "$EUID" -eq 0 ]]; then
         log_error "This script must not be run as root. Use 'sudo' when prompted."

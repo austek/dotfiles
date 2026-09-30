@@ -44,6 +44,7 @@ class AptBackend:
             "--claude-profile-dir", str(claude_profile_dir),
             "--verbosity", str(verbosity),
             "--no-banner",
+            "--no-header",
         ]
         if private_root is not None:
             argv += ["--private-root", str(private_root)]

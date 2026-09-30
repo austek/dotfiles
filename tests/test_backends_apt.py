@@ -52,6 +52,7 @@ def test_install_invokes_setup_sh_with_expected_argv(tmp_path):
         "--claude-profile-dir", str(claude_dir),
         "--verbosity", "0",
         "--no-banner",
+        "--no-header",
     ]]
     assert result.succeeded is True
     assert result.returncode == 0
