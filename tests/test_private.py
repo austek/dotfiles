@@ -47,3 +47,15 @@ def test_clone_overlay_reports_git_failure(tmp_path):
     assert not result.succeeded
     assert result.returncode == 128
     assert "not found" in result.stdout
+
+
+def test_clone_overlay_refuses_a_dangling_symlink_dest(tmp_path):
+    dest = tmp_path / "dotfiles-private"
+    dest.symlink_to(tmp_path / "missing")
+
+    def unexpected_run(argv, **kwargs):
+        raise AssertionError("git clone should not run when dest is a symlink")
+
+    result = clone_overlay("git@github.com:you/dotfiles-private.git", dest, run=unexpected_run)
+    assert not result.succeeded
+    assert "already exists" in result.stdout

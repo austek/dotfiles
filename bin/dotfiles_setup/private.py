@@ -14,7 +14,7 @@ class CloneResult:
 
 
 def clone_overlay(repo: str, dest: Path, *, run=subprocess.run) -> CloneResult:
-    if dest.exists():
+    if dest.exists() or dest.is_symlink():
         return CloneResult(
             succeeded=False,
             returncode=1,

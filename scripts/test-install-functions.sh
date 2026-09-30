@@ -675,6 +675,87 @@ fi
 PACKAGE_FILE_OVERRIDE=""
 MACHINE_PRESET=""
 
+# --- stow backup helpers (--force-stow) ---
+check() {
+    local scenario="$1"
+    shift
+    if "$@"; then
+        PASS_COUNT=$((PASS_COUNT + 1))
+    else
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        FAILURES+=("$scenario")
+    fi
+}
+
+stow() {
+    if [[ " $* " == *" --simulate "* ]]; then
+        printf '%s\n' "  * existing target is neither a link nor a directory: ${STUB_STOW_CONFLICT:-.rc}"
+        return 0
+    fi
+    return "${STUB_STOW_RC:-0}"
+}
+
+stow_sandbox() {
+    STOW_TMP=$(mktemp -d)
+    HOME="$STOW_TMP/home"
+    mkdir -p "$HOME"
+    STOW_BACKUP_ROOT="$STOW_TMP/backups"
+    STOW_BACKUP_STAMP=T1
+    FORCE_STOW=true
+    STUB_STOW_CONFLICT=.rc
+    STUB_STOW_RC=0
+}
+
+stow_teardown() {
+    rm -rf "$STOW_TMP"
+    HOME="$REAL_HOME"
+    FORCE_STOW=false
+}
+
+backup_contents() { cat "$STOW_BACKUP_ROOT"/T1.*/"$1" 2>/dev/null; }
+
+stow_sandbox
+echo original > "$HOME/.rc"
+rc=0; stow_with_backup --target="$HOME" pkg >/dev/null 2>&1 || rc=$?
+check "force-stow: succeeds with a conflict" test "$rc" -eq 0
+check "force-stow: conflicting file lands in the backup dir" test "$(backup_contents .rc)" = original
+check "force-stow: staging dir is removed" test -z "$(command find "$HOME" -maxdepth 1 -name '.stow-backup.*')"
+stow_teardown
+
+stow_sandbox
+echo first > "$HOME/.rc"
+stow_with_backup --target="$HOME" pkg >/dev/null 2>&1
+echo second > "$HOME/.rc"
+stow_with_backup --target="$HOME" pkg >/dev/null 2>&1
+check "force-stow: two operations in one second keep two backups" test "$(command find "$STOW_BACKUP_ROOT" -name .rc | wc -l)" -eq 2
+stow_teardown
+
+stow_sandbox
+echo original > "$HOME/.rc"
+STUB_STOW_RC=1
+rc=0; stow_with_backup --target="$HOME" pkg >/dev/null 2>&1 || rc=$?
+check "force-stow: stow failure returns non-zero" test "$rc" -ne 0
+check "force-stow: stow failure still backs the file up" test "$(backup_contents .rc)" = original
+stow_teardown
+
+stow_sandbox
+echo original > "$HOME/.rc"
+: > "$STOW_TMP/blocker"
+STOW_BACKUP_ROOT="$STOW_TMP/blocker/backups"
+rc=0; stow_with_backup --target="$HOME" pkg >/dev/null 2>&1 || rc=$?
+check "force-stow: failed backup returns non-zero" test "$rc" -ne 0
+check "force-stow: failed backup keeps the originals staged" test "$(cat "$HOME"/.stow-backup.*/.rc)" = original
+stow_teardown
+
+stow_sandbox
+mkdir "$STOW_TMP/external"
+echo external > "$STOW_TMP/external/f"
+ln -s "$STOW_TMP/external" "$HOME/link"
+STUB_STOW_CONFLICT=link/f
+stow_with_backup --target="$HOME" pkg >/dev/null 2>&1
+check "force-stow: never moves a file reached through a symlink outside HOME" test "$(cat "$STOW_TMP/external/f")" = external
+stow_teardown
+
 echo
 echo "Passed: $PASS_COUNT  Failed: $FAIL_COUNT"
 if [[ "$FAIL_COUNT" -gt 0 ]]; then
