@@ -24,7 +24,7 @@ def clone_overlay(repo: str, dest: Path, *, run=subprocess.run) -> CloneResult:
                 f"`git -C {dest} pull` instead."
             ),
         )
-    result = run(["git", "clone", repo, str(dest)])
+    result = run(["git", "clone", repo, str(dest)], capture_output=True, text=True)
     return CloneResult(
         succeeded=result.returncode == 0,
         returncode=result.returncode,

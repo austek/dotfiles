@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from dotfiles_setup.identity import ensure_git_identity
 
 
@@ -142,3 +145,15 @@ def test_falls_back_to_prompt_when_overlay_lacks_identity_file(tmp_path):
     result = ensure_git_identity(gitconfig_local=target, prompt=prompt, overlay_root=overlay_root)
     assert not result.is_symlink()
     assert "Ada Lovelace" in result.read_text()
+
+
+def test_overlay_identity_symlink_target_is_absolute_for_relative_overlay_root(tmp_path, monkeypatch):
+    overlay = tmp_path / "overlay"
+    (overlay / "git").mkdir(parents=True)
+    (overlay / "git" / "gitconfig.local").write_text("[user]\n\tname = x\n")
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "home" / ".gitconfig.local"
+
+    ensure_git_identity(gitconfig_local=target, overlay_root=Path("overlay"))
+
+    assert Path(os.readlink(target)).is_absolute()

@@ -479,7 +479,7 @@ def test_private_clone_dest_defaults_to_none():
 def test_main_private_clone_clones_to_default_dest(tmp_path, monkeypatch):
     calls = []
 
-    def recording_run(argv):
+    def recording_run(argv, **kwargs):
         calls.append(argv)
 
         class _Result:
@@ -499,7 +499,7 @@ def test_main_private_clone_clones_to_default_dest(tmp_path, monkeypatch):
 def test_main_private_clone_honors_dest_override(tmp_path, monkeypatch):
     calls = []
 
-    def recording_run(argv):
+    def recording_run(argv, **kwargs):
         calls.append(argv)
 
         class _Result:
@@ -516,7 +516,7 @@ def test_main_private_clone_honors_dest_override(tmp_path, monkeypatch):
 
 
 def test_main_private_clone_dry_run_does_not_clone(tmp_path, monkeypatch, capsys):
-    def unexpected_run(argv):
+    def unexpected_run(argv, **kwargs):
         raise AssertionError("git clone should not run in dry-run mode")
 
     monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", unexpected_run)
@@ -528,7 +528,7 @@ def test_main_private_clone_dry_run_does_not_clone(tmp_path, monkeypatch, capsys
 
 
 def test_main_private_clone_returns_nonzero_on_git_failure(tmp_path, monkeypatch, capsys):
-    def failing_run(argv):
+    def failing_run(argv, **kwargs):
         class _Result:
             returncode = 128
             stdout = ""

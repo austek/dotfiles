@@ -18,7 +18,7 @@ def _overlay_identity_path(overlay_root: Path | None) -> Path | None:
     if overlay_root is None:
         return None
     candidate = overlay_root / "git" / "gitconfig.local"
-    return candidate if candidate.is_file() else None
+    return candidate.resolve() if candidate.is_file() else None
 
 
 def _symlink_to_overlay(gitconfig_local: Path, overlay_identity: Path) -> Path:
