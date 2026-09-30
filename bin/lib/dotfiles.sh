@@ -60,9 +60,10 @@ configure_dotfiles() {
     }
 
     finalize_stow_backup() {
-        local stage="$1" backup_dir="$STOW_BACKUP_ROOT/$STOW_BACKUP_STAMP"
+        local stage="$1" backup_dir
         [[ -n "$(ls -A "$stage")" ]] || { rmdir "$stage"; return 0; }
-        mkdir -p "$backup_dir"
+        mkdir -p "$STOW_BACKUP_ROOT"
+        backup_dir=$(mktemp -d "$STOW_BACKUP_ROOT/$STOW_BACKUP_STAMP.XXXXXX")
         cp -a "$stage/." "$backup_dir/"
         rm -rf "$stage"
         log_warn "Backed up conflicting files to $backup_dir"
