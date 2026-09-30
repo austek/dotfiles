@@ -154,6 +154,37 @@ def _log_install_failure(logger: Logger, result: InstallResult) -> None:
         logger.error(f"setup.sh exited with code {result.returncode}. See output above.")
 
 
+def _prepare_checkout(args: argparse.Namespace, logger: Logger, dotfiles_dir: Path) -> None:
+    update.pull_if_behind(dotfiles_dir, logger)
+    update.pull_overlay_if_git(overlay.find_overlay_root(), logger)
+    if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
+        identity.ensure_git_identity(force=args.reconfigure)
+
+
+def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | None, logger: Logger) -> str | None:
+    if args.preset:
+        return args.preset
+    if prior is None:
+        return None
+    logger.info(f"Using saved preset '{prior.preset_name}'.")
+    return prior.preset_name
+
+
+def _save_state(
+    backend: AptBackend, preset_name: str, package_file: Path, combined: tuple[str, ...],
+    overlay_root: Path | None, prior: state.MachineState | None,
+) -> None:
+    state.save_state(state.MachineState(
+        preset_name=preset_name,
+        backend=backend.name,
+        package_file=str(package_file),
+        applied_package_names=combined,
+        overlay_root=str(overlay_root) if overlay_root else None,
+        created_at=prior.created_at if prior else _now(),
+        updated_at=_now(),
+    ))
+
+
 def _run_install(args: argparse.Namespace) -> int:
     logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
     if args.dry_run:
@@ -161,18 +192,13 @@ def _run_install(args: argparse.Namespace) -> int:
     logger.step("Starting Ubuntu Dotfiles Setup...")
 
     dotfiles_dir = _dotfiles_dir()
-    update.pull_if_behind(dotfiles_dir, logger)
-    update.pull_overlay_if_git(overlay.find_overlay_root(), logger)
-    if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
-        identity.ensure_git_identity(force=args.reconfigure)
+    _prepare_checkout(args, logger, dotfiles_dir)
 
     prior = state.load_state()
-    preset_name = args.preset or (prior.preset_name if prior else None)
+    preset_name = _resolve_preset_name(args, prior, logger)
     if preset_name is None:
         logger.error("No preset saved on this machine; pass --preset <name>.")
         return 2
-    if not args.preset:
-        logger.info(f"Using saved preset '{preset_name}'.")
 
     try:
         preset = presets.load_preset(dotfiles_dir / "presets", preset_name)
@@ -212,15 +238,7 @@ def _run_install(args: argparse.Namespace) -> int:
     backend.print_completion(dry_run=args.dry_run, run=subprocess.run)
 
     if not args.dry_run:
-        state.save_state(state.MachineState(
-            preset_name=preset_name,
-            backend=backend.name,
-            package_file=str(package_file),
-            applied_package_names=combined,
-            overlay_root=str(overlay_root) if overlay_root else None,
-            created_at=prior.created_at if prior else _now(),
-            updated_at=_now(),
-        ))
+        _save_state(backend, preset_name, package_file, combined, overlay_root, prior)
     logger.success(f"Machine preset set to '{preset_name}'.")
     return 0
 
