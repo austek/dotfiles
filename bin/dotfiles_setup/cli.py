@@ -48,6 +48,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         epilog=(
             "Examples:\n"
             "  dotfiles-setup install --preset work\n"
+            "  dotfiles-setup install  (reuses the preset saved on this machine)\n"
             "  dotfiles-setup install --preset personal --dry-run\n"
             "  dotfiles-setup install --preset homelab -v\n"
         ),
@@ -60,8 +61,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     install_p.add_argument(
         "--preset",
-        required=True,
-        help="Machine profile to set up.",
+        help="Machine profile to set up. Overrides the preset saved on this machine; required on the first run.",
     )
     install_p.add_argument(
         "--dry-run",
@@ -133,14 +133,14 @@ def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None
     staged.replace(target)
 
 
-def _write_claude_settings(
-    logger: Logger, dotfiles_dir: Path, overlay_root: Path | None, claude_home: Path,
-) -> None:
+def _merged_claude_settings(dotfiles_dir: Path, overlay_root: Path | None) -> dict:
+    return overlay.load_settings(dotfiles_dir / "claude" / ".claude" / "settings.json", overlay_root)
+
+
+def _write_claude_settings(logger: Logger, merged: dict, claude_home: Path) -> None:
     target = claude_home / "settings.json"
     if logger.dry_run_notice(f"Would generate {target}."):
         return
-    base_path = dotfiles_dir / "claude" / ".claude" / "settings.json"
-    merged = overlay.load_settings(base_path, overlay_root)
     claude_home.mkdir(parents=True, exist_ok=True)
     rendered = json.dumps(merged, indent=2, ensure_ascii=False) + "\n"
     _replace_settings_target(target, rendered, datetime.now(UTC))
@@ -154,6 +154,37 @@ def _log_install_failure(logger: Logger, result: InstallResult) -> None:
         logger.error(f"setup.sh exited with code {result.returncode}. See output above.")
 
 
+def _prepare_checkout(args: argparse.Namespace, logger: Logger, dotfiles_dir: Path) -> None:
+    update.pull_if_behind(dotfiles_dir, logger)
+    update.pull_overlay_if_git(overlay.find_overlay_root(), logger)
+    if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
+        identity.ensure_git_identity(force=args.reconfigure)
+
+
+def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | None, logger: Logger) -> str | None:
+    if args.preset:
+        return args.preset
+    if prior is None:
+        return None
+    logger.info(f"Using saved preset '{prior.preset_name}'.")
+    return prior.preset_name
+
+
+def _save_state(
+    backend: AptBackend, preset_name: str, package_file: Path, combined: tuple[str, ...],
+    overlay_root: Path | None, prior: state.MachineState | None,
+) -> None:
+    state.save_state(state.MachineState(
+        preset_name=preset_name,
+        backend=backend.name,
+        package_file=str(package_file),
+        applied_package_names=combined,
+        overlay_root=str(overlay_root) if overlay_root else None,
+        created_at=prior.created_at if prior else _now(),
+        updated_at=_now(),
+    ))
+
+
 def _run_install(args: argparse.Namespace) -> int:
     logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
     if args.dry_run:
@@ -161,13 +192,15 @@ def _run_install(args: argparse.Namespace) -> int:
     logger.step("Starting Ubuntu Dotfiles Setup...")
 
     dotfiles_dir = _dotfiles_dir()
-    update.pull_if_behind(dotfiles_dir, logger)
-    update.pull_overlay_if_git(overlay.find_overlay_root(), logger)
-    if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
-        identity.ensure_git_identity(force=args.reconfigure)
+    prior = state.load_state()
+    preset_name = _resolve_preset_name(args, prior, logger)
+    if preset_name is None:
+        logger.error("No preset saved on this machine; pass --preset <name>.")
+        return 2
+    _prepare_checkout(args, logger, dotfiles_dir)
 
     try:
-        preset = presets.load_preset(dotfiles_dir / "presets", args.preset)
+        preset = presets.load_preset(dotfiles_dir / "presets", preset_name)
     except FileNotFoundError as exc:
         logger.error(str(exc))
         return 1
@@ -176,22 +209,22 @@ def _run_install(args: argparse.Namespace) -> int:
     logical_names = presets.resolve_packages(dotfiles_dir / "packages", preset)
     backend = AptBackend(dotfiles_dir=dotfiles_dir, backend_overrides=preset.backend_overrides.get("apt", {}))
     resolved_names = {backend.resolve_name(n) for n in logical_names}
-    overlay_names = overlay.overlay_package_names(overlay_root, args.preset)
+    overlay_names = overlay.overlay_package_names(overlay_root, preset_name)
     combined = tuple(sorted(resolved_names | set(overlay_names)))
 
-    prior = state.load_state()
-    package_file = state.PACKAGE_DIR / f"{args.preset}.txt"
-    previous_names = prior.applied_package_names if prior and prior.preset_name == args.preset else None
+    package_file = state.PACKAGE_DIR / f"{preset_name}.txt"
+    previous_names = prior.applied_package_names if prior and prior.preset_name == preset_name else None
     added, _changed = reconcile.reconcile_package_file(package_file, combined, previous_names)
     if added:
         logger.info(f"Added {len(added)} new package(s) to {package_file}")
 
     claude_dir = state.STATE_DIR / "claude-profiles"
-    _write_claude_profile(logger, preset, dotfiles_dir, claude_dir, overlay_root, args.preset)
-    _write_claude_settings(logger, dotfiles_dir, overlay_root, CLAUDE_HOME)
+    _write_claude_profile(logger, preset, dotfiles_dir, claude_dir, overlay_root, preset_name)
+    claude_settings = _merged_claude_settings(dotfiles_dir, overlay_root)
+    _write_claude_settings(logger, claude_settings, CLAUDE_HOME)
 
     result = backend.install(
-        package_file, preset_name=args.preset, claude_profile_dir=claude_dir,
+        package_file, preset_name=preset_name, claude_profile_dir=claude_dir,
         dry_run=args.dry_run, private_root=overlay_root, verbosity=args.verbosity,
         run=subprocess.run,
     )
@@ -200,19 +233,12 @@ def _run_install(args: argparse.Namespace) -> int:
         _log_install_failure(logger, result)
         return result.returncode
 
-    claude_plugins.update_claude_plugins(logger)
+    claude_plugins.update_claude_plugins(logger, claude_settings)
+    backend.print_completion(dry_run=args.dry_run, run=subprocess.run)
 
     if not args.dry_run:
-        state.save_state(state.MachineState(
-            preset_name=args.preset,
-            backend=backend.name,
-            package_file=str(package_file),
-            applied_package_names=combined,
-            overlay_root=str(overlay_root) if overlay_root else None,
-            created_at=prior.created_at if prior else _now(),
-            updated_at=_now(),
-        ))
-    logger.success(f"Machine preset set to '{args.preset}'.")
+        _save_state(backend, preset_name, package_file, combined, overlay_root, prior)
+    logger.success(f"Machine preset set to '{preset_name}'.")
     return 0
 
 

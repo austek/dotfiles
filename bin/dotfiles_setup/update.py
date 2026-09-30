@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -26,6 +27,13 @@ def _behind_count(repo: Path, run) -> int | None:
     return int(result.stdout) if result.returncode == 0 else None
 
 
+def _no_upstream_message(repo: Path, label: str, run) -> str:
+    branch = _git(repo, "symbolic-ref", "--short", "-q", "HEAD", run=run).stdout.strip()
+    if not branch:
+        return f"Skipping {label} update: HEAD is detached, so there is no upstream to compare with."
+    return f"Skipping {label} update: branch '{branch}' has no upstream. Set one with `git push -u origin {shlex.quote(branch)}`."
+
+
 def pull_if_behind(repo: Path, logger: Logger, run=subprocess.run, label: str = "dotfiles") -> bool:
     """Fetches upstream and fast-forwards when behind; returns True if it pulled. Never fails the install."""
     try:
@@ -38,7 +46,7 @@ def pull_if_behind(repo: Path, logger: Logger, run=subprocess.run, label: str = 
         return False
     behind = _behind_count(repo, run)
     if behind is None:
-        logger.warn(f"Could not determine the {label} upstream; continuing with the current checkout.")
+        logger.warn(_no_upstream_message(repo, label, run))
         return False
     if behind == 0:
         return False

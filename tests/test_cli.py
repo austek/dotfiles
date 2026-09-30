@@ -5,10 +5,9 @@ from dotfiles_setup import overlay, state
 from dotfiles_setup.cli import build_arg_parser, main
 
 
-def test_preset_is_required():
-    parser = build_arg_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(["install"])
+def test_preset_is_optional_at_parse_time():
+    args = build_arg_parser().parse_args(["install"])
+    assert args.preset is None
 
 
 def test_preset_accepts_any_value_at_parse_time():
@@ -102,7 +101,7 @@ def test_top_level_help_lists_install_subcommand_and_examples(capsys):
 @pytest.fixture
 def plugin_updates(monkeypatch):
     calls = []
-    monkeypatch.setattr("dotfiles_setup.cli.claude_plugins.update_claude_plugins", lambda logger: calls.append(logger))
+    monkeypatch.setattr("dotfiles_setup.cli.claude_plugins.update_claude_plugins", lambda logger, settings: calls.append(logger))
     return calls
 
 
@@ -407,3 +406,38 @@ def test_settings_replacement_leaves_a_preexisting_shared_tmp_file_alone(tmp_pat
     assert target.read_text() == "new"
     assert other_install.read_text() == "in flight"
     assert sorted(p.name for p in tmp_path.glob("settings.json.*.tmp")) == []
+
+
+def test_install_without_preset_or_saved_state_fails(isolated_dotfiles, capsys):
+    assert main(["install"]) == 2
+    assert "pass --preset" in capsys.readouterr().err
+
+
+def test_install_without_preset_fails_before_touching_the_checkout(isolated_dotfiles, monkeypatch):
+    calls = []
+    monkeypatch.setattr("dotfiles_setup.cli._prepare_checkout", lambda *a: calls.append(a))
+    assert main(["install"]) == 2
+    assert calls == []
+
+
+def test_install_without_preset_reuses_the_saved_one(isolated_dotfiles):
+    main(["install", "--preset", "homelab"])
+    assert main(["install"]) == 0
+    assert state.load_state().preset_name == "homelab"
+
+
+def test_install_preset_overrides_the_saved_one(isolated_dotfiles):
+    dotfiles_dir, _tmp = isolated_dotfiles
+    (dotfiles_dir / "presets" / "other.json").write_text(json.dumps({
+        "description": "test", "package_files": ["apt_common.txt"], "backend_overrides": {},
+    }))
+    main(["install", "--preset", "homelab"])
+    assert main(["install", "--preset", "other"]) == 0
+    assert state.load_state().preset_name == "other"
+
+
+def test_install_without_preset_reports_an_unknown_saved_preset(isolated_dotfiles):
+    dotfiles_dir, _tmp = isolated_dotfiles
+    main(["install", "--preset", "homelab"])
+    (dotfiles_dir / "presets" / "homelab.json").unlink()
+    assert main(["install"]) == 1

@@ -51,6 +51,7 @@ def test_install_invokes_setup_sh_with_expected_argv(tmp_path):
         "--package-file", str(package_file),
         "--claude-profile-dir", str(claude_dir),
         "--verbosity", "0",
+        "--no-banner",
     ]]
     assert result.succeeded is True
     assert result.returncode == 0
@@ -209,3 +210,14 @@ def test_install_reports_failure(tmp_path):
     assert result.returncode == 1
     assert "apt error" in result.stdout
     assert "detail" in result.stdout
+
+
+def test_print_completion_asks_setup_sh_for_the_banner_only(tmp_path):
+    calls = []
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    backend.print_completion(dry_run=False, run=lambda argv, **_: calls.append(argv))
+    backend.print_completion(dry_run=True, run=lambda argv, **_: calls.append(argv))
+    assert calls == [
+        ["bash", "/repo/bin/setup.sh", "--banner-only"],
+        ["bash", "/repo/bin/setup.sh", "--banner-only", "--dry-run"],
+    ]

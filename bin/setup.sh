@@ -14,6 +14,8 @@ MACHINE_PRESET=""
 PACKAGE_FILE_OVERRIDE=""
 CLAUDE_PROFILE_DIR_OVERRIDE=""
 PRIVATE_ROOT=""
+NO_BANNER=false
+BANNER_ONLY=false
 ROLLBACK_LOG="$HOME/.dotfiles-setup-rollback.log"
 SETUP_IN_PROGRESS=false
 TEMP_DIRS_TO_CLEAN=()
@@ -36,6 +38,21 @@ source "$SCRIPT_DIR/lib/apt.sh"
 source "$SCRIPT_DIR/lib/installers.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/dotfiles.sh"
+
+print_completion_banner() {
+    echo
+    log_banner "----------------------------------------------------"
+    if [[ "$DRY_RUN" = true ]]; then
+        log_banner "Dry-run complete! No changes were made."
+        log_banner "Run without --dry-run to execute the setup."
+    else
+        log_banner "Setup complete!"
+        log_banner "Please log out and log back in for all changes (especially the new shell) to apply."
+        log_banner "Don't forget to manually add any secrets to ~/.zshrc.secret"
+        log_banner "For Claude Code to control Chrome, install the 'Claude' extension from the Chrome Web Store and run 'claude --chrome' once to complete onboarding (this pairing is per-machine and can't be scripted)."
+    fi
+    log_banner "----------------------------------------------------"
+}
 
 main() {
     while [[ $# -gt 0 ]]; do
@@ -88,6 +105,14 @@ main() {
                 PRIVATE_ROOT="$2"
                 shift 2
                 ;;
+            --no-banner)
+                NO_BANNER=true
+                shift
+                ;;
+            --banner-only)
+                BANNER_ONLY=true
+                shift
+                ;;
             --verbosity)
                 # Sets VERBOSITY directly rather than accumulating like -v/-vv/-vvv —
                 # used by dotfiles-setup to forward its own already-summed -v/-vv/-vvv
@@ -113,6 +138,8 @@ main() {
                 echo "  --claude-profile-dir <path>          Read claude-profiles/*.json from this directory instead of the repo's own"
                 echo "  --private-root <path>                Also stow packages listed in this dir's .stow-packages (the private overlay)"
                 echo "  --verbosity <0-6>                    Set VERBOSITY directly (what dotfiles-setup passes for -v/-vv/-vvv); prefer -v/-vv/-vvv by hand"
+                echo "  --no-banner                          Skip the completion banner (dotfiles-setup prints it after its own steps)"
+                echo "  --banner-only                        Print the completion banner and exit"
                 echo "  --dry-run                   Show what would be done without executing commands"
                 echo "  -v, --verbose               Show step-by-step progress (INFO/SUCCESS messages)"
                 echo "  -vv                         Also show raw output from apt/stow/dpkg/etc."
@@ -128,6 +155,11 @@ main() {
                 ;;
         esac
     done
+
+    if [[ "$BANNER_ONLY" = true ]]; then
+        print_completion_banner
+        exit 0
+    fi
 
     validate_machine_preset
 
@@ -180,18 +212,9 @@ main() {
 
     SETUP_IN_PROGRESS=false
 
-    echo
-    log_banner "----------------------------------------------------"
-    if [[ "$DRY_RUN" = true ]]; then
-        log_banner "Dry-run complete! No changes were made."
-        log_banner "Run without --dry-run to execute the setup."
-    else
-        log_banner "Setup complete!"
-        log_banner "Please log out and log back in for all changes (especially the new shell) to apply."
-        log_banner "Don't forget to manually add any secrets to ~/.zshrc.secret"
-        log_banner "For Claude Code to control Chrome, install the 'Claude' extension from the Chrome Web Store and run 'claude --chrome' once to complete onboarding (this pairing is per-machine and can't be scripted)."
+    if [[ "$NO_BANNER" = false ]]; then
+        print_completion_banner
     fi
-    log_banner "----------------------------------------------------"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

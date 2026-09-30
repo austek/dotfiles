@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +42,7 @@ class AptBackend:
             "--package-file", str(package_file),
             "--claude-profile-dir", str(claude_profile_dir),
             "--verbosity", str(verbosity),
+            "--no-banner",
         ]
         if private_root is not None:
             argv += ["--private-root", str(private_root)]
@@ -56,3 +58,8 @@ class AptBackend:
             returncode=result.returncode,
             stdout=(result.stdout or "") + (result.stderr or ""),
         )
+
+    def print_completion(self, *, dry_run: bool, run=subprocess.run) -> None:
+        sys.stdout.flush()
+        argv = ["bash", str(self.dotfiles_dir / "bin" / "setup.sh"), "--banner-only"]
+        run(argv + (["--dry-run"] if dry_run else []))

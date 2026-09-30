@@ -57,10 +57,18 @@ def test_missing_git_is_not_fatal(tmp_path):
     assert pull_if_behind(tmp_path, Logger(dry_run=False), run=run) is False
 
 
-def test_missing_upstream_warns(tmp_path, capsys):
-    run, _ = _fake_run({"rev-list": (128, "")})
+def test_missing_upstream_warning_names_the_branch(tmp_path, capsys):
+    run, _ = _fake_run({"rev-list": (128, ""), "symbolic-ref": (0, "feature/x\n")})
     pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
-    assert "upstream" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "branch 'feature/x' has no upstream" in out
+    assert "git push -u origin feature/x" in out
+
+
+def test_detached_head_warning_says_so(tmp_path, capsys):
+    run, _ = _fake_run({"rev-list": (128, ""), "symbolic-ref": (1, "")})
+    pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
+    assert "HEAD is detached" in capsys.readouterr().out
 
 
 def test_git_calls_ignore_repo_location_env(tmp_path, monkeypatch):
@@ -101,4 +109,10 @@ def test_overlay_pull_warning_names_private_repo(tmp_path, capsys):
     (tmp_path / ".git").mkdir()
     run, _ = _fake_run({"rev-list": (128, "")})
     pull_overlay_if_git(tmp_path, Logger(dry_run=False), run=run)
-    assert "dotfiles-private upstream" in capsys.readouterr().out
+    assert "Skipping dotfiles-private update" in capsys.readouterr().out
+
+
+def test_missing_upstream_command_quotes_the_branch(tmp_path, capsys):
+    run, _ = _fake_run({"rev-list": (128, ""), "symbolic-ref": (0, "feat;id\n")})
+    pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
+    assert "git push -u origin 'feat;id'" in capsys.readouterr().out
