@@ -36,6 +36,34 @@ configure_dotfiles() {
         done < <(grep -vE '^\s*#|^\s*$' "$PRIVATE_ROOT/.stow-packages")
     fi
 
+    # Keeps each path relative to $HOME under the backup dir, so restoring is a plain mv.
+    backup_stow_conflicts() {
+        local simulated conflicts rel
+        simulated=$(stow --simulate "$@" 2>&1 || true)
+        conflicts=$(printf '%s\n' "$simulated" | sed -nE \
+            -e 's/^.*existing target is (neither a link nor a directory|not owned by stow): (.+)$/\2/p' \
+            -e 's/^.*cannot stow .* over existing target (.+) since .*$/\1/p' | sort -u)
+        [[ -n "$conflicts" ]] || return 0
+        local backup_dir="$STOW_BACKUP_ROOT/$STOW_BACKUP_STAMP"
+        while IFS= read -r rel; do
+            case "$rel" in /*|..|../*|*/../*) log_warn "Not backing up suspicious path: $rel"; continue ;; esac
+            [[ -e "$HOME/$rel" || -L "$HOME/$rel" ]] || continue
+            mkdir -p "$backup_dir/$(dirname "$rel")"
+            mv -- "$HOME/$rel" "$backup_dir/$rel"
+            log_warn "Stow conflict: moved ~/$rel to $backup_dir/$rel"
+        done <<< "$conflicts"
+    }
+
+    stow_with_backup() {
+        if [[ "$FORCE_STOW" = true ]]; then
+            backup_stow_conflicts "$@"
+        fi
+        if ! quiet_run stow "$@"; then
+            log_error "Stow failed. If files block it, re-run with --force (dotfiles-setup) or --force-stow (setup.sh) to back them up and stow anyway."
+            return 1
+        fi
+    }
+
     stow_common_to_home() {
         local stow_file="$DOTFILES_DIR/.stow-packages"
         if [[ ! -f "$stow_file" ]]; then
@@ -86,10 +114,10 @@ configure_dotfiles() {
         else
             cd "$DOTFILES_DIR"
             if (( ${#nofold[@]} > 0 )); then
-                quiet_run stow --restow --no-folding "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${nofold[@]}"
+                stow_with_backup --restow --no-folding "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${nofold[@]}"
             fi
             if (( ${#folded[@]} > 0 )); then
-                quiet_run stow --restow "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${folded[@]}"
+                stow_with_backup --restow "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${folded[@]}"
             fi
             cd "$HOME"
             for pkg in "${packages_to_stow[@]}"; do
@@ -151,7 +179,7 @@ configure_dotfiles() {
                 done < <(find "$PRIVATE_ROOT/$pkg" -type f -print0)
             done
             cd "$PRIVATE_ROOT"
-            quiet_run stow --restow --no-folding --target="$HOME" --verbose=1 "${private_packages[@]}"
+            stow_with_backup --restow --no-folding --target="$HOME" --verbose=1 "${private_packages[@]}"
             cd "$HOME"
             for pkg in "${private_packages[@]}"; do
                 track_change "STOW_PRIVATE:$pkg"

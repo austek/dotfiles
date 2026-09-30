@@ -34,6 +34,7 @@ class AptBackend:
         dry_run: bool,
         private_root: Path | None = None,
         verbosity: int = 0,
+        force_stow: bool = False,
         run=subprocess.run,
     ) -> InstallResult:
         argv = [
@@ -46,6 +47,8 @@ class AptBackend:
         ]
         if private_root is not None:
             argv += ["--private-root", str(private_root)]
+        if force_stow:
+            argv.append("--force-stow")
         if dry_run:
             argv.append("--dry-run")
         # No capture_output: setup.sh's own step-by-step logging (and -v/-vv/-vvv's extra

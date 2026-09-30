@@ -221,3 +221,26 @@ def test_print_completion_asks_setup_sh_for_the_banner_only(tmp_path):
         ["bash", "/repo/bin/setup.sh", "--banner-only"],
         ["bash", "/repo/bin/setup.sh", "--banner-only", "--dry-run"],
     ]
+
+
+def test_install_forwards_force_stow_only_when_requested(tmp_path):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Result()
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    for force in (False, True):
+        backend.install(
+            tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+            dry_run=False, force_stow=force, run=fake_run,
+        )
+    assert "--force-stow" not in calls[0]
+    assert "--force-stow" in calls[1]

@@ -15,6 +15,9 @@ PACKAGE_FILE_OVERRIDE=""
 CLAUDE_PROFILE_DIR_OVERRIDE=""
 PRIVATE_ROOT=""
 NO_BANNER=false
+FORCE_STOW=false
+STOW_BACKUP_ROOT="$HOME/.local/state/dotfiles/stow-backups"
+STOW_BACKUP_STAMP="$(date +%Y%m%d%H%M%S)"
 BANNER_ONLY=false
 ROLLBACK_LOG="$HOME/.dotfiles-setup-rollback.log"
 SETUP_IN_PROGRESS=false
@@ -105,6 +108,10 @@ main() {
                 PRIVATE_ROOT="$2"
                 shift 2
                 ;;
+            --force-stow)
+                FORCE_STOW=true
+                shift
+                ;;
             --no-banner)
                 NO_BANNER=true
                 shift
@@ -138,6 +145,7 @@ main() {
                 echo "  --claude-profile-dir <path>          Read claude-profiles/*.json from this directory instead of the repo's own"
                 echo "  --private-root <path>                Also stow packages listed in this dir's .stow-packages (the private overlay)"
                 echo "  --verbosity <0-6>                    Set VERBOSITY directly (what dotfiles-setup passes for -v/-vv/-vvv); prefer -v/-vv/-vvv by hand"
+                echo "  --force-stow                         Move files that block stow into $STOW_BACKUP_ROOT/<timestamp> and stow anyway"
                 echo "  --no-banner                          Skip the completion banner (dotfiles-setup prints it after its own steps)"
                 echo "  --banner-only                        Print the completion banner and exit"
                 echo "  --dry-run                   Show what would be done without executing commands"
