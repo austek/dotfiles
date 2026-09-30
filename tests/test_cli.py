@@ -441,3 +441,120 @@ def test_install_without_preset_reports_an_unknown_saved_preset(isolated_dotfile
     main(["install", "--preset", "homelab"])
     (dotfiles_dir / "presets" / "homelab.json").unlink()
     assert main(["install"]) == 1
+
+
+def test_install_passes_overlay_root_to_git_identity(isolated_dotfiles, monkeypatch, tmp_path):
+    """The overlay must be known before ensure_git_identity runs so a private
+    overlay's git/gitconfig.local can suppress the interactive prompt."""
+    calls = []
+    monkeypatch.setattr(
+        "dotfiles_setup.cli.identity.ensure_git_identity",
+        lambda **kw: calls.append(kw) or tmp_path / "gitconfig.local",
+    )
+    private_root = tmp_path / "dotfiles-private"
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert calls[0]["overlay_root"] == private_root
+
+
+def test_private_clone_requires_subcommand():
+    parser = build_arg_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["private"])
+
+
+def test_private_clone_requires_repo():
+    parser = build_arg_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["private", "clone"])
+
+
+def test_private_clone_dest_defaults_to_none():
+    parser = build_arg_parser()
+    args = parser.parse_args(["private", "clone", "--repo", "git@github.com:you/dotfiles-private.git"])
+    assert args.dest is None
+
+
+def test_main_private_clone_clones_to_default_dest(tmp_path, monkeypatch):
+    calls = []
+
+    def recording_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return _Result()
+
+    default_root = tmp_path / "dotfiles-private"
+    monkeypatch.setattr("dotfiles_setup.cli.overlay.DEFAULT_OVERLAY_ROOT", default_root)
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
+
+    assert main(["private", "clone", "--repo", "git@github.com:you/dotfiles-private.git"]) == 0
+    assert calls == [["git", "clone", "git@github.com:you/dotfiles-private.git", str(default_root)]]
+
+
+def test_main_private_clone_honors_dest_override(tmp_path, monkeypatch):
+    calls = []
+
+    def recording_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return _Result()
+
+    dest = tmp_path / "custom-dest"
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
+
+    assert main(["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest)]) == 0
+    assert calls[0][-1] == str(dest)
+
+
+def test_main_private_clone_dry_run_does_not_clone(tmp_path, monkeypatch, capsys):
+    def unexpected_run(argv, **kwargs):
+        raise AssertionError("git clone should not run in dry-run mode")
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", unexpected_run)
+
+    dest = tmp_path / "dotfiles-private"
+    assert main(["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest), "--dry-run"]) == 0
+    assert "DRY-RUN" in capsys.readouterr().out
+    assert not dest.exists()
+
+
+def test_main_private_clone_returns_nonzero_on_git_failure(tmp_path, monkeypatch, capsys):
+    def failing_run(argv, **kwargs):
+        class _Result:
+            returncode = 128
+            stdout = ""
+            stderr = "fatal: repository not found"
+        return _Result()
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
+
+    dest = tmp_path / "dotfiles-private"
+    assert main(["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest)]) == 128
+    assert "not found" in capsys.readouterr().err
+
+
+def test_install_force_flag_reaches_setup_sh(isolated_dotfiles, monkeypatch):
+    calls = []
+
+    def recording_run(argv, **kwargs):
+        calls.append(argv)
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return _Result()
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
+
+    assert main(["install", "--preset", "homelab", "--force"]) == 0
+    assert "--force-stow" in calls[0]

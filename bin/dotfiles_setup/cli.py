@@ -16,6 +16,7 @@ from dotfiles_setup import (
     identity,
     overlay,
     presets,
+    private,
     reconcile,
     state,
     update,
@@ -51,6 +52,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "  dotfiles-setup install  (reuses the preset saved on this machine)\n"
             "  dotfiles-setup install --preset personal --dry-run\n"
             "  dotfiles-setup install --preset homelab -v\n"
+            "  dotfiles-setup private clone --repo git@github.com:you/dotfiles-private.git\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -85,7 +87,41 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Re-prompt for git identity and re-detect the local-overlay root even if already configured.",
     )
+    install_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Back up files that block stow (to ~/.local/state/dotfiles/stow-backups/<timestamp>) and stow anyway.",
+    )
     install_p.set_defaults(verbosity=0)
+
+    private_p = sub.add_parser(
+        "private", help="manage the optional private overlay repo (see AGENTS.md's Presets and Portability)"
+    )
+    private_sub = private_p.add_subparsers(dest="private_command", metavar="private-command", required=True)
+    clone_p = private_sub.add_parser(
+        "clone", help="git-clone your private overlay repo so install can auto-detect and layer it"
+    )
+    clone_p.add_argument(
+        "--repo",
+        required=True,
+        help="Git URL of your private overlay repo, e.g. git@github.com:you/dotfiles-private.git",
+    )
+    clone_p.add_argument(
+        "--dest",
+        type=Path,
+        default=None,
+        help=f"Clone destination (default: {overlay.DEFAULT_OVERLAY_ROOT}).",
+    )
+    clone_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without executing commands.",
+    )
+    clone_p.add_argument(
+        "-v", "--verbose", nargs=0, action=_AddVerbosity, amount=1,
+        help="Confirm what was cloned and where.",
+    )
+    clone_p.set_defaults(verbosity=0)
     return parser
 
 
@@ -154,11 +190,13 @@ def _log_install_failure(logger: Logger, result: InstallResult) -> None:
         logger.error(f"setup.sh exited with code {result.returncode}. See output above.")
 
 
-def _prepare_checkout(args: argparse.Namespace, logger: Logger, dotfiles_dir: Path) -> None:
+def _prepare_checkout(args: argparse.Namespace, logger: Logger, dotfiles_dir: Path) -> Path | None:
     update.pull_if_behind(dotfiles_dir, logger)
-    update.pull_overlay_if_git(overlay.find_overlay_root(), logger)
+    overlay_root = overlay.find_overlay_root()
+    update.pull_overlay_if_git(overlay_root, logger)
     if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
-        identity.ensure_git_identity(force=args.reconfigure)
+        identity.ensure_git_identity(force=args.reconfigure, overlay_root=overlay_root)
+    return overlay_root
 
 
 def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | None, logger: Logger) -> str | None:
@@ -197,7 +235,7 @@ def _run_install(args: argparse.Namespace) -> int:
     if preset_name is None:
         logger.error("No preset saved on this machine; pass --preset <name>.")
         return 2
-    _prepare_checkout(args, logger, dotfiles_dir)
+    overlay_root = _prepare_checkout(args, logger, dotfiles_dir)
 
     try:
         preset = presets.load_preset(dotfiles_dir / "presets", preset_name)
@@ -205,7 +243,6 @@ def _run_install(args: argparse.Namespace) -> int:
         logger.error(str(exc))
         return 1
 
-    overlay_root = overlay.find_overlay_root()
     logical_names = presets.resolve_packages(dotfiles_dir / "packages", preset)
     backend = AptBackend(dotfiles_dir=dotfiles_dir, backend_overrides=preset.backend_overrides.get("apt", {}))
     resolved_names = {backend.resolve_name(n) for n in logical_names}
@@ -226,7 +263,7 @@ def _run_install(args: argparse.Namespace) -> int:
     result = backend.install(
         package_file, preset_name=preset_name, claude_profile_dir=claude_dir,
         dry_run=args.dry_run, private_root=overlay_root, verbosity=args.verbosity,
-        run=subprocess.run,
+        force_stow=args.force, run=subprocess.run,
     )
 
     if not result.succeeded:
@@ -242,6 +279,20 @@ def _run_install(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_private_clone(args: argparse.Namespace) -> int:
+    logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
+    dest = args.dest if args.dest is not None else overlay.DEFAULT_OVERLAY_ROOT
+    if logger.dry_run_notice(f"Would clone {args.repo} to {dest}."):
+        return 0
+    result = private.clone_overlay(args.repo, dest, run=subprocess.run)
+    if not result.succeeded:
+        logger.error(result.stdout or f"git clone exited with code {result.returncode}.")
+        return result.returncode
+    logger.success(f"Cloned private overlay to {dest}.")
+    logger.success("Re-run 'dotfiles-setup install --preset <name>' to layer it in.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
@@ -252,6 +303,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "install":
         return _run_install(args)
+
+    if args.command == "private" and args.private_command == "clone":
+        return _run_private_clone(args)
 
     return 1
 

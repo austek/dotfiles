@@ -36,6 +36,53 @@ configure_dotfiles() {
         done < <(grep -vE '^\s*#|^\s*$' "$PRIVATE_ROOT/.stow-packages")
     fi
 
+    # Stages conflicting paths under $1, outside every stowed tree, keeping each path
+    # relative to $HOME so restoring is a plain mv.
+    stage_stow_conflicts() {
+        local stage="$1"
+        shift
+        local simulated conflicts rel
+        simulated=$(stow --simulate "$@" 2>&1 || true)
+        conflicts=$(printf '%s\n' "$simulated" | sed -nE \
+            -e 's/^.*existing target is (neither a link nor a directory|not owned by stow): (.+)$/\2/p' \
+            -e 's/^.*cannot stow .* over existing target (.+) since .*$/\1/p' | sort -u)
+        while IFS= read -r rel; do
+            [[ -n "$rel" ]] || continue
+            case "$rel" in
+                /*|..|../*|*/../*) log_warn "Not backing up suspicious path: $rel"; continue ;;
+                *) ;;
+            esac
+            [[ -e "$HOME/$rel" || -L "$HOME/$rel" ]] || continue
+            mkdir -p "$stage/$(dirname "$rel")"
+            mv -- "$HOME/$rel" "$stage/$rel"
+            log_warn "Stow conflict: backing up ~/$rel"
+        done <<< "$conflicts"
+    }
+
+    finalize_stow_backup() {
+        local stage="$1" backup_dir
+        [[ -n "$(ls -A "$stage")" ]] || { rmdir "$stage"; return 0; }
+        mkdir -p "$STOW_BACKUP_ROOT"
+        backup_dir=$(mktemp -d "$STOW_BACKUP_ROOT/$STOW_BACKUP_STAMP.XXXXXX")
+        cp -a "$stage/." "$backup_dir/"
+        rm -rf "$stage"
+        log_warn "Backed up conflicting files to $backup_dir"
+    }
+
+    stow_with_backup() {
+        local stage=""
+        if [[ "$FORCE_STOW" = true ]]; then
+            stage=$(mktemp -d "$HOME/.stow-backup.XXXXXX")
+            stage_stow_conflicts "$stage" "$@"
+        fi
+        if ! quiet_run stow "$@"; then
+            [[ -z "$stage" ]] || log_error "Stow failed; conflicting files remain staged in $stage."
+            log_error "Stow failed. If files block it, re-run with --force (dotfiles-setup) or --force-stow (setup.sh) to back them up and stow anyway."
+            return 1
+        fi
+        [[ -z "$stage" ]] || finalize_stow_backup "$stage"
+    }
+
     stow_common_to_home() {
         local stow_file="$DOTFILES_DIR/.stow-packages"
         if [[ ! -f "$stow_file" ]]; then
@@ -86,10 +133,10 @@ configure_dotfiles() {
         else
             cd "$DOTFILES_DIR"
             if (( ${#nofold[@]} > 0 )); then
-                quiet_run stow --restow --no-folding "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${nofold[@]}"
+                stow_with_backup --restow --no-folding "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${nofold[@]}"
             fi
             if (( ${#folded[@]} > 0 )); then
-                quiet_run stow --restow "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${folded[@]}"
+                stow_with_backup --restow "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${folded[@]}"
             fi
             cd "$HOME"
             for pkg in "${packages_to_stow[@]}"; do
@@ -151,7 +198,7 @@ configure_dotfiles() {
                 done < <(find "$PRIVATE_ROOT/$pkg" -type f -print0)
             done
             cd "$PRIVATE_ROOT"
-            quiet_run stow --restow --no-folding --target="$HOME" --verbose=1 "${private_packages[@]}"
+            stow_with_backup --restow --no-folding --target="$HOME" --verbose=1 "${private_packages[@]}"
             cd "$HOME"
             for pkg in "${private_packages[@]}"; do
                 track_change "STOW_PRIVATE:$pkg"

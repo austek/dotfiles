@@ -80,6 +80,11 @@ list, `~/.dotfiles-private` never consulted, and no generated `~/.claude/setting
 every time. Prefer `dotfiles-setup install` unless you have a specific reason to bypass it.
 
 [NOTE]
+If stow fails because existing files block a symlink, re-run with `--force`. Each blocking file moves to
+`~/.local/state/dotfiles/stow-backups/<timestamp>/<path relative to $HOME>` and is logged, so restoring it
+is a plain `mv`.
+
+[NOTE]
 If you get a "Permission denied" error, your clone may not have preserved the executable bits.
 Run `chmod +x ~/.dotfiles/bin/setup.sh ~/.dotfiles/bin/dotfiles-setup ~/.dotfiles/bin/dotfiles-backup` and try again.
 
@@ -163,9 +168,17 @@ Every later `dotfiles-setup install --preset <name>` re-resolves the preset and 
 
 === The Private Overlay
 
-An optional sibling clone at `~/.dotfiles-private` (or a path given via `DOTFILES_PRIVATE_ROOT`) is auto-detected and layered on top of this public repo for anything that shouldn't live here:
+An optional sibling clone at `~/.dotfiles-private` (or a path given via `DOTFILES_PRIVATE_ROOT`) is auto-detected and layered on top of this public repo for anything that shouldn't live here. If you already have such a repo, bootstrap it with:
 
-* *Git identity* — `~/.dotfiles-private/git/gitconfig-work` is conditionally included by `git/.gitconfig` on Collibra remotes (see "Git Configuration" above).
+[source,bash]
+----
+dotfiles-setup private clone --repo git@github.com:you/dotfiles-private.git
+----
+
+This clones straight to `~/.dotfiles-private` (override with `--dest`) and refuses to run if that path already exists, so it never overwrites an existing clone or unrelated directory — update an existing clone with a plain `git -C ~/.dotfiles-private pull` instead. Once cloned, the next `dotfiles-setup install --preset <name>` auto-detects it and layers in everything below:
+
+* *Full git identity, no prompt* — if `~/.dotfiles-private/git/gitconfig.local` exists, `dotfiles-setup install` symlinks `~/.gitconfig.local` straight to it instead of interactively prompting for name/email/signing key. Use `~` (not an absolute `/home/<user>` path) for the signing key so the same private repo stays portable across your own machines.
+* *Work-remote override* — `~/.dotfiles-private/git/gitconfig-work` is conditionally included by `git/.gitconfig` on Collibra remotes (see "Git Configuration" above).
 * *Extra packages* — `~/.dotfiles-private/packages/<preset>_extra.txt` is unioned into the resolved package list for that preset before it's forked/reconciled into `~/.config/dotfiles/packages/<name>.txt`.
 * *Extra Claude settings* — `~/.dotfiles-private/claude-profiles/<preset>.json` is deep-merged over this repo's own `claude-profiles/<preset>.json`.
 * *Private stowed files* — `dotfiles-setup install` passes the overlay root to `setup.sh` as `--private-root`, which, after stowing this repo's own `.stow-packages`, also reads `~/.dotfiles-private/.stow-packages` and stows those packages (unfolded, `stow --override='.*'`, from the private repo) onto `$HOME` too. `--override` lets a private file win over a public one at the same path, not just add new ones — e.g. a private `claude/.claude/CLAUDE.md` with org-specific instructions this machine's user isn't free to publish replaces this repo's generic one, while `claude/.claude/skills/*` (private-only skill directories) and `local/.local/bin/*` scripts just add alongside it.

@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from dotfiles_setup.identity import ensure_git_identity
 
 
@@ -85,3 +88,72 @@ def test_omits_signing_block_when_signing_key_blank(tmp_path):
     assert "signingkey" not in text
     assert "[commit]" not in text
     assert "[gpg]" not in text
+
+
+def _unreachable_prompt(label):
+    raise AssertionError(f"should not prompt when overlay provides identity, asked: {label}")
+
+
+def test_symlinks_to_overlay_identity_without_prompting(tmp_path):
+    target = tmp_path / ".gitconfig.local"
+    overlay_root = tmp_path / "dotfiles-private"
+    (overlay_root / "git").mkdir(parents=True)
+    overlay_identity = overlay_root / "git" / "gitconfig.local"
+    overlay_identity.write_text("[user]\n\tname = Overlay Name\n\temail = overlay@example.com\n")
+
+    result = ensure_git_identity(gitconfig_local=target, prompt=_unreachable_prompt, overlay_root=overlay_root)
+    assert result == target
+    assert target.is_symlink()
+    assert target.resolve() == overlay_identity.resolve()
+
+
+def test_overlay_identity_replaces_existing_plain_file(tmp_path):
+    target = tmp_path / ".gitconfig.local"
+    target.write_text("[user]\n\tname = Stale\n\temail = stale@example.com\n")
+    overlay_root = tmp_path / "dotfiles-private"
+    (overlay_root / "git").mkdir(parents=True)
+    overlay_identity = overlay_root / "git" / "gitconfig.local"
+    overlay_identity.write_text("[user]\n\tname = Overlay Name\n\temail = overlay@example.com\n")
+
+    ensure_git_identity(gitconfig_local=target, prompt=_unreachable_prompt, overlay_root=overlay_root)
+    assert target.is_symlink()
+    assert "Overlay Name" in target.read_text()
+
+
+def test_overlay_identity_symlink_is_idempotent(tmp_path):
+    target = tmp_path / ".gitconfig.local"
+    overlay_root = tmp_path / "dotfiles-private"
+    (overlay_root / "git").mkdir(parents=True)
+    overlay_identity = overlay_root / "git" / "gitconfig.local"
+    overlay_identity.write_text("[user]\n\tname = Overlay Name\n\temail = overlay@example.com\n")
+
+    ensure_git_identity(gitconfig_local=target, prompt=_unreachable_prompt, overlay_root=overlay_root)
+    ensure_git_identity(gitconfig_local=target, prompt=_unreachable_prompt, overlay_root=overlay_root)
+    assert target.is_symlink()
+    assert target.resolve() == overlay_identity.resolve()
+
+
+def test_falls_back_to_prompt_when_overlay_lacks_identity_file(tmp_path):
+    target = tmp_path / ".gitconfig.local"
+    overlay_root = tmp_path / "dotfiles-private"
+    overlay_root.mkdir()
+    prompt = _fake_prompt({
+        "Git user.name: ": "Ada Lovelace",
+        "Git user.email: ": "ada@example.com",
+        "SSH signing key path (blank to skip commit signing): ": "",
+    })
+    result = ensure_git_identity(gitconfig_local=target, prompt=prompt, overlay_root=overlay_root)
+    assert not result.is_symlink()
+    assert "Ada Lovelace" in result.read_text()
+
+
+def test_overlay_identity_symlink_target_is_absolute_for_relative_overlay_root(tmp_path, monkeypatch):
+    overlay = tmp_path / "overlay"
+    (overlay / "git").mkdir(parents=True)
+    (overlay / "git" / "gitconfig.local").write_text("[user]\n\tname = x\n")
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "home" / ".gitconfig.local"
+
+    ensure_git_identity(gitconfig_local=target, overlay_root=Path("overlay"))
+
+    assert Path(os.readlink(target)).is_absolute()
