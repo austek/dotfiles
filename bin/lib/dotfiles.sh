@@ -3,6 +3,69 @@
 
 set -euo pipefail
 
+# Stages conflicting paths under $1, outside every stowed tree, keeping each path
+# relative to $HOME so restoring is a plain mv.
+stage_stow_conflicts() {
+    local stage="$1"
+    shift
+    local simulated conflicts rel home_real parent_real
+    home_real=$(realpath -e -- "$HOME") || return 1
+    simulated=$(stow --simulate "$@" 2>&1 || true)
+    conflicts=$(printf '%s\n' "$simulated" | sed -nE \
+        -e 's/^.*existing target is (neither a link nor a directory|not owned by stow): (.+)$/\2/p' \
+        -e 's/^.*cannot stow .* over existing target (.+) since .*$/\1/p' | sort -u)
+    while IFS= read -r rel; do
+        [[ -n "$rel" ]] || continue
+        case "$rel" in
+            /*|..|../*|*/../*) log_warn "Not backing up suspicious path: $rel"; continue ;;
+            *) ;;
+        esac
+        [[ -e "$HOME/$rel" || -L "$HOME/$rel" ]] || continue
+        parent_real=$(realpath -e -- "$HOME/$(dirname -- "$rel")") || continue
+        case "$parent_real/" in
+            "$home_real/"*) ;;
+            *) log_warn "Not backing up path outside HOME: $rel"; continue ;;
+        esac
+        mkdir -p "$stage/$(dirname "$rel")"
+        mv -- "$HOME/$rel" "$stage/$rel"
+        log_warn "Stow conflict: backing up ~/$rel"
+    done <<< "$conflicts"
+}
+
+# Never removes $1 unless every copy step succeeded: it holds the only copy of the originals.
+finalize_stow_backup() {
+    local stage="$1" backup_dir
+    [[ -n "$(ls -A "$stage")" ]] || { rmdir "$stage"; return 0; }
+    if ! mkdir -p "$STOW_BACKUP_ROOT"; then
+        log_error "Could not create $STOW_BACKUP_ROOT; conflicting files remain staged in $stage."
+        return 1
+    fi
+    if ! backup_dir=$(mktemp -d "$STOW_BACKUP_ROOT/$STOW_BACKUP_STAMP.XXXXXX"); then
+        log_error "Could not create a backup directory; conflicting files remain staged in $stage."
+        return 1
+    fi
+    if ! cp -a "$stage/." "$backup_dir/"; then
+        log_error "Could not copy the backup to $backup_dir; conflicting files remain staged in $stage."
+        return 1
+    fi
+    rm -rf "$stage"
+    log_warn "Backed up conflicting files to $backup_dir"
+}
+
+stow_with_backup() {
+    local stage=""
+    if [[ "$FORCE_STOW" = true ]]; then
+        stage=$(mktemp -d "$HOME/.stow-backup.XXXXXX")
+        stage_stow_conflicts "$stage" "$@"
+    fi
+    if ! quiet_run stow "$@"; then
+        [[ -z "$stage" ]] || finalize_stow_backup "$stage" || true
+        log_error "Stow failed. If files block it, re-run with --force (dotfiles-setup) or --force-stow (setup.sh) to back them up and stow anyway."
+        return 1
+    fi
+    [[ -z "$stage" ]] || finalize_stow_backup "$stage"
+}
+
 configure_dotfiles() {
     log_step "Step 7: Configuring dotfiles..."
 
@@ -35,53 +98,6 @@ configure_dotfiles() {
             done < <(find "$PRIVATE_ROOT/$priv_pkg" -type f -print0)
         done < <(grep -vE '^\s*#|^\s*$' "$PRIVATE_ROOT/.stow-packages")
     fi
-
-    # Stages conflicting paths under $1, outside every stowed tree, keeping each path
-    # relative to $HOME so restoring is a plain mv.
-    stage_stow_conflicts() {
-        local stage="$1"
-        shift
-        local simulated conflicts rel
-        simulated=$(stow --simulate "$@" 2>&1 || true)
-        conflicts=$(printf '%s\n' "$simulated" | sed -nE \
-            -e 's/^.*existing target is (neither a link nor a directory|not owned by stow): (.+)$/\2/p' \
-            -e 's/^.*cannot stow .* over existing target (.+) since .*$/\1/p' | sort -u)
-        while IFS= read -r rel; do
-            [[ -n "$rel" ]] || continue
-            case "$rel" in
-                /*|..|../*|*/../*) log_warn "Not backing up suspicious path: $rel"; continue ;;
-                *) ;;
-            esac
-            [[ -e "$HOME/$rel" || -L "$HOME/$rel" ]] || continue
-            mkdir -p "$stage/$(dirname "$rel")"
-            mv -- "$HOME/$rel" "$stage/$rel"
-            log_warn "Stow conflict: backing up ~/$rel"
-        done <<< "$conflicts"
-    }
-
-    finalize_stow_backup() {
-        local stage="$1" backup_dir
-        [[ -n "$(ls -A "$stage")" ]] || { rmdir "$stage"; return 0; }
-        mkdir -p "$STOW_BACKUP_ROOT"
-        backup_dir=$(mktemp -d "$STOW_BACKUP_ROOT/$STOW_BACKUP_STAMP.XXXXXX")
-        cp -a "$stage/." "$backup_dir/"
-        rm -rf "$stage"
-        log_warn "Backed up conflicting files to $backup_dir"
-    }
-
-    stow_with_backup() {
-        local stage=""
-        if [[ "$FORCE_STOW" = true ]]; then
-            stage=$(mktemp -d "$HOME/.stow-backup.XXXXXX")
-            stage_stow_conflicts "$stage" "$@"
-        fi
-        if ! quiet_run stow "$@"; then
-            [[ -z "$stage" ]] || log_error "Stow failed; conflicting files remain staged in $stage."
-            log_error "Stow failed. If files block it, re-run with --force (dotfiles-setup) or --force-stow (setup.sh) to back them up and stow anyway."
-            return 1
-        fi
-        [[ -z "$stage" ]] || finalize_stow_backup "$stage"
-    }
 
     stow_common_to_home() {
         local stow_file="$DOTFILES_DIR/.stow-packages"
