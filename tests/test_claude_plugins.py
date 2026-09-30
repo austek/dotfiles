@@ -19,13 +19,15 @@ SETTINGS = {
 MUTATING = ("install", "uninstall", "update")
 
 
-def _fake_run(responses=None, missing=False, installed=INSTALLED, marketplaces=({"name": "m"},)):
+def _fake_run(responses=None, missing=False, raises=None, installed=INSTALLED, marketplaces=({"name": "m"},)):
     calls = []
 
     def run(argv, **_):
         if missing:
             raise FileNotFoundError("claude")
         calls.append(tuple(argv[2:]))
+        if raises and argv[2] == raises:
+            raise PermissionError("denied")
         out = {
             ("list", "--json"): json.dumps(installed),
             ("marketplace", "list", "--json"): json.dumps(list(marketplaces)),
@@ -126,3 +128,10 @@ def test_every_installed_plugin_is_updated_and_progress_is_logged(capsys):
     updated = {c[1] for c in calls if c[0] == "update" and len(c) > 1 and c[1].startswith("p")}
     assert updated == {p["id"] for p in many}
     assert "Running: update p0@m" in capsys.readouterr().out
+
+
+def test_raising_update_does_not_fail_the_sync(capsys):
+    run, calls = _fake_run(raises="update")
+    update_claude_plugins(Logger(dry_run=False), SETTINGS, run=run)
+    assert ("update", "a@m", "--scope", "user") in calls
+    assert "denied" in capsys.readouterr().out

@@ -105,7 +105,11 @@ def _apply(action: Action, logger: Logger, run) -> None:
     if logger.dry_run_notice(f"Would {action.label}."):
         return
     logger.info(f"Running: {action.label}")
-    result = _claude(*action.args, run=run)
+    try:
+        result = _claude(*action.args, run=run)
+    except OSError as exc:
+        logger.warn(f"Could not {action.label}: {exc}")
+        return
     if result.returncode != 0:
         logger.warn(f"Could not {action.label}: {result.stderr.strip() or result.stdout.strip()}")
 

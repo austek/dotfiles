@@ -110,3 +110,9 @@ def test_overlay_pull_warning_names_private_repo(tmp_path, capsys):
     run, _ = _fake_run({"rev-list": (128, "")})
     pull_overlay_if_git(tmp_path, Logger(dry_run=False), run=run)
     assert "Skipping dotfiles-private update" in capsys.readouterr().out
+
+
+def test_missing_upstream_command_quotes_the_branch(tmp_path, capsys):
+    run, _ = _fake_run({"rev-list": (128, ""), "symbolic-ref": (0, "feat;id\n")})
+    pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
+    assert "git push -u origin 'feat;id'" in capsys.readouterr().out

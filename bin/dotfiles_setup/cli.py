@@ -192,13 +192,12 @@ def _run_install(args: argparse.Namespace) -> int:
     logger.step("Starting Ubuntu Dotfiles Setup...")
 
     dotfiles_dir = _dotfiles_dir()
-    _prepare_checkout(args, logger, dotfiles_dir)
-
     prior = state.load_state()
     preset_name = _resolve_preset_name(args, prior, logger)
     if preset_name is None:
         logger.error("No preset saved on this machine; pass --preset <name>.")
         return 2
+    _prepare_checkout(args, logger, dotfiles_dir)
 
     try:
         preset = presets.load_preset(dotfiles_dir / "presets", preset_name)

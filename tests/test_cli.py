@@ -413,6 +413,13 @@ def test_install_without_preset_or_saved_state_fails(isolated_dotfiles, capsys):
     assert "pass --preset" in capsys.readouterr().err
 
 
+def test_install_without_preset_fails_before_touching_the_checkout(isolated_dotfiles, monkeypatch):
+    calls = []
+    monkeypatch.setattr("dotfiles_setup.cli._prepare_checkout", lambda *a: calls.append(a))
+    assert main(["install"]) == 2
+    assert calls == []
+
+
 def test_install_without_preset_reuses_the_saved_one(isolated_dotfiles):
     main(["install", "--preset", "homelab"])
     assert main(["install"]) == 0
