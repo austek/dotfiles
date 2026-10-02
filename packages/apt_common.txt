@@ -1,4 +1,5 @@
 # Common packages for ALL machines (headless-safe: no GUI/desktop packages here)
+coderabbit
 containerd.io
 curl
 docker-buildx-plugin
@@ -18,6 +19,7 @@ oh-my-zsh
 openssh-server
 pipx
 ripgrep
+ruff
 sdkman
 shellcheck
 tmux
@@ -29,5 +31,6 @@ wl-clipboard
 xclip
 xsel
 yq
+zizmor
 zsh
 zsh-doc
