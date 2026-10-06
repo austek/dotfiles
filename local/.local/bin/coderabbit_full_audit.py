@@ -2,7 +2,7 @@
 
 Mirrors the five review scopes the `/coderabbit-audit` Claude command resolves
 (uncommitted changes, a path, a PR, a branch, or the full repo) and keeps every
-`coderabbit review` call under CodeRabbit's free-tier file-count ceiling by
+`coderabbit review` call under CodeRabbit's free-tier file-count ceiling (100) by
 splitting an over-limit scope into multiple review calls, each built from a
 scratch git worktree so the extra calls never touch the caller's working tree.
 """
@@ -16,9 +16,14 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 FREE_TIER_CEILING = 100
+RATE_LIMIT_MARGIN_SECONDS = 60
+DEFAULT_RATE_LIMIT_WAIT_SECONDS = 3600
+MAX_RATE_LIMIT_WAITS = 6
+_UNIT_SECONDS = {"second": 1, "minute": 60, "hour": 3600}
 EXPORT_FILE = Path.home() / ".claude" / "scratches" / "handoff" / "coderabbit_audit.md"
 
 EXAMPLES = """\
@@ -82,6 +87,41 @@ def clamp_limit(limit: int) -> int:
         )
         return FREE_TIER_CEILING
     return limit
+
+
+def rate_limit_wait_seconds(output: str) -> int | None:
+    """Seconds to wait if `output` holds a CodeRabbit rate_limit error, else None."""
+    for line in output.splitlines():
+        if '"rate_limit"' not in line:
+            continue
+        try:
+            wait = json.loads(line).get("metadata", {}).get("waitTime", "")
+        except (json.JSONDecodeError, AttributeError):
+            wait = ""
+        return _parse_wait(wait) + RATE_LIMIT_MARGIN_SECONDS
+    return None
+
+
+def _parse_wait(text: str) -> int:
+    parts = re.findall(r"(\d+)\s*(second|minute|hour)", str(text))
+    total = sum(int(n) * _UNIT_SECONDS[unit] for n, unit in parts)
+    return total or DEFAULT_RATE_LIMIT_WAIT_SECONDS
+
+
+def review_waiting_for_limit(run, cmd: list[str], cwd=None, sleep=time.sleep):
+    """Run a coderabbit command, sleeping out rate limits until the window reopens."""
+    for attempt in range(MAX_RATE_LIMIT_WAITS + 1):
+        result = run(cmd, cwd=cwd, capture_output=True, text=True)
+        wait = rate_limit_wait_seconds(result.stdout or "")
+        if wait is None or attempt == MAX_RATE_LIMIT_WAITS:
+            return result
+        print(
+            f"coderabbitFullAudit: rate limited; waiting {wait // 60} min before retrying "
+            f"({attempt + 1}/{MAX_RATE_LIMIT_WAITS}).",
+            file=sys.stderr,
+        )
+        sleep(wait)
+    return result
 
 
 def chunk(items: list[str], size: int) -> list[list[str]]:
@@ -200,7 +240,7 @@ def _append_export(content: str) -> None:
 
 
 def _run_simple(run, cmd: list[str], cwd=None) -> int:
-    result = run(cmd, cwd=cwd, capture_output=True, text=True)
+    result = review_waiting_for_limit(run, cmd, cwd=cwd)
     _write_export(result.stdout)
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr)
@@ -233,11 +273,8 @@ def _run_one_batch(run, worktree_dir: Path, base_branch: str, target_ref: str, b
     try:
         _stage_batch(run, worktree_dir, target_ref, batch_files)
         _git(run, "commit", "-m", f"batch {batch_num}/{total} snapshot for audit", cwd=worktree_dir)
-        result = run(
-            ["coderabbit", "review", "--base", base_branch, "--agent"],
-            cwd=worktree_dir,
-            capture_output=True,
-            text=True,
+        result = review_waiting_for_limit(
+            run, ["coderabbit", "review", "--base", base_branch, "--agent"], cwd=worktree_dir
         )
     finally:
         _git(run, "checkout", "--force", base_branch, cwd=worktree_dir, check=False)
