@@ -271,3 +271,51 @@ def test_scoped_audit_leaves_no_branches_or_worktrees_after_a_failed_batch(tmp_p
 
     assert "audit-" not in _git_out(repo, "branch", "--list")
     assert _git_out(repo, "worktree", "list").count("\n") == 1
+
+
+RATE_LIMIT_LINE = (
+    '{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded",'
+    '"metadata":{"waitTime":"36 minutes"}}'
+)
+
+
+def test_rate_limit_wait_parses_wait_time_plus_margin():
+    assert cra.rate_limit_wait_seconds(RATE_LIMIT_LINE) == 36 * 60 + cra.RATE_LIMIT_MARGIN_SECONDS
+
+
+def test_rate_limit_wait_defaults_to_an_hour_when_wait_time_missing():
+    line = '{"type":"error","errorType":"rate_limit","metadata":{}}'
+    assert cra.rate_limit_wait_seconds(line) == 3600 + cra.RATE_LIMIT_MARGIN_SECONDS
+
+
+def test_rate_limit_wait_ignores_other_output():
+    assert cra.rate_limit_wait_seconds('{"type":"finding"}') is None
+
+
+def test_review_sleeps_out_rate_limit_then_returns_result():
+    sleeps = []
+    run = FakeRun({("coderabbit",): sequence([RATE_LIMIT_LINE, "findings"])})
+    result = cra.review_waiting_for_limit(run, ["coderabbit", "review"], sleep=sleeps.append)
+    assert result.stdout == "findings"
+    assert sleeps == [36 * 60 + cra.RATE_LIMIT_MARGIN_SECONDS]
+
+
+def test_review_gives_up_after_max_waits():
+    sleeps = []
+    run = FakeRun({("coderabbit",): ok(RATE_LIMIT_LINE)})
+    result = cra.review_waiting_for_limit(run, ["coderabbit", "review"], sleep=sleeps.append)
+    assert len(sleeps) == cra.MAX_RATE_LIMIT_WAITS
+    assert "rate_limit" in result.stdout
+
+
+def test_rate_limit_wait_ignores_prose_quoting_the_error_type():
+    assert cra.rate_limit_wait_seconds('finding: handle "rate_limit" errors') is None
+
+
+def test_rate_limit_wait_ignores_non_object_json():
+    assert cra.rate_limit_wait_seconds('"rate_limit"') is None
+
+
+def test_rate_limit_wait_preserves_zero_second_wait():
+    line = '{"errorType":"rate_limit","metadata":{"waitTime":"0 seconds"}}'
+    assert cra.rate_limit_wait_seconds(line) == cra.RATE_LIMIT_MARGIN_SECONDS
