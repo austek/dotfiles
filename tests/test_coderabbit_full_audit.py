@@ -306,3 +306,16 @@ def test_review_gives_up_after_max_waits():
     result = cra.review_waiting_for_limit(run, ["coderabbit", "review"], sleep=sleeps.append)
     assert len(sleeps) == cra.MAX_RATE_LIMIT_WAITS
     assert "rate_limit" in result.stdout
+
+
+def test_rate_limit_wait_ignores_prose_quoting_the_error_type():
+    assert cra.rate_limit_wait_seconds('finding: handle "rate_limit" errors') is None
+
+
+def test_rate_limit_wait_ignores_non_object_json():
+    assert cra.rate_limit_wait_seconds('"rate_limit"') is None
+
+
+def test_rate_limit_wait_preserves_zero_second_wait():
+    line = '{"errorType":"rate_limit","metadata":{"waitTime":"0 seconds"}}'
+    assert cra.rate_limit_wait_seconds(line) == cra.RATE_LIMIT_MARGIN_SECONDS

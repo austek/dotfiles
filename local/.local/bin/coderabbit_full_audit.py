@@ -89,23 +89,30 @@ def clamp_limit(limit: int) -> int:
     return limit
 
 
+def _rate_limit_event(line: str) -> dict | None:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    is_limit = isinstance(event, dict) and event.get("errorType") == "rate_limit"
+    return event if is_limit else None
+
+
 def rate_limit_wait_seconds(output: str) -> int | None:
-    """Seconds to wait if `output` holds a CodeRabbit rate_limit error, else None."""
+    """Seconds to wait if `output` holds a CodeRabbit rate_limit error event, else None."""
     for line in output.splitlines():
-        if '"rate_limit"' not in line:
-            continue
-        try:
-            wait = json.loads(line).get("metadata", {}).get("waitTime", "")
-        except (json.JSONDecodeError, AttributeError):
-            wait = ""
-        return _parse_wait(wait) + RATE_LIMIT_MARGIN_SECONDS
+        event = _rate_limit_event(line)
+        if event is not None:
+            wait = (event.get("metadata") or {}).get("waitTime", "")
+            return _parse_wait(wait) + RATE_LIMIT_MARGIN_SECONDS
     return None
 
 
 def _parse_wait(text: str) -> int:
     parts = re.findall(r"(\d+)\s*(second|minute|hour)", str(text))
-    total = sum(int(n) * _UNIT_SECONDS[unit] for n, unit in parts)
-    return total or DEFAULT_RATE_LIMIT_WAIT_SECONDS
+    if not parts:
+        return DEFAULT_RATE_LIMIT_WAIT_SECONDS
+    return sum(int(n) * _UNIT_SECONDS[unit] for n, unit in parts)
 
 
 def review_waiting_for_limit(run, cmd: list[str], cwd=None, sleep=time.sleep):
