@@ -581,3 +581,56 @@ install_ruff() {
     fi
 }
 
+AUDITR_VERSION="0.10.5"
+
+auditr_is_installed() { command -v auditr &> /dev/null; }
+auditr_is_working() { auditr version &> /dev/null; }
+
+inject_auditr_undeclared_packaging() {
+    if ! pipx inject --quiet auditr packaging; then
+        log_error "Failed to inject packaging into auditr. Run manually: pipx inject auditr packaging"
+        return 0
+    fi
+    if auditr_is_working; then
+        log_success "auditr runtime dependency (packaging) injected."
+    else
+        log_error "auditr still fails to start after injecting packaging. Diagnose with: auditr version"
+    fi
+}
+
+install_auditr() {
+    log_info "Installing auditr..."
+
+    if auditr_is_installed; then
+        if ! auditr_is_working && command -v pipx &> /dev/null && [[ "$DRY_RUN" != true ]]; then
+            log_info "auditr is installed but broken; repairing."
+            inject_auditr_undeclared_packaging
+            return 0
+        fi
+        log_info "auditr is already installed. Skipping."
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" = true ]]; then
+        log_dry_run "Would install auditr==$AUDITR_VERSION via pipx."
+        return 0
+    fi
+
+    if ! command -v pipx &> /dev/null; then
+        log_error "pipx not found; can't install auditr. Add 'pipx' to packages/apt_common.txt and re-run, or install manually: pipx install auditr==$AUDITR_VERSION"
+        return 0
+    fi
+
+    if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 13))' 2> /dev/null; then
+        log_error "auditr needs Python >= 3.13 and python3 here is older. Install manually: pipx install --python python3.13 auditr==$AUDITR_VERSION"
+        return 0
+    fi
+
+    if pipx install --quiet --python python3 "auditr==$AUDITR_VERSION"; then
+        log_success "auditr $AUDITR_VERSION installed successfully."
+        inject_auditr_undeclared_packaging
+    else
+        log_error "Failed to install auditr via pipx. Install it manually: pipx install auditr==$AUDITR_VERSION"
+    fi
+}
+

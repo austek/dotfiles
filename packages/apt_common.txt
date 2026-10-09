@@ -1,4 +1,5 @@
 # Common packages for ALL machines (headless-safe: no GUI/desktop packages here)
+auditr
 coderabbit
 containerd.io
 curl

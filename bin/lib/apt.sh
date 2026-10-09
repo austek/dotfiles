@@ -438,7 +438,7 @@ configure_apt_sources() {
 install_packages() {
     log_step "Step 4: Installing packages..."
 
-    local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit")
+    local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit" "auditr")
 
     if array_contains "oh-my-zsh" "${PACKAGES_TO_INSTALL[@]}"; then
         install_omz
@@ -513,6 +513,10 @@ install_packages() {
         fi
     else
         log_warn "No apt packages to install."
+    fi
+
+    if array_contains "auditr" "${PACKAGES_TO_INSTALL[@]}"; then
+        install_auditr
     fi
 }
 
