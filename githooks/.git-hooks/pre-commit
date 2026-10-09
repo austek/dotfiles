@@ -10,11 +10,15 @@ if [[ -f "$local_hook" && -x "$local_hook" ]]; then
     "$local_hook" "$@"
 fi
 
+# A marker fully wrapped in backticks documents the rule and is not a leftover note.
+marker='CLAUDENOTE'
+documented="\`${marker}:\`"
+
 found=0
 while IFS= read -r -d '' file; do
     [[ -f "$file" ]] || continue
-    if git show ":$file" 2>/dev/null | grep -qF "CLAUDENOTE:"; then
-        echo "pre-commit: $file has a leftover CLAUDENOTE: marker — resolve or remove it before committing." >&2
+    if git show ":$file" 2>/dev/null | sed "s/${documented}//g" | grep -qF "${marker}:"; then
+        echo "pre-commit: $file has a leftover ${marker}: marker — resolve or remove it before committing." >&2
         found=1
     fi
 done < <(git diff --cached --name-only --diff-filter=ACM -z)
