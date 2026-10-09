@@ -27,6 +27,7 @@ def _run_hook(tmp_path, content):
         f"# {_MARK} fix later\n",
         f"x = 1  # {_MARK} temp\n",
         f"{_MARK} first line\n",
+        f"x `{_MARK} unterminated\n",
     ],
 )
 def test_pre_commit_rejects_leftover_marker(tmp_path, content):

@@ -10,14 +10,14 @@ if [[ -f "$local_hook" && -x "$local_hook" ]]; then
     "$local_hook" "$@"
 fi
 
-# A marker wrapped in backticks documents the rule and is not a leftover note.
+# A marker fully wrapped in backticks documents the rule and is not a leftover note.
 marker='CLAUDENOTE'
-pattern="(^|[^\`])${marker}:"
+documented="\`${marker}:\`"
 
 found=0
 while IFS= read -r -d '' file; do
     [[ -f "$file" ]] || continue
-    if git show ":$file" 2>/dev/null | grep -qE "$pattern"; then
+    if git show ":$file" 2>/dev/null | sed "s/${documented}//g" | grep -qF "${marker}:"; then
         echo "pre-commit: $file has a leftover ${marker}: marker — resolve or remove it before committing." >&2
         found=1
     fi
