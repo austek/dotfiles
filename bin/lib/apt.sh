@@ -438,7 +438,7 @@ configure_apt_sources() {
 install_packages() {
     log_step "Step 4: Installing packages..."
 
-    local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit" "auditr")
+    local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit" "auditr" "sonarqube-cli" "uv" "cargo-deny" "cargo-audit")
 
     if array_contains "oh-my-zsh" "${PACKAGES_TO_INSTALL[@]}"; then
         install_omz
@@ -472,6 +472,12 @@ install_packages() {
     fi
     if array_contains "coderabbit" "${PACKAGES_TO_INSTALL[@]}"; then
         install_coderabbit
+    fi
+    if array_contains "sonarqube-cli" "${PACKAGES_TO_INSTALL[@]}"; then
+        install_sonarqube_cli
+    fi
+    if array_contains "uv" "${PACKAGES_TO_INSTALL[@]}"; then
+        install_uv
     fi
     if array_contains "slack-desktop" "${PACKAGES_TO_INSTALL[@]}"; then
         install_slack
@@ -517,6 +523,12 @@ install_packages() {
 
     if array_contains "auditr" "${PACKAGES_TO_INSTALL[@]}"; then
         install_auditr
+    fi
+    if array_contains "cargo-deny" "${PACKAGES_TO_INSTALL[@]}"; then
+        install_cargo_deny
+    fi
+    if array_contains "cargo-audit" "${PACKAGES_TO_INSTALL[@]}"; then
+        install_cargo_audit
     fi
 }
 
