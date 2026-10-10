@@ -551,6 +551,94 @@ install_coderabbit() {
     fi
 }
 
+# Downloads in full before executing so a truncated transfer never runs.
+run_vendor_script() {
+    local url="$1" shell="$2" script status=0
+    script=$(mktemp)
+    curl_https -fsSL -o "$script" "$url" && "$shell" "$script" || status=$?
+    rm -f "$script"
+    return "$status"
+}
+
+sonarqube_cli_is_installed() { command -v sonar &> /dev/null || [[ -x "$HOME/.local/share/sonarqube-cli/bin/sonar" ]]; }
+
+# No apt candidate; vendor script installs into ~/.local/share/sonarqube-cli/bin,
+# which zsh/.zshrc already prepends to PATH.
+install_sonarqube_cli() {
+    log_info "Installing SonarQube CLI..."
+
+    if sonarqube_cli_is_installed; then
+        log_info "SonarQube CLI is already installed. Skipping."
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" = true ]]; then
+        log_dry_run "Would install the SonarQube CLI via SonarSource's install script."
+        return 0
+    fi
+
+    local url="https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh"
+    if run_vendor_script "$url" bash; then
+        log_success "SonarQube CLI installed."
+    else
+        log_error "Failed to install SonarQube CLI. Install it manually: curl -fsSL $url | bash"
+    fi
+}
+
+uv_is_installed() { command -v uv &> /dev/null || [[ -x "$HOME/.local/bin/uv" ]]; }
+
+# Claude plugin MCP servers (cozempic) launch via uv/uvx.
+install_uv() {
+    log_info "Installing uv..."
+
+    if uv_is_installed; then
+        log_info "uv is already installed. Skipping."
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" = true ]]; then
+        log_dry_run "Would install uv via https://astral.sh/uv/install.sh."
+        return 0
+    fi
+
+    if run_vendor_script "https://astral.sh/uv/install.sh" sh; then
+        log_success "uv installed."
+    else
+        log_error "Failed to install uv. Install it manually: curl -fsSL https://astral.sh/uv/install.sh | sh"
+    fi
+}
+
+# Neither crate has an apt candidate. --root ~/.local puts the binary in
+# ~/.local/bin, which zsh/.zshrc already has on PATH (unlike ~/.cargo/bin).
+install_cargo_crate() {
+    local crate="$1"
+    log_info "Installing $crate..."
+
+    if command -v "$crate" &> /dev/null || [[ -x "$HOME/.local/bin/$crate" ]]; then
+        log_info "$crate is already installed. Skipping."
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" = true ]]; then
+        log_dry_run "Would install $crate via cargo install."
+        return 0
+    fi
+
+    if ! command -v cargo &> /dev/null; then
+        log_error "cargo not found; can't install $crate. Add 'cargo' to the preset's package list and re-run, or install manually: cargo install --locked --root ~/.local $crate"
+        return 0
+    fi
+
+    if cargo install --locked --quiet --root "$HOME/.local" "$crate"; then
+        log_success "$crate installed successfully."
+    else
+        log_error "Failed to install $crate. Install it manually: cargo install --locked --root ~/.local $crate"
+    fi
+}
+
+install_cargo_deny() { install_cargo_crate cargo-deny; }
+install_cargo_audit() { install_cargo_crate cargo-audit; }
+
 ruff_is_installed() { command -v ruff &> /dev/null; }
 
 # No apt candidate and no standalone GitHub-release binary (only Python

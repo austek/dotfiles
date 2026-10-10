@@ -1,1 +1,6 @@
+cargo
+cargo-audit
+cargo-deny
 mcp-grafana
+rust-clippy
+rustfmt

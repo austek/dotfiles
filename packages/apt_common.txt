@@ -23,10 +23,12 @@ ripgrep
 ruff
 sdkman
 shellcheck
+sonarqube-cli
 tmux
 tree
 ubuntu-minimal
 ubuntu-standard
+uv
 wget
 wl-clipboard
 xclip
