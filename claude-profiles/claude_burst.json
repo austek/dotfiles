@@ -2,7 +2,34 @@
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true,
     "proficiently@proficiently": true,
-    "python-clean-architecture@python-clean-architecture": true
+    "python-clean-architecture@python-clean-architecture": true,
+    "sonarqube@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.claude/hooks/sonar-secrets/build-scripts/pretool-secrets.sh\"; [ -x \"$f\" ] || exit 0; timeout 55 \"$f\" || exit 2",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/.claude/hooks/sonar-secrets/build-scripts/prompt-secrets.sh\"; [ -x \"$f\" ] || exit 0; timeout 55 \"$f\" || exit 2",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
   },
   "extraKnownMarketplaces": {
     "proficiently": {
