@@ -375,6 +375,60 @@ def test_install_leaves_identical_settings_untouched(isolated_dotfiles, tmp_path
     assert not list(settings.parent.glob("settings.json.bak-*"))
 
 
+def _install_then_edit_settings(tmp_path):
+    assert main(["install", "--preset", "homelab"]) == 0
+    settings = tmp_path / "claude-home" / "settings.json"
+    settings.write_text(json.dumps({**json.loads(settings.read_text()), "hand": "edited"}, indent=2) + "\n")
+    return settings
+
+
+def test_install_records_the_generated_settings_as_the_drift_baseline(isolated_dotfiles, tmp_path):
+    assert main(["install", "--preset", "homelab"]) == 0
+    baseline = tmp_path / "state" / "settings.last-generated.json"
+    assert baseline.read_text() == (tmp_path / "claude-home" / "settings.json").read_text()
+
+
+def test_install_stops_when_settings_were_edited_since_the_last_install(
+    isolated_dotfiles, plugin_updates, tmp_path, capsys,
+):
+    settings = _install_then_edit_settings(tmp_path)
+    edited = settings.read_text()
+    assert main(["install", "--preset", "homelab"]) == 3
+    assert settings.read_text() == edited
+    assert not list(settings.parent.glob("settings.json.bak-*"))
+    assert len(plugin_updates) == 1
+    assert '+  "hand": "edited"' in capsys.readouterr().out
+
+
+def test_install_accepts_a_base_change_when_settings_were_not_edited(isolated_dotfiles, tmp_path):
+    dotfiles_dir, _ = isolated_dotfiles
+    assert main(["install", "--preset", "homelab"]) == 0
+    (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps({"model": "changed"}))
+    assert main(["install", "--preset", "homelab"]) == 0
+    settings = tmp_path / "claude-home" / "settings.json"
+    assert json.loads(settings.read_text()) == {"model": "changed"}
+
+
+def test_accept_drift_overwrites_edited_settings_and_keeps_a_backup(isolated_dotfiles, tmp_path):
+    settings = _install_then_edit_settings(tmp_path)
+    edited = settings.read_text()
+    assert main(["install", "--preset", "homelab", "--accept-drift"]) == 0
+    (backup,) = settings.parent.glob("settings.json.bak-*")
+    assert backup.read_text() == edited
+    assert json.loads(settings.read_text()) == {"model": "base"}
+
+
+def test_dry_run_reports_settings_drift_and_continues(isolated_dotfiles, tmp_path, capsys):
+    settings = _install_then_edit_settings(tmp_path)
+    edited = settings.read_text()
+    capsys.readouterr()
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "edited since the last install" in out
+    assert '+  "hand": "edited"' in out
+    assert settings.read_text() == edited
+
+
 def test_install_updates_claude_plugins_after_a_successful_install(isolated_dotfiles, plugin_updates):
     assert main(["install", "--preset", "homelab"]) == 0
     assert len(plugin_updates) == 1

@@ -18,6 +18,7 @@ from dotfiles_setup import (
     presets,
     private,
     reconcile,
+    settings_drift,
     state,
     update,
 )
@@ -28,6 +29,7 @@ from dotfiles_setup.presets import Preset
 
 PRESETS = ("work", "personal", "homelab")
 CLAUDE_HOME = Path.home() / ".claude"
+DRIFT_EXIT_CODE = 3
 
 
 class _AddVerbosity(argparse.Action):
@@ -91,6 +93,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Back up files that block stow (to ~/.local/state/dotfiles/stow-backups/<timestamp>) and stow anyway.",
+    )
+    install_p.add_argument(
+        "--accept-drift",
+        action="store_true",
+        help="Overwrite ~/.claude/settings.json even if it was edited since the last install (the old file is kept as .bak-<timestamp>).",
     )
     install_p.set_defaults(verbosity=0)
 
@@ -178,8 +185,26 @@ def _write_claude_settings(logger: Logger, merged: dict, claude_home: Path) -> N
     if logger.dry_run_notice(f"Would generate {target}."):
         return
     claude_home.mkdir(parents=True, exist_ok=True)
-    rendered = json.dumps(merged, indent=2, ensure_ascii=False) + "\n"
+    rendered = settings_drift.render(merged)
     _replace_settings_target(target, rendered, datetime.now(UTC))
+    settings_drift.record_baseline(state.STATE_DIR, rendered)
+
+
+def _settings_drift_exit_code(args: argparse.Namespace, logger: Logger) -> int | None:
+    target = CLAUDE_HOME / "settings.json"
+    diff = settings_drift.drift_diff(target, state.STATE_DIR)
+    if not diff or args.accept_drift:
+        return None
+    logger.warn(f"{target} was edited since the last install:")
+    print(diff, end="")
+    if args.dry_run:
+        logger.warn("A real install would stop here; pass --accept-drift to overwrite these edits.")
+        return None
+    logger.error(
+        "Stopping before any change. Move the edits into claude/.claude/settings.json or the overlay's "
+        "claude-settings/settings.json, or pass --accept-drift to overwrite them (the old file is kept as .bak)."
+    )
+    return DRIFT_EXIT_CODE
 
 
 def _log_install_failure(logger: Logger, result: InstallResult) -> None:
@@ -228,6 +253,10 @@ def _run_install(args: argparse.Namespace) -> int:
     if args.dry_run:
         logger.warn("=== DRY-RUN MODE: No changes will be made ===")
     logger.step("Starting Ubuntu Dotfiles Setup...")
+
+    drift_exit_code = _settings_drift_exit_code(args, logger)
+    if drift_exit_code is not None:
+        return drift_exit_code
 
     dotfiles_dir = _dotfiles_dir()
     prior = state.load_state()
