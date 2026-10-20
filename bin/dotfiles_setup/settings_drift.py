@@ -37,8 +37,8 @@ def drift_diff(target: Path, state_dir: Path) -> str:
     baseline = baseline_path(state_dir)
     if target.is_symlink() or not target.is_file() or not baseline.is_file():
         return ""
-    before = _normalized(baseline.read_text(encoding="utf-8"))
-    after = _normalized(target.read_text(encoding="utf-8"))
+    before = _normalized(baseline.read_text(encoding="utf-8", errors="replace"))
+    after = _normalized(target.read_text(encoding="utf-8", errors="replace"))
     return "".join(difflib.unified_diff(
         before.splitlines(keepends=True),
         after.splitlines(keepends=True),

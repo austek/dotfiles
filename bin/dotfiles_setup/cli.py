@@ -30,6 +30,7 @@ from dotfiles_setup.presets import Preset
 PRESETS = ("work", "personal", "homelab")
 CLAUDE_HOME = Path.home() / ".claude"
 DRIFT_EXIT_CODE = 3
+SETTINGS_FILE = "settings.json"
 
 
 class _AddVerbosity(argparse.Action):
@@ -177,11 +178,11 @@ def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None
 
 
 def _merged_claude_settings(dotfiles_dir: Path, overlay_root: Path | None) -> dict:
-    return overlay.load_settings(dotfiles_dir / "claude" / ".claude" / "settings.json", overlay_root)
+    return overlay.load_settings(dotfiles_dir / "claude" / ".claude" / SETTINGS_FILE, overlay_root)
 
 
 def _write_claude_settings(logger: Logger, merged: dict, claude_home: Path) -> None:
-    target = claude_home / "settings.json"
+    target = claude_home / SETTINGS_FILE
     if logger.dry_run_notice(f"Would generate {target}."):
         return
     claude_home.mkdir(parents=True, exist_ok=True)
@@ -191,7 +192,7 @@ def _write_claude_settings(logger: Logger, merged: dict, claude_home: Path) -> N
 
 
 def _settings_drift_exit_code(args: argparse.Namespace, logger: Logger) -> int | None:
-    target = CLAUDE_HOME / "settings.json"
+    target = CLAUDE_HOME / SETTINGS_FILE
     diff = settings_drift.drift_diff(target, state.STATE_DIR)
     if not diff or args.accept_drift:
         return None

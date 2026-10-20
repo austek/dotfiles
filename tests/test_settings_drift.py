@@ -54,6 +54,13 @@ def test_diff_shows_an_added_and_a_removed_key(tmp_path):
     assert '+  "new": true' in diff
 
 
+def test_non_utf8_target_is_reported_as_drift_instead_of_raising(tmp_path):
+    _record(tmp_path / "state", {"a": 1})
+    target = tmp_path / "settings.json"
+    target.write_bytes(b'{"a": "\xff"}')
+    assert settings_drift.drift_diff(target, tmp_path / "state") != ""
+
+
 def test_invalid_json_in_target_is_reported_as_drift(tmp_path):
     _record(tmp_path / "state", {"a": 1})
     target = tmp_path / "settings.json"
