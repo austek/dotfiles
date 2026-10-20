@@ -1,6 +1,7 @@
 cargo
 cargo-audit
 cargo-deny
+coderabbit
 mcp-grafana
 rust-clippy
 rustfmt
