@@ -2,6 +2,21 @@
   "permissions": {
     "allow": [
       "Bash(gh api repos/compress4j/*/rulesets/*)",
+      "Bash(fd *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(jq *)",
+      "Bash(ls *)",
+      "Bash(rg *)",
+      "Bash(sed *)",
+      "Bash(sleep *)",
+      "Bash(tail *)",
+      "Bash(which *)",
+      "Bash(xargs *)",
+      "Glob",
+      "Grep",
+      "Read",
       "Bash(gh api repos/ZirekHQ/*/rulesets*)",
       "mcp__serena__*"
     ],
