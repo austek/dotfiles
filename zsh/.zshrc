@@ -193,6 +193,22 @@ if [[ -r ~/.zshrc.secret ]]; then
 fi
 # --- END SECRET/MANUAL OVERRIDES ---
 
+# --- SONARQUBE CLI TOKEN ---
+# Headless hosts have no keyring; the token lives outside the repo. The org comes from direnv per directory.
+if [[ -r ~/.config/sonar.env ]]; then
+  set -a
+  source ~/.config/sonar.env
+  set +a
+fi
+# --- END SONARQUBE CLI TOKEN ---
+
+# --- DIRENV ---
+# Loads the nearest .envrc (per-org SONARQUBE_CLI_ORG etc.); must follow the secrets block.
+if (( $+commands[direnv] )); then
+  eval "$(direnv hook zsh)"
+fi
+# --- END DIRENV ---
+
 if grep -q "0x1002" /sys/class/drm/card*/device/vendor(N) /dev/null 2>/dev/null; then
   export RUSTICL_ENABLE=radeonsi
 fi
