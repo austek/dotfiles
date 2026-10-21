@@ -106,7 +106,17 @@ def plugin_updates(monkeypatch):
 
 
 @pytest.fixture
-def isolated_dotfiles(tmp_path, monkeypatch, plugin_updates):
+def foothold_installs(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "dotfiles_setup.cli.foothold.install_foothold",
+        lambda logger, preset_name, profile_path: calls.append((preset_name, profile_path)),
+    )
+    return calls
+
+
+@pytest.fixture
+def isolated_dotfiles(tmp_path, monkeypatch, plugin_updates, foothold_installs):
     """A minimal fake dotfiles_dir with one preset + its package files, plus
     state/overlay redirected into tmp_path so tests never touch the real
     machine's ~/.config/dotfiles or ~/.dotfiles-private."""
@@ -378,6 +388,22 @@ def test_install_leaves_identical_settings_untouched(isolated_dotfiles, tmp_path
 def test_install_updates_claude_plugins_after_a_successful_install(isolated_dotfiles, plugin_updates):
     assert main(["install", "--preset", "homelab"]) == 0
     assert len(plugin_updates) == 1
+
+
+def test_install_sets_up_the_foothold_for_the_preset_profile(isolated_dotfiles, foothold_installs):
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert [(name, path.name) for name, path in foothold_installs] == [("homelab", "claude_homelab.json")]
+
+
+def test_install_skips_the_foothold_when_the_backend_fails(isolated_dotfiles, foothold_installs, monkeypatch):
+    class _Failed:
+        returncode = 1
+        stdout = "boom"
+        stderr = ""
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", lambda argv, **kwargs: _Failed())
+    main(["install", "--preset", "homelab"])
+    assert foothold_installs == []
 
 
 def test_install_skips_claude_plugin_update_when_the_backend_fails(isolated_dotfiles, plugin_updates, monkeypatch):
