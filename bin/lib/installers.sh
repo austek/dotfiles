@@ -562,8 +562,7 @@ run_vendor_script() {
 
 sonarqube_cli_is_installed() { command -v sonar &> /dev/null || [[ -x "$HOME/.local/share/sonarqube-cli/bin/sonar" ]]; }
 
-# No apt candidate; vendor script installs into ~/.local/share/sonarqube-cli/bin,
-# which zsh/.zshrc already prepends to PATH.
+# No apt candidate. The vendor script's bin dir is already on PATH via zsh/.zshrc.
 install_sonarqube_cli() {
     log_info "Installing SonarQube CLI..."
 
@@ -608,8 +607,7 @@ install_uv() {
     fi
 }
 
-# Neither crate has an apt candidate. --root ~/.local puts the binary in
-# ~/.local/bin, which zsh/.zshrc already has on PATH (unlike ~/.cargo/bin).
+# --root ~/.local puts the binary in ~/.local/bin; ~/.cargo/bin is not on PATH.
 install_cargo_crate() {
     local crate="$1"
     log_info "Installing $crate..."
