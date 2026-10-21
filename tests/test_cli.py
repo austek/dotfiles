@@ -110,13 +110,20 @@ def foothold_installs(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "dotfiles_setup.cli.foothold.install_foothold",
-        lambda logger, preset_name, profile_path: calls.append((preset_name, profile_path)),
+        lambda logger, preset_name, profile_path: calls.append((preset_name, profile_path)) or True,
     )
     return calls
 
 
 @pytest.fixture
-def isolated_dotfiles(tmp_path, monkeypatch, plugin_updates, foothold_installs):
+def foothold_retirements(monkeypatch):
+    calls = []
+    monkeypatch.setattr("dotfiles_setup.cli.foothold.retire_foothold", lambda logger, preset_name: calls.append(preset_name))
+    return calls
+
+
+@pytest.fixture
+def isolated_dotfiles(tmp_path, monkeypatch, plugin_updates, foothold_installs, foothold_retirements):
     """A minimal fake dotfiles_dir with one preset + its package files, plus
     state/overlay redirected into tmp_path so tests never touch the real
     machine's ~/.config/dotfiles or ~/.dotfiles-private."""
@@ -447,6 +454,40 @@ def test_install_updates_claude_plugins_after_a_successful_install(isolated_dotf
 def test_install_sets_up_the_foothold_for_the_preset_profile(isolated_dotfiles, foothold_installs):
     assert main(["install", "--preset", "homelab"]) == 0
     assert [(name, path.name) for name, path in foothold_installs] == [("homelab", "claude_homelab.json")]
+
+
+def _add_preset(dotfiles_dir, name):
+    (dotfiles_dir / "presets" / f"{name}.json").write_text(json.dumps({
+        "description": "test",
+        "package_files": ["apt_common.txt"],
+        "backend_overrides": {},
+        "claude_settings": f"claude_{name}.json",
+    }))
+    (dotfiles_dir / "claude-profiles" / f"claude_{name}.json").write_text(json.dumps({"enabledPlugins": {}}))
+
+
+def test_install_retires_the_previous_presets_foothold_when_the_preset_changes(isolated_dotfiles, foothold_retirements):
+    dotfiles_dir, _ = isolated_dotfiles
+    _add_preset(dotfiles_dir, "personal")
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert foothold_retirements == []
+    assert main(["install", "--preset", "personal"]) == 0
+    assert foothold_retirements == ["homelab"]
+
+
+def test_install_keeps_the_previous_foothold_when_the_replacement_fails(isolated_dotfiles, foothold_retirements, monkeypatch):
+    dotfiles_dir, _ = isolated_dotfiles
+    _add_preset(dotfiles_dir, "personal")
+    assert main(["install", "--preset", "homelab"]) == 0
+    monkeypatch.setattr("dotfiles_setup.cli.foothold.install_foothold", lambda logger, preset_name, profile_path: False)
+    assert main(["install", "--preset", "personal"]) == 0
+    assert foothold_retirements == []
+
+
+def test_install_keeps_the_foothold_when_the_preset_is_unchanged(isolated_dotfiles, foothold_retirements):
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert foothold_retirements == []
 
 
 def test_install_skips_the_foothold_when_the_backend_fails(isolated_dotfiles, foothold_installs, monkeypatch):

@@ -40,6 +40,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - `dotfiles-setup install` ends by installing `~/.config/systemd/user/claude-foothold-<preset>.service` (`bin/dotfiles_setup/foothold.py`), which starts a tmux session `claude-foothold-<preset>` running `claude --remote-control foothold-<preset>` with the preset's generated profile from `~/.config/dotfiles/claude-profiles/`. It also runs `loginctl enable-linger` so the unit starts at boot without a login, then `systemctl --user enable --now`.
 - The unit probes `api.anthropic.com` before launching; without that wait, Remote Control fails session creation at boot because the link gains carrier before DNS works. Its `PATH` includes `~/.local/share/sonarqube-cli/bin` so the SonarQube plugin finds `sonar`.
 - It is skipped when `systemctl` or `tmux` is missing, and failures warn without failing the install. The unit is rewritten only when its content changes; an already-running session is not restarted, so kill the tmux session and restart the unit to pick up changes.
+- When an install changes the saved preset, `retire_foothold` disables the previous preset's unit, kills its tmux session and removes its unit file after the new unit is enabled.
 
 ## Presets and Portability
 - Presets are manifests at `presets/<name>.json` (this repo ships `work`, `personal`, `homelab`); each lists which `packages/` files to install and which `claude-profiles/*.json` supplies Claude Code settings. Add a machine type by dropping in a new `presets/<name>.json`, not by editing code.
