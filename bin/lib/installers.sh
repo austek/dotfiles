@@ -611,12 +611,13 @@ install_uv() {
 CARGO_MIN_MINOR=88
 
 cargo_minor_version() {
-    [[ "$(RUSTUP_TOOLCHAIN=stable "$1" --version 2>/dev/null)" =~ ^cargo\ 1\.([0-9]+) ]] && echo "${BASH_REMATCH[1]}"
+    local cargo_bin="$1"
+    [[ "$(RUSTUP_TOOLCHAIN=stable "$cargo_bin" --version 2>/dev/null)" =~ ^cargo\ 1\.([0-9]+) ]] && echo "${BASH_REMATCH[1]}"
 }
 
 cargo_meets_min() {
-    local minor
-    minor=$(cargo_minor_version "$1")
+    local cargo_bin="$1" minor
+    minor=$(cargo_minor_version "$cargo_bin")
     (( ${minor:-0} >= CARGO_MIN_MINOR ))
 }
 
