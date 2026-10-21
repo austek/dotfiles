@@ -13,6 +13,7 @@ from pathlib import Path
 
 from dotfiles_setup import (
     claude_plugins,
+    foothold,
     identity,
     overlay,
     presets,
@@ -249,6 +250,13 @@ def _save_state(
     ))
 
 
+def _sync_foothold(logger: Logger, preset: Preset, claude_dir: Path, prior: state.MachineState | None) -> None:
+    profile_path = claude_dir / preset.claude_settings if preset.claude_settings else None
+    installed = foothold.install_foothold(logger, preset.name, profile_path)
+    if installed and prior and prior.preset_name != preset.name:
+        foothold.retire_foothold(logger, prior.preset_name)
+
+
 def _run_install(args: argparse.Namespace) -> int:
     logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
     if args.dry_run:
@@ -301,6 +309,7 @@ def _run_install(args: argparse.Namespace) -> int:
         return result.returncode
 
     claude_plugins.update_claude_plugins(logger, claude_settings)
+    _sync_foothold(logger, preset, claude_dir, prior)
     backend.print_completion(dry_run=args.dry_run, run=subprocess.run)
 
     if not args.dry_run:

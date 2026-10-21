@@ -31,6 +31,7 @@ The setup script securely downloads the latest GPG keys during installation.
 * *Automated Binary Installation*: Downloads and installs specific `.deb` packages from GitHub releases (like `lsd` and `bat`) based on a text list.
 * *Secure & Separate Configs*:
 ** *Claude Code Profiles*: Per-preset Claude Code settings (`claude_work.json`, `claude_personal.json`, `claude_homelab.json`) live in `~/.dotfiles/claude-profiles/` and are *built* by `setup.sh` into Claude aliases in `~/.zshrc.profile`.
+** *Claude Remote Foothold*: `dotfiles-setup install` enables user lingering and installs a `claude-foothold-<preset>` systemd user unit that starts a Remote Control session named `foothold-<preset>` in tmux at boot, using that preset's profile. Attach with `tmux attach -t claude-foothold-<preset>`.
 ** *Secret Configs*: True secrets (API keys, tokens) are ignored by Git.
 They should be manually placed in `~/.zshrc.secret`, which is sourced by `.zshrc`.
 
