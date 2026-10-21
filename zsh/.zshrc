@@ -193,6 +193,27 @@ if [[ -r ~/.zshrc.secret ]]; then
 fi
 # --- END SECRET/MANUAL OVERRIDES ---
 
+# --- SONARQUBE CLI TOKEN ---
+# Headless hosts have no keyring, so the token is read from a file.
+if [[ -r ~/.config/sonar.env ]]; then
+  zmodload -F zsh/stat b:zstat
+  if (( ($(zstat +mode ~/.config/sonar.env) & 8#077) == 0 )); then
+    set -a
+    source ~/.config/sonar.env
+    set +a
+  else
+    print -u2 "sonar.env skipped: group/other can access it; run chmod 600 ~/.config/sonar.env"
+  fi
+fi
+# --- END SONARQUBE CLI TOKEN ---
+
+# --- DIRENV ---
+# Must follow the secrets and sonar.env blocks so .envrc values (e.g. SONARQUBE_CLI_ORG) win.
+if (( $+commands[direnv] )); then
+  eval "$(direnv hook zsh)"
+fi
+# --- END DIRENV ---
+
 if grep -q "0x1002" /sys/class/drm/card*/device/vendor(N) /dev/null 2>/dev/null; then
   export RUSTICL_ENABLE=radeonsi
 fi

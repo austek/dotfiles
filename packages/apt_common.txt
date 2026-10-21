@@ -2,6 +2,7 @@
 auditr
 containerd.io
 curl
+direnv
 docker-buildx-plugin
 docker-ce
 docker-ce-cli
