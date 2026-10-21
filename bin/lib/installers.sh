@@ -544,18 +544,19 @@ install_coderabbit() {
         return 0
     fi
 
-    if curl_https -fsSL "https://cli.coderabbit.ai/install.sh" | sh; then
+    if run_vendor_script "https://cli.coderabbit.ai/install.sh" sh; then
         log_success "CodeRabbit CLI installed ($(coderabbit_is_installed && coderabbit --version 2>/dev/null))."
     else
-        log_error "Failed to install CodeRabbit CLI. Install it manually: curl -fsSL https://cli.coderabbit.ai/install.sh | sh"
+        log_error "Failed to install CodeRabbit CLI. Install it manually: curl -fsSL -o install.sh https://cli.coderabbit.ai/install.sh && sh install.sh"
     fi
 }
 
-# Downloads in full before executing so a truncated transfer never runs.
+# Downloads in full before executing so a truncated transfer never runs. Extra args go to the script.
 run_vendor_script() {
     local url="$1" shell="$2" script status=0
+    shift 2
     script=$(mktemp)
-    curl_https -fsSL -o "$script" "$url" && "$shell" "$script" || status=$?
+    curl_https -fsSL -o "$script" "$url" && "$shell" "$script" "$@" || status=$?
     rm -f "$script"
     return "$status"
 }
@@ -580,7 +581,7 @@ install_sonarqube_cli() {
     if run_vendor_script "$url" bash; then
         log_success "SonarQube CLI installed."
     else
-        log_error "Failed to install SonarQube CLI. Install it manually: curl -fsSL $url | bash"
+        log_error "Failed to install SonarQube CLI. Install it manually: curl -fsSL -o install.sh $url && bash install.sh"
     fi
 }
 
@@ -603,7 +604,52 @@ install_uv() {
     if run_vendor_script "https://astral.sh/uv/install.sh" sh; then
         log_success "uv installed."
     else
-        log_error "Failed to install uv. Install it manually: curl -fsSL https://astral.sh/uv/install.sh | sh"
+        log_error "Failed to install uv. Install it manually: curl -fsSL -o install.sh https://astral.sh/uv/install.sh && sh install.sh"
+    fi
+}
+
+CARGO_MIN_MINOR=88
+
+cargo_minor_version() {
+    [[ "$(RUSTUP_TOOLCHAIN=stable "$1" --version 2>/dev/null)" =~ ^cargo\ 1\.([0-9]+) ]] && echo "${BASH_REMATCH[1]}"
+}
+
+cargo_meets_min() {
+    local minor
+    minor=$(cargo_minor_version "$1")
+    (( ${minor:-0} >= CARGO_MIN_MINOR ))
+}
+
+install_rustup_toolchain() {
+    local rustup="$HOME/.cargo/bin/rustup"
+    log_info "No cargo >= 1.$CARGO_MIN_MINOR found; installing a minimal rustup toolchain..."
+    if [[ -x "$rustup" ]]; then
+        "$rustup" update stable --no-self-update
+    else
+        run_vendor_script "https://sh.rustup.rs" sh -y --profile minimal --no-modify-path
+    fi
+}
+
+# Prints only the cargo path: the toolchain install's output goes to stderr so $(...) captures just the path.
+# Current cargo-deny and cargo-audit need Rust 1.88; Ubuntu 24.04's apt cargo is 1.75.
+cargo_for_crates() {
+    local rustup_cargo="$HOME/.cargo/bin/cargo"
+    if cargo_meets_min cargo; then
+        command -v cargo
+        return 0
+    fi
+    cargo_meets_min "$rustup_cargo" || install_rustup_toolchain >&2 || return 1
+    cargo_meets_min "$rustup_cargo" && echo "$rustup_cargo"
+}
+
+# Pins the rustup proxy and its rustc to stable, whatever the user's default toolchain is.
+run_cargo() {
+    local cargo_bin="$1"
+    shift
+    if [[ "$cargo_bin" == "$HOME/.cargo/bin/cargo" ]]; then
+        RUSTUP_TOOLCHAIN=stable PATH="$HOME/.cargo/bin:$PATH" "$cargo_bin" "$@"
+    else
+        "$cargo_bin" "$@"
     fi
 }
 
@@ -627,7 +673,13 @@ install_cargo_crate() {
         return 0
     fi
 
-    if cargo install --locked --quiet --root "$HOME/.local" "$crate"; then
+    local cargo_bin
+    if ! cargo_bin=$(cargo_for_crates); then
+        log_error "No cargo >= 1.$CARGO_MIN_MINOR available for $crate. Install rustup (https://rustup.rs) and re-run, or run: cargo install --locked --root ~/.local $crate"
+        return 0
+    fi
+
+    if run_cargo "$cargo_bin" install --locked --quiet --root "$HOME/.local" "$crate"; then
         log_success "$crate installed successfully."
     else
         log_error "Failed to install $crate. Install it manually: cargo install --locked --root ~/.local $crate"
