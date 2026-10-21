@@ -194,7 +194,7 @@ fi
 # --- END SECRET/MANUAL OVERRIDES ---
 
 # --- SONARQUBE CLI TOKEN ---
-# Headless hosts have no keyring; the token lives outside the repo. The org comes from direnv per directory.
+# Headless hosts have no keyring, so the token is read from a file.
 if [[ -r ~/.config/sonar.env ]]; then
   set -a
   source ~/.config/sonar.env
@@ -203,7 +203,7 @@ fi
 # --- END SONARQUBE CLI TOKEN ---
 
 # --- DIRENV ---
-# Loads the nearest .envrc (per-org SONARQUBE_CLI_ORG etc.); must follow the secrets block.
+# Must follow the secrets and sonar.env blocks so .envrc values (e.g. SONARQUBE_CLI_ORG) win.
 if (( $+commands[direnv] )); then
   eval "$(direnv hook zsh)"
 fi
