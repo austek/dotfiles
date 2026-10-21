@@ -13,6 +13,7 @@ from pathlib import Path
 
 from dotfiles_setup import (
     claude_plugins,
+    foothold,
     identity,
     overlay,
     presets,
@@ -301,6 +302,8 @@ def _run_install(args: argparse.Namespace) -> int:
         return result.returncode
 
     claude_plugins.update_claude_plugins(logger, claude_settings)
+    profile_path = claude_dir / preset.claude_settings if preset.claude_settings else None
+    foothold.install_foothold(logger, preset_name, profile_path)
     backend.print_completion(dry_run=args.dry_run, run=subprocess.run)
 
     if not args.dry_run:
