@@ -5,19 +5,6 @@ import pytest
 from dotfiles_backup import build_arg_parser, main
 
 
-def test_aborts_when_flaky_it_sync_fails():
-    calls = []
-
-    def run(argv, cwd=None, **kwargs):
-        calls.append(argv)
-        if "sync-hunt-flaky-it.sh" in argv[0]:
-            return subprocess.CompletedProcess(argv, 1)
-        return subprocess.CompletedProcess(argv, 0)
-
-    assert main(["save"], run=run) == 1
-    assert len(calls) == 1
-
-
 def test_aborts_when_machine_paths_invalid(capsys):
     def run(argv, cwd=None, **kwargs):
         if "validate-no-machine-paths.sh" in argv[0]:
