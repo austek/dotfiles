@@ -76,6 +76,10 @@ def test_rendered_unit_puts_the_sonarqube_cli_on_path():
     assert "%h/.local/share/sonarqube-cli/bin" in foothold.render_unit("personal", "%h/p.json")
 
 
+def test_rendered_unit_loads_the_secrets_env_file_optionally():
+    assert "EnvironmentFile=-%h/.config/dotfiles/secrets.env" in foothold.render_unit("personal", "%h/p.json")
+
+
 def test_rendered_unit_hardcodes_no_home_directory():
     assert "/home/" not in foothold.render_unit("personal", "%h/p.json")
 

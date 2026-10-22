@@ -33,7 +33,7 @@ The setup script securely downloads the latest GPG keys during installation.
 ** *Claude Code Profiles*: Per-preset Claude Code settings (`claude_work.json`, `claude_personal.json`, `claude_homelab.json`) live in `~/.dotfiles/claude-profiles/` and are *built* by `setup.sh` into Claude aliases in `~/.zshrc.profile`.
 ** *Claude Remote Foothold*: `dotfiles-setup install` enables user lingering and installs a `claude-foothold-<preset>` systemd user unit that starts a Remote Control session named `foothold-<preset>` in tmux at boot, using that preset's profile. Attach with `tmux attach -t claude-foothold-<preset>`.
 ** *Secret Configs*: True secrets (API keys, tokens) are ignored by Git.
-They should be manually placed in `~/.zshrc.secret`, which is sourced by `.zshrc`.
+They should be manually placed in `~/.config/dotfiles/secrets.env` (mode 600), which both `.zshrc` and the foothold unit load.
 
 == Installation on a New Machine
 
@@ -92,12 +92,13 @@ Run `chmod +x ~/.dotfiles/bin/setup.sh ~/.dotfiles/bin/dotfiles-setup ~/.dotfile
 === Manual Steps
 
 ==== Add Secrets
-If you have any secret keys, tokens, or private environment variables, add them to `~/.zshrc.secret`:
+If you have any secret keys, tokens, or private environment variables, add them to `~/.config/dotfiles/secrets.env` as plain `KEY=value` lines, with no `export` prefix and no `$` or backslashes in values:
 
 [source,bash]
 .Example:
 ----
-echo "export GITHUB_TOKEN='your-secret-token'" >> ~/.zshrc.secret
+install -m 600 /dev/null ~/.config/dotfiles/secrets.env
+echo "GITHUB_TOKEN='your-secret-token'" >> ~/.config/dotfiles/secrets.env
 ----
 
 ==== Git Configuration

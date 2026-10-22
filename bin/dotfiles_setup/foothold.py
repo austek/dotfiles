@@ -56,6 +56,8 @@ def _service_section(preset_name: str, settings: str) -> tuple[str, ...]:
         "Restart=on-failure",
         "RestartSec=30",
         f'Environment="PATH={":".join(PATH_DIRS)}"',
+        # Headless sessions never source ~/.zshrc, which is where these vars otherwise come from.
+        "EnvironmentFile=-%h/.config/dotfiles/secrets.env",
         # The link gains carrier before DNS and routes work; Remote Control fails session creation if it starts earlier.
         f"ExecStartPre=/usr/bin/env curl -s --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 -o /dev/null {NETWORK_PROBE_URL}",
         f"ExecStart=/bin/sh -c '{_launch_command(preset_name, settings)}'",

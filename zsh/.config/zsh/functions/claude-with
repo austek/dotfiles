@@ -48,15 +48,15 @@ claude-with() {
       continue
     fi
     if [[ "$line" == *'DEVELOCITY_MCP_TOKEN'* && -z "$DEVELOCITY_MCP_TOKEN" ]]; then
-      echo "claude-with: \$DEVELOCITY_MCP_TOKEN is not set (check ~/.zshrc.secret)" >&2
+      echo "claude-with: \$DEVELOCITY_MCP_TOKEN is not set (check ~/.config/dotfiles/secrets.env)" >&2
       continue
     fi
     if [[ "$line" == *'GRAFANA_SERVICE_ACCOUNT_TOKEN'* && -z "$GRAFANA_SERVICE_ACCOUNT_TOKEN" ]]; then
-      echo "claude-with: \$GRAFANA_SERVICE_ACCOUNT_TOKEN is not set (check ~/.zshrc.secret)" >&2
+      echo "claude-with: \$GRAFANA_SERVICE_ACCOUNT_TOKEN is not set (check ~/.config/dotfiles/secrets.env)" >&2
       continue
     fi
     if [[ "$line" == *'CORALOGIX_API_KEY'* && -z "$CORALOGIX_API_KEY" ]]; then
-      echo "claude-with: \$CORALOGIX_API_KEY is not set (check ~/.zshrc.secret)" >&2
+      echo "claude-with: \$CORALOGIX_API_KEY is not set (check ~/.config/dotfiles/secrets.env)" >&2
       continue
     fi
     echo "claude-with: enabling $name (local scope)..."
