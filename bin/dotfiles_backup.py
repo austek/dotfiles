@@ -57,12 +57,6 @@ def main(argv: list[str] | None = None, run=subprocess.run, now=datetime.now) ->
 def _run_save(run=subprocess.run, now=datetime.now) -> int:
     dotfiles_dir = repo_root()
 
-    sync_result = run(
-        [str(dotfiles_dir / "bin" / "sync-hunt-flaky-it.sh")], cwd=dotfiles_dir
-    )
-    if sync_result.returncode != 0:
-        return 1
-
     validate_result = run(
         [str(dotfiles_dir / "scripts" / "validate-no-machine-paths.sh")],
         cwd=dotfiles_dir,

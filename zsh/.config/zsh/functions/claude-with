@@ -6,13 +6,13 @@ claude-with() {
     idea                 "claude mcp add --transport http idea http://127.0.0.1:64342/stream -s local"
     sonarqube            "claude mcp add sonarqube -s local -- sonar run mcp"
     grafana              "claude mcp add grafana -s local -e GRAFANA_URL=https://hominux.duckdns.org/grafana -e GRAFANA_SERVICE_ACCOUNT_TOKEN=\$GRAFANA_SERVICE_ACCOUNT_TOKEN -- mcp-grafana"
-    datadog              "claude plugin enable datadog@claude-plugins-official -s local"
+    coralogix            "claude mcp add --transport http coralogix https://api.us3.coralogix.com/mgmt/api/v1/mcp -s local -H 'Authorization: Bearer \${CORALOGIX_API_KEY}' -H 'mcp-version: v2'"
   )
   local -A revert_commands=(
     idea                 "claude mcp remove idea -s local"
     sonarqube            "claude mcp remove sonarqube -s local"
     grafana              "claude mcp remove grafana -s local"
-    datadog              "claude plugin disable datadog@claude-plugins-official -s local"
+    coralogix            "claude mcp remove coralogix -s local"
   )
 
   local extension
@@ -53,6 +53,10 @@ claude-with() {
     fi
     if [[ "$line" == *'GRAFANA_SERVICE_ACCOUNT_TOKEN'* && -z "$GRAFANA_SERVICE_ACCOUNT_TOKEN" ]]; then
       echo "claude-with: \$GRAFANA_SERVICE_ACCOUNT_TOKEN is not set (check ~/.zshrc.secret)" >&2
+      continue
+    fi
+    if [[ "$line" == *'CORALOGIX_API_KEY'* && -z "$CORALOGIX_API_KEY" ]]; then
+      echo "claude-with: \$CORALOGIX_API_KEY is not set (check ~/.zshrc.secret)" >&2
       continue
     fi
     echo "claude-with: enabling $name (local scope)..."

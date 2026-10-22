@@ -154,8 +154,6 @@ unset RTK_TRUST_PROJECT_FILTERS     # never let a repo's build files flip the tr
 unset RTK_TEE_DIR                   # use the default; avoids path-traversal footguns
 # Do NOT set RTK_SKIP_CHECKSUM
 
-export DD_MCP_DOMAIN=mcp.datadoghq.com     # Datadog Claude Code plugin MCP server site
-
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 
 # --- NEW FUNCTION LOADING ---

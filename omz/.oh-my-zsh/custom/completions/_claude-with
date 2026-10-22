@@ -3,7 +3,7 @@
 function _claude-with {
     # Keep in sync with restore_commands keys in
     # zsh/.config/zsh/functions/claude-with
-    local -a names=(develocity develocity-analytics idea sonarqube datadog)
+    local -a names=(develocity develocity-analytics idea sonarqube coralogix)
 
     if (( ${words[(I)--]} )); then
         _files
