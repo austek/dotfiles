@@ -4,11 +4,24 @@
 set -eu
 
 secrets="$HOME/.config/dotfiles/secrets.env"
+
+# Parses KEY=value lines as data, like systemd's EnvironmentFile: values are never evaluated.
+export_assignment() {
+    key=${1%%=*}
+    value=${1#*=}
+    case $key in '' | *[!A-Za-z0-9_]* | [0-9]*) return 0 ;; esac
+    case $value in
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+    esac
+    export "$key=$value"
+}
+
 if [ -r "$secrets" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    . "$secrets"
-    set +a
+    while IFS= read -r line || [ -n "$line" ]; do
+        case $line in '' | '#'* | ';'*) continue ;; esac
+        export_assignment "$line"
+    done < "$secrets"
 fi
 
 exec claude --remote-control "$1" --settings "$2"

@@ -104,6 +104,27 @@ def test_launcher_exports_secrets_to_claude(tmp_path):
     assert result.stdout.strip() == "bar baz|--remote-control|foothold-x|--settings|my profile.json"
 
 
+def test_launcher_parses_secrets_as_data_not_shell(tmp_path):
+    home = tmp_path / "home"
+    (home / ".config/dotfiles").mkdir(parents=True)
+    (home / ".config/dotfiles/secrets.env").write_text(
+        "# comment\n\nPLAIN=abc def\nTICK=`touch pwned`$(touch pwned)\nDQ=\"x y\"\nSQ='p q'\n1BAD=no\nNO_NEWLINE=last"
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    claude = fake_bin / "claude"
+    claude.write_text('#!/bin/sh\necho "$PLAIN|$TICK|$DQ|$SQ|$NO_NEWLINE"\n')
+    claude.chmod(0o755)
+    launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
+    result = subprocess.run(
+        [str(launcher), "n", "s"],
+        env={"HOME": str(home), "PATH": f"{fake_bin}:/usr/bin:/bin"},
+        capture_output=True, text=True, check=True, cwd=tmp_path,
+    )
+    assert result.stdout.strip() == "abc def|`touch pwned`$(touch pwned)|x y|p q|last"
+    assert not (tmp_path / "pwned").exists()
+
+
 def test_launcher_runs_claude_without_a_secrets_file(tmp_path):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
