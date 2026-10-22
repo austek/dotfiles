@@ -184,29 +184,29 @@ fi
 # --- END PROFILE CONFIGS ---
 
 # --- LOAD SECRET/MANUAL OVERRIDES ---
-# This file is for manual, machine-specific, or secret configs (e.g. API keys).
+# Optional shell-only overrides (aliases, functions). Env-var secrets belong in ~/.config/dotfiles/secrets.env.
 # It is NOT in the git repo.
 if [[ -r ~/.zshrc.secret ]]; then
   source ~/.zshrc.secret
 fi
 # --- END SECRET/MANUAL OVERRIDES ---
 
-# --- SONARQUBE CLI TOKEN ---
-# Headless hosts have no keyring, so the token is read from a file.
-if [[ -r ~/.config/sonar.env ]]; then
+# --- SECRET ENV VARS ---
+# Plain KEY=value lines, shared with the claude-foothold systemd unit (EnvironmentFile).
+if [[ -r ~/.config/dotfiles/secrets.env ]]; then
   zmodload -F zsh/stat b:zstat
-  if (( ($(zstat +mode ~/.config/sonar.env) & 8#077) == 0 )); then
+  if (( ($(zstat +mode ~/.config/dotfiles/secrets.env) & 8#077) == 0 )); then
     set -a
-    source ~/.config/sonar.env
+    source ~/.config/dotfiles/secrets.env
     set +a
   else
-    print -u2 "sonar.env skipped: group/other can access it; run chmod 600 ~/.config/sonar.env"
+    print -u2 "secrets.env skipped: group/other can access it; run chmod 600 ~/.config/dotfiles/secrets.env"
   fi
 fi
-# --- END SONARQUBE CLI TOKEN ---
+# --- END SECRET ENV VARS ---
 
 # --- DIRENV ---
-# Must follow the secrets and sonar.env blocks so .envrc values (e.g. SONARQUBE_CLI_ORG) win.
+# Must follow the secrets blocks so .envrc values (e.g. SONARQUBE_CLI_ORG) win.
 if (( $+commands[direnv] )); then
   eval "$(direnv hook zsh)"
 fi

@@ -52,7 +52,7 @@ print_completion_banner() {
     else
         log_banner "Setup complete!"
         log_banner "Please log out and log back in for all changes (especially the new shell) to apply."
-        log_banner "Don't forget to manually add any secrets to ~/.zshrc.secret"
+        log_banner "Don't forget to manually add any secrets to ~/.config/dotfiles/secrets.env"
         log_banner "For Claude Code to control Chrome, install the 'Claude' extension from the Chrome Web Store and run 'claude --chrome' once to complete onboarding (this pairing is per-machine and can't be scripted)."
     fi
     log_banner "----------------------------------------------------"

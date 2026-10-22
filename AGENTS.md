@@ -38,7 +38,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 
 ### 6. Claude Remote Foothold
 - `dotfiles-setup install` ends by installing `~/.config/systemd/user/claude-foothold-<preset>.service` (`bin/dotfiles_setup/foothold.py`), which starts a tmux session `claude-foothold-<preset>` running `claude --remote-control foothold-<preset>` with the preset's generated profile from `~/.config/dotfiles/claude-profiles/`. It also runs `loginctl enable-linger` so the unit starts at boot without a login, then `systemctl --user enable --now`.
-- The unit probes `api.anthropic.com` before launching; without that wait, Remote Control fails session creation at boot because the link gains carrier before DNS works. Its `PATH` includes `~/.local/share/sonarqube-cli/bin` so the SonarQube plugin finds `sonar`. It loads `~/.config/sonar.env` through an optional `EnvironmentFile=-`, since the unit never sources `~/.zshrc`; the file must hold plain `KEY=value` lines.
+- The unit probes `api.anthropic.com` before launching; without that wait, Remote Control fails session creation at boot because the link gains carrier before DNS works. Its `PATH` includes `~/.local/share/sonarqube-cli/bin` so the SonarQube plugin finds `sonar`. It loads `~/.config/dotfiles/secrets.env` through an optional `EnvironmentFile=-`, since the unit never sources `~/.zshrc`; every var there reaches Claude.
 - It is skipped when `systemctl` or `tmux` is missing, and failures warn without failing the install. The unit is rewritten only when its content changes; an already-running session is not restarted, so kill the tmux session and restart the unit to pick up changes.
 - When an install changes the saved preset, `retire_foothold` disables the previous preset's unit, kills its tmux session and removes its unit file after the new unit is enabled.
 
@@ -65,7 +65,8 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 
 ### Secrets Management
 - True secrets (API keys, tokens) must never be committed and are ignored by Git.
-- Secrets should be manually placed in `~/.zshrc.secret`, which is sourced by `.zshrc`.
+- Secrets should be manually placed in `~/.config/dotfiles/secrets.env` (mode 600), as plain `KEY=value` lines with no `export` prefix and no `$` or backslashes in values. `.zshrc` sources it with `set -a` (refusing it unless group/other have no access) and the foothold unit loads it through `EnvironmentFile`, so it is the single place for env-var secrets.
+- `~/.zshrc.secret` remains an optional, shell-only file (aliases, functions) sourced by `.zshrc`; the foothold unit never reads it.
 
 ### Git Configuration
 - The repository uses a layered Git configuration.
