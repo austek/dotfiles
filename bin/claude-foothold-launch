@@ -1,0 +1,29 @@
+#!/bin/sh
+# Runs inside the foothold tmux pane. A pre-existing tmux server hands new sessions its own
+# environment, so the unit's EnvironmentFile never reaches claude; load the secrets here instead.
+set -eu
+
+secrets="$HOME/.config/dotfiles/secrets.env"
+
+# Parses KEY=value lines as data, like systemd's EnvironmentFile: values are never evaluated.
+export_assignment() {
+    key=${1%%=*}
+    value=${1#*=}
+    case $key in '' | *[!A-Za-z0-9_]* | [0-9]*) return 0 ;; esac
+    value=${value#"${value%%[![:space:]]*}"}
+    value=${value%"${value##*[![:space:]]}"}
+    case $value in
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+    esac
+    export "$key=$value"
+}
+
+if [ -r "$secrets" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        case $line in '' | '#'* | ';'*) continue ;; esac
+        export_assignment "$line"
+    done < "$secrets"
+fi
+
+exec claude --remote-control "$1" --settings "$2"
