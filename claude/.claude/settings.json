@@ -165,7 +165,6 @@
     "superpowers@claude-plugins-official": true,
     "receipts@claude-plugins-official": true,
     "cozempic@cozempic": true,
-    "datadog@claude-plugins-official": false,
     "metaskills@wondelai-skills": true,
     "code-craftsmanship@wondelai-skills": true,
     "language-personas@ustekai-skills": true,
