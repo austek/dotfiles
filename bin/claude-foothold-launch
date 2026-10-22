@@ -1,0 +1,14 @@
+#!/bin/sh
+# Runs inside the foothold tmux pane. A pre-existing tmux server hands new sessions its own
+# environment, so the unit's EnvironmentFile never reaches claude; load the secrets here instead.
+set -eu
+
+secrets="$HOME/.config/dotfiles/secrets.env"
+if [ -r "$secrets" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$secrets"
+    set +a
+fi
+
+exec claude --remote-control "$1" --settings "$2"

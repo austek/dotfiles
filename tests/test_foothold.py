@@ -45,7 +45,7 @@ def test_unit_path_keeps_paths_outside_home_absolute():
 
 def test_rendered_unit_launches_the_named_remote_control_session_with_the_profile():
     unit = foothold.render_unit("personal", "%h/p.json")
-    assert '--remote-control foothold-personal --settings "%h/p.json"' in unit
+    assert 'claude-foothold-launch foothold-personal "%h/p.json"' in unit
     assert "tmux new-session -d -s claude-foothold-personal" in unit
 
 
@@ -59,7 +59,7 @@ def test_rendered_unit_waits_for_connectivity_before_launching():
 def test_rendered_unit_quotes_paths_for_the_shell():
     unit = foothold.render_unit("personal", "%h/my profile.json")
     assert '-c "%h/Workspace"' in unit
-    assert '--settings "%h/my profile.json"' in unit
+    assert 'foothold-personal "%h/my profile.json"' in unit
 
 
 def test_rendered_unit_resolves_curl_through_path():
@@ -78,6 +78,45 @@ def test_rendered_unit_puts_the_sonarqube_cli_on_path():
 
 def test_rendered_unit_loads_the_secrets_env_file_optionally():
     assert "EnvironmentFile=-%h/.config/dotfiles/secrets.env" in foothold.render_unit("personal", "%h/p.json")
+
+
+def test_rendered_unit_launches_claude_through_the_launcher():
+    unit = foothold.render_unit("personal", "%h/p.json")
+    assert "%h/.dotfiles/bin/claude-foothold-launch" in unit
+    assert "claude --remote-control" not in unit
+
+
+def test_launcher_exports_secrets_to_claude(tmp_path):
+    home = tmp_path / "home"
+    (home / ".config/dotfiles").mkdir(parents=True)
+    (home / ".config/dotfiles/secrets.env").write_text("FOO='bar baz'\n")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    claude = fake_bin / "claude"
+    claude.write_text('#!/bin/sh\necho "$FOO|$1|$2|$3|$4"\n')
+    claude.chmod(0o755)
+    launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
+    result = subprocess.run(
+        [str(launcher), "foothold-x", "my profile.json"],
+        env={"HOME": str(home), "PATH": f"{fake_bin}:/usr/bin:/bin"},
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == "bar baz|--remote-control|foothold-x|--settings|my profile.json"
+
+
+def test_launcher_runs_claude_without_a_secrets_file(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    claude = fake_bin / "claude"
+    claude.write_text('#!/bin/sh\necho ok\n')
+    claude.chmod(0o755)
+    launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
+    result = subprocess.run(
+        [str(launcher), "n", "s"],
+        env={"HOME": str(tmp_path), "PATH": f"{fake_bin}:/usr/bin:/bin"},
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == "ok"
 
 
 def test_rendered_unit_hardcodes_no_home_directory():

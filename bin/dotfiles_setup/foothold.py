@@ -10,6 +10,7 @@ from dotfiles_setup.log import Logger
 UNIT_DIR = Path.home() / ".config" / "systemd" / "user"
 REQUIRED_TOOLS = ("systemctl", "tmux", "curl")
 NETWORK_PROBE_URL = "https://api.anthropic.com"
+LAUNCHER = "%h/.dotfiles/bin/claude-foothold-launch"
 PATH_DIRS = (
     "%h/.local/share/sonarqube-cli/bin",
     "%h/.local/bin",
@@ -42,7 +43,7 @@ def _launch_command(preset_name: str, settings: str) -> str:
     tmux = session_name(preset_name)
     return (
         f'tmux has-session -t {tmux} 2>/dev/null || exec tmux new-session -d -s {tmux} -c "%h/Workspace" '
-        f'claude --remote-control {foothold_name(preset_name)} --settings "{settings}"'
+        f'{LAUNCHER} {foothold_name(preset_name)} "{settings}"'
     )
 
 
