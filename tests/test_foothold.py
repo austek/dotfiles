@@ -108,12 +108,13 @@ def test_launcher_parses_secrets_as_data_not_shell(tmp_path):
     home = tmp_path / "home"
     (home / ".config/dotfiles").mkdir(parents=True)
     (home / ".config/dotfiles/secrets.env").write_text(
-        "# comment\n\nPLAIN=abc def\nTICK=`touch pwned`$(touch pwned)\nDQ=\"x y\"\nSQ='p q'\n1BAD=no\nNO_NEWLINE=last"
+        "# comment\n\nPLAIN=abc def\nTICK=`touch pwned`$(touch pwned)\nDQ=\"x y\"\nSQ='p q'\n1BAD=no\n"
+        "PADDED=  ' keep me '  \nTRAILING='abc' \nNO_NEWLINE=last"
     )
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     claude = fake_bin / "claude"
-    claude.write_text('#!/bin/sh\necho "$PLAIN|$TICK|$DQ|$SQ|$NO_NEWLINE"\n')
+    claude.write_text('#!/bin/sh\necho "$PLAIN|$TICK|$DQ|$SQ|$PADDED|$TRAILING|$NO_NEWLINE"\n')
     claude.chmod(0o755)
     launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
     result = subprocess.run(
@@ -121,7 +122,7 @@ def test_launcher_parses_secrets_as_data_not_shell(tmp_path):
         env={"HOME": str(home), "PATH": f"{fake_bin}:/usr/bin:/bin"},
         capture_output=True, text=True, check=True, cwd=tmp_path,
     )
-    assert result.stdout.strip() == "abc def|`touch pwned`$(touch pwned)|x y|p q|last"
+    assert result.stdout.strip() == "abc def|`touch pwned`$(touch pwned)|x y|p q| keep me |abc|last"
     assert not (tmp_path / "pwned").exists()
 
 
