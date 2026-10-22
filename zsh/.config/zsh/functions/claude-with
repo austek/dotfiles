@@ -5,7 +5,7 @@ claude-with() {
   local -A restore_commands=(
     idea                 "claude mcp add --transport http idea http://127.0.0.1:64342/stream -s local"
     sonarqube            "claude mcp add sonarqube -s local -- sonar run mcp"
-    grafana              "claude mcp add grafana -s local -e GRAFANA_URL=https://hominux.duckdns.org/grafana -e GRAFANA_SERVICE_ACCOUNT_TOKEN=\$GRAFANA_SERVICE_ACCOUNT_TOKEN -- mcp-grafana"
+    grafana              "claude mcp add grafana -s local -e GRAFANA_URL=https://hominux.duckdns.org/grafana -e 'GRAFANA_SERVICE_ACCOUNT_TOKEN=\${GRAFANA_SERVICE_ACCOUNT_TOKEN}' -- mcp-grafana"
     coralogix            "claude mcp add --transport http coralogix https://api.us3.coralogix.com/mgmt/api/v1/mcp -s local -H 'Authorization: Bearer \${CORALOGIX_API_KEY}' -H 'mcp-version: v2'"
   )
   local -A revert_commands=(
