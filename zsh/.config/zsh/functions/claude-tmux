@@ -9,5 +9,11 @@ claude-tmux() {
     return
   fi
   local dir_hash=${"$(print -rn -- "$PWD" | cksum)"%% *}
-  tmux new-session -A -s "claude-${label//[.:]/_}-${${PWD:t}//[.:]/_}-${dir_hash}" -- "$@"
+  # An already-running tmux server hands new sessions its own environment, not the caller's.
+  local -a env_args=()
+  local name
+  for name in ${(k)parameters[(R)scalar*export*]}; do
+    [[ $name == (TMUX|TMUX_PANE|_) ]] || env_args+=(-e "$name=${(P)name}")
+  done
+  tmux new-session -A -s "claude-${label//[.:]/_}-${${PWD:t}//[.:]/_}-${dir_hash}" "${env_args[@]}" -- "$@"
 }
