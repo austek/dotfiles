@@ -8,7 +8,7 @@ import sys
 SETTINGS_FILES = ("~/.claude/settings.json", ".claude/settings.json", ".claude/settings.local.json")
 SEPARATORS = {"&&", "||", ";", "|"}
 OPERATOR_CHARS = set("();<>|&")
-SAFE_SINK = re.compile(r"^(/dev/null|/tmp/[^\s]*)$")
+SAFE_SINK = re.compile(r"^(/dev/null|/tmp/[^\s$`]*)$")
 SENSITIVE = re.compile(r"\.ssh|\.aws|\.gnupg|\.kube|\.netrc|id_rsa|/etc/shadow")
 ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
 UNSAFE_NAME = re.compile(r"^(PATH|IFS|SHELL|ENV|HOME|PROMPT_COMMAND|LD_.*|BASH_.*|GIT_.*|PYTHON.*|NODE_.*|_?JAVA.*)$")
@@ -18,7 +18,8 @@ SAFE_COMMANDS = {
     "dirname", "pwd", "ls", "true", "false", "sleep", "date", "diff", "test", "jq", "grep",
     "egrep", "fgrep", "stat", "readlink", "realpath", "seq", "pgrep",
 }
-UNSAFE_FLAGS = {"sort": {"-o"}, "date": {"-s", "--set"}}
+UNSAFE_FLAGS = {"sort": re.compile(r"^(--output|-[^-]*o)"), "date": re.compile(r"^(--set|-[^-]*s)")}
+EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir", "-delete"}
 
 
 def load_rules(cwd):
@@ -37,10 +38,10 @@ def load_rules(cwd):
 
 def to_regex(pattern):
     if pattern.endswith(":*"):
-        return re.compile("^" + re.escape(pattern[:-2]) + r"(\s.*)?$", re.S)
+        return re.compile("^" + re.escape(pattern[:-2]) + r"(\s.*)?$", re.DOTALL)
     if pattern.endswith(" *"):
-        return re.compile("^" + re.escape(pattern[:-2]).replace(r"\*", ".*") + r"(\s.*)?$", re.S)
-    return re.compile("^" + re.escape(pattern).replace(r"\*", ".*") + "$", re.S)
+        return re.compile("^" + re.escape(pattern[:-2]).replace(r"\*", ".*") + r"(\s.*)?$", re.DOTALL)
+    return re.compile("^" + re.escape(pattern).replace(r"\*", ".*") + "$", re.DOTALL)
 
 
 def matches(text, patterns):
@@ -149,6 +150,15 @@ def join_words(words):
     return " ".join(shlex.quote(w) if not w or re.search(r"\s", w) else w for w in words)
 
 
+def has_unsafe_flag(words):
+    pattern = UNSAFE_FLAGS.get(words[0])
+    return bool(pattern) and any(pattern.match(w) for w in words[1:])
+
+
+def runs_inner_command(words):
+    return words[0] == "xargs" or (words[0] == "find" and bool(EXEC_FLAGS & set(words[1:])))
+
+
 def command_allowed(words, rules):
     text = join_words(words)
     if SENSITIVE.search(text) or words[0].startswith("$"):
@@ -156,8 +166,8 @@ def command_allowed(words, rules):
     if matches(text, rules["deny"]) or matches(text, rules["ask"]):
         return False
     if words[0] in SAFE_COMMANDS:
-        return not (UNSAFE_FLAGS.get(words[0], set()) & set(words[1:]))
-    return matches(text, rules["allow"])
+        return not has_unsafe_flag(words)
+    return not runs_inner_command(words) and matches(text, rules["allow"])
 
 
 def segment_allowed(words, rules):

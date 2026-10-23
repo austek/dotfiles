@@ -14,7 +14,7 @@ hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
 
 RULES = {
-    "allow": [hook.to_regex(p) for p in ("git *", "gh *", "./gradlew *test*")],
+    "allow": [hook.to_regex(p) for p in ("git *", "gh *", "./gradlew *test*", "find *", "xargs *")],
     "deny": [hook.to_regex("git push * main*")],
     "ask": [],
 }
@@ -37,8 +37,22 @@ class TestCompoundCommands(unittest.TestCase):
     def test_safe_commands_need_no_rule(self):
         self.assertTrue(allowed("ls /tmp | wc -l"))
 
-    def test_unsafe_flag_on_safe_command_is_rejected(self):
-        self.assertFalse(allowed("sort -o out.txt in.txt"))
+    def test_write_flags_on_safe_commands_are_rejected_in_every_form(self):
+        for command in (
+            "sort -o out.txt in.txt", "sort -oout.txt in.txt", "sort -uo out.txt in.txt",
+            "sort --output=out.txt in.txt", "date -s 2020-01-01", "date --set=2020-01-01",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command))
+
+    def test_find_that_executes_or_deletes_is_rejected(self):
+        for command in ("find . -exec rm {} +", "find . -delete", "find . -okdir rm {} ;"):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command))
+        self.assertTrue(allowed("find . -name '*.py'"))
+
+    def test_xargs_inner_command_is_never_auto_allowed(self):
+        self.assertFalse(allowed("git ls-files | xargs rm"))
 
 
 class TestRedirects(unittest.TestCase):
@@ -50,6 +64,9 @@ class TestRedirects(unittest.TestCase):
 
     def test_path_traversal_out_of_tmp_is_rejected(self):
         self.assertFalse(allowed("git log > /tmp/../etc/passwd"))
+
+    def test_expandable_sink_target_is_rejected(self):
+        self.assertFalse(allowed("P=../etc/x; echo hi > /tmp/$P"))
 
     def test_sensitive_paths_are_rejected(self):
         self.assertFalse(allowed("cat ~/.ssh/id_rsa"))

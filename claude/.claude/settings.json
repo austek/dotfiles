@@ -18,7 +18,6 @@
       "Grep",
       "Read",
       "Bash(gh api repos/ZirekHQ/*/rulesets*)",
-      "Bash(curl *)",
       "Bash(docker manifest inspect *)",
       "Bash(jobs *)",
       "Bash(mkdocs --version)",
