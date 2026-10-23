@@ -7,6 +7,7 @@ secrets="$HOME/.config/dotfiles/secrets.env"
 
 # Parses KEY=value lines as data, like systemd's EnvironmentFile: values are never evaluated.
 export_assignment() {
+    case $1 in *=*) ;; *) return 0 ;; esac
     key=${1%%=*}
     value=${1#*=}
     case $key in '' | *[!A-Za-z0-9_]* | [0-9]*) return 0 ;; esac
