@@ -1,4 +1,4 @@
-# Runs a claude command in a tmux session named claude-<label>-<dir> so it survives closing
+# Runs a claude command in a tmux session named claude-<label>-<dir>-<path hash> so it survives closing
 # the terminal. Runs it directly when already in tmux, without a TTY, for -p/--print, or without tmux.
 # Usage: claude-tmux <label> <command> [args...]
 claude-tmux() {
@@ -8,5 +8,6 @@ claude-tmux() {
     "$@"
     return
   fi
-  tmux new-session -A -s "claude-${label}-${${PWD:t}//[.:]/_}" -- "$@"
+  local dir_hash=${"$(print -rn -- "$PWD" | cksum)"%% *}
+  tmux new-session -A -s "claude-${label//[.:]/_}-${${PWD:t}//[.:]/_}-${dir_hash}" -- "$@"
 }
