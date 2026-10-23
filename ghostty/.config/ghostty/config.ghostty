@@ -1,0 +1,1 @@
+command = tmux new-session -A -s main
