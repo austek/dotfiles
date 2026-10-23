@@ -1,0 +1,12 @@
+# Runs a claude command in a tmux session named claude-<label>-<dir> so it survives closing
+# the terminal. Runs it directly when already in tmux, without a TTY, for -p/--print, or without tmux.
+# Usage: claude-tmux <label> <command> [args...]
+claude-tmux() {
+  local label=$1
+  shift
+  if [[ -n $TMUX || ! -t 0 || ! -t 1 ]] || (( ! $+commands[tmux] )) || (( ${+argv[(r)(-p|--print)]} )); then
+    "$@"
+    return
+  fi
+  tmux new-session -A -s "claude-${label}-${${PWD:t}//[.:]/_}" -- "$@"
+}

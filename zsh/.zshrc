@@ -237,8 +237,3 @@ fi
 path_prepend "$HOME/.local/share/sonarqube-cli/bin"
 
 path_prepend "$HOME/.opencode/bin"
-
-# Persistent per-project tmux session in the IDEA terminal; SSH and headless shells are left alone
-if [[ -o interactive && -z $TMUX && $TERMINAL_EMULATOR == JetBrains-JediTerm ]] && (( $+commands[tmux] )); then
-    exec tmux new-session -A -s "idea-${PWD:t}"
-fi
