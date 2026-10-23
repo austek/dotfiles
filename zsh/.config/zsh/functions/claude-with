@@ -78,7 +78,7 @@ claude-with() {
     return 1
   fi
 
-  claude "${claude_args[@]}"
+  command claude "${claude_args[@]}"
   local exit_status=$?
 
   local n
