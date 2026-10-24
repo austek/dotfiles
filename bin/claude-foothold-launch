@@ -27,4 +27,4 @@ if [ -r "$secrets" ]; then
     done < "$secrets"
 fi
 
-exec claude --remote-control "$1" --settings "$2"
+exec "${0%/*}/claude-pane-loop" claude --remote-control "$1" --settings "$2"
