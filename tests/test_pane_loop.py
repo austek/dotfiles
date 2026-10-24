@@ -34,7 +34,7 @@ def _run_on_tty(tmp_path, typed, grace="2"):
 
 def test_without_a_tty_it_returns_the_commands_status_at_once(tmp_path):
     result = subprocess.run(
-        [str(LOOP), "sh", "-c", "exit 7"], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        [str(LOOP), "sh", "-c", "exit 7"], check=False, stdin=subprocess.DEVNULL, capture_output=True, text=True,
     )
     assert result.returncode == 7
     assert result.stdout == ""
@@ -47,7 +47,7 @@ def test_a_typed_resume_line_restarts_claude_in_place(tmp_path):
 
 
 def test_other_typed_input_ends_the_pane_without_running_it(tmp_path):
-    code, runs = _run_on_tty(tmp_path, f"cd '{tmp_path}'; touch pwned && claude\n")
+    _, runs = _run_on_tty(tmp_path, f"cd '{tmp_path}'; touch pwned && claude\n")
     assert runs == ["first"]
     assert not (tmp_path / "pwned").exists()
 
