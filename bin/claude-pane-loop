@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Runs a command as a tmux pane's process and, once it exits, keeps the pane for CLAUDE_TMUX_GRACE
+# seconds so Cozempic's typed `cd <dir> && claude … --resume <id>` line can restart claude in place.
+# Enter, Ctrl-D, any other input or the timeout ends the pane (and with it the tmux session).
+# Usage: claude-pane-loop <command> [args...]
+
+grace=${CLAUDE_TMUX_GRACE:-60}
+resume_line="^cd [^;|&\`\$<>]+ && claude( [^;|&\`\$<>]*)?\$"
+
+# A leading `env NAME=value` (claude-burst) applies to resumed claude too, which Cozempic types bare.
+if [[ $1 == env ]]; then
+    for assignment in "${@:2}"; do
+        [[ $assignment =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || break
+        export "${assignment?}"
+    done
+fi
+
+"$@"
+status=$?
+[[ -t 0 ]] || exit "$status"
+
+while true; do
+    printf 'claude exited; waiting %ss for a resume. Enter closes now.\n' "$grace"
+    IFS= read -r -t "$grace" line || exit "$status"
+    [[ $line =~ $resume_line ]] || exit "$status"
+    eval "$line"
+    status=$?
+done

@@ -25,6 +25,19 @@ claude-with() {
     return 1
   fi
 
+  # Re-run inside tmux so MCP reverts when claude exits, not when the client detaches.
+  if [[ -z $TMUX && -t 0 && -t 1 ]] && (( $+commands[tmux] )) && (( ! ${+argv[(r)(-p|--print)]} )); then
+    local -a selection=()
+    local token
+    for token in "$@"; do
+      [[ "$token" == "--" ]] && break
+      selection+=("$token")
+    done
+    local args_hash=${"$(print -rn -- "$*" | cksum)"%% *}
+    claude-tmux "with-${(j:-:)${(@o)selection}}-${args_hash}" zsh -ic 'claude-with "$@"' claude-with "$@"
+    return
+  fi
+
   local -a names=() claude_args=()
   local seen_sep=0 arg
   for arg in "$@"; do
@@ -78,7 +91,7 @@ claude-with() {
     return 1
   fi
 
-  claude "${claude_args[@]}"
+  command claude "${claude_args[@]}"
   local exit_status=$?
 
   local n

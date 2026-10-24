@@ -5,8 +5,10 @@ import sys
 sys.dont_write_bytecode = True  # keep __pycache__ out of the stow package
 
 import importlib.util
+import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HOOK = Path(__file__).resolve().parent / "allow-compound-bash.py"
 spec = importlib.util.spec_from_file_location("allow_compound_bash", HOOK)
@@ -41,6 +43,7 @@ class TestCompoundCommands(unittest.TestCase):
         for command in (
             "sort -o out.txt in.txt", "sort -oout.txt in.txt", "sort -uo out.txt in.txt",
             "sort --output=out.txt in.txt", "date -s 2020-01-01", "date --set=2020-01-01",
+            "sort --compress-program=sh in.txt", "uniq /dev/null out.txt",
         ):
             with self.subTest(command=command):
                 self.assertFalse(allowed(command))
@@ -79,6 +82,10 @@ class TestSubstitutionsAndVariables(unittest.TestCase):
 
     def test_unsafe_variable_assignment_is_rejected(self):
         self.assertFalse(allowed("PATH=/tmp/bin git status"))
+
+    def test_assignment_to_exported_variable_is_rejected(self):
+        with mock.patch.dict(os.environ, {"BROWSER": "xdg-open"}):
+            self.assertFalse(allowed("BROWSER=cmd; gh pr view"))
 
     def test_variable_command_word_is_rejected(self):
         self.assertFalse(allowed("$CMD status"))

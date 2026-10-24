@@ -1,0 +1,23 @@
+# Runs a claude command in a tmux session named claude-<label>-<dir>-<path hash> so it survives closing
+# the terminal; claude-pane-loop keeps the pane briefly after exit so Cozempic can resume in place.
+# Runs it directly when already in tmux, without a TTY, for -p/--print, or without tmux.
+# Usage: claude-tmux <label> <command> [args...]
+claude-tmux() {
+  local label=$1
+  shift
+  if [[ -n $TMUX || ! -t 0 || ! -t 1 ]] || (( ! $+commands[tmux] )) || (( ${+argv[(r)(-p|--print)]} )); then
+    "$@"
+    return
+  fi
+  local dir_hash=${"$(print -rn -- "$PWD" | cksum)"%% *}
+  # A running tmux server hands new sessions its own environment; update-environment makes it copy
+  # ours instead, keeping values off the command line. Names stay listed so later unsets propagate.
+  local -a names=(${(k)parameters[(R)scalar*export*]:#(TMUX|TMUX_PANE|_)})
+  local -aU watched=(${(f)"$(tmux start-server \; show-options -gv update-environment 2>/dev/null)"} $names)
+  local -a setup=(set-option -gu update-environment)
+  local name
+  for name in $watched; do setup+=(\; set-option -ga update-environment $name); done
+  local loop=$HOME/.dotfiles/bin/claude-pane-loop
+  [[ -x $loop ]] || loop=
+  tmux $setup \; new-session -A -s "claude-${label//[.:]/_}-${${PWD:t}//[.:]/_}-${dir_hash}" -- $loop "$@"
+}

@@ -14,11 +14,11 @@ ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
 UNSAFE_NAME = re.compile(r"^(PATH|IFS|SHELL|ENV|HOME|PROMPT_COMMAND|LD_.*|BASH_.*|GIT_.*|PYTHON.*|NODE_.*|_?JAVA.*)$")
 LOOP_VAR = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SAFE_COMMANDS = {
-    "echo", "printf", "cat", "head", "tail", "wc", "cut", "tr", "sort", "uniq", "basename",
+    "echo", "printf", "cat", "head", "tail", "wc", "cut", "tr", "sort", "basename",
     "dirname", "pwd", "ls", "true", "false", "sleep", "date", "diff", "test", "jq", "grep",
     "egrep", "fgrep", "stat", "readlink", "realpath", "seq", "pgrep",
 }
-UNSAFE_FLAGS = {"sort": re.compile(r"^(--output|-[^-]*o)"), "date": re.compile(r"^(--set|-[^-]*s)")}
+UNSAFE_FLAGS = {"sort": re.compile(r"^(--output|--compress-program|-[^-]*o)"), "date": re.compile(r"^(--set|-[^-]*s)")}
 EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir", "-delete"}
 
 
@@ -140,7 +140,8 @@ def tokenize(command):
 def strip_assignments(words):
     i = 0
     while i < len(words) and ASSIGNMENT.match(words[i]):
-        if UNSAFE_NAME.match(ASSIGNMENT.match(words[i]).group(1)):
+        name = ASSIGNMENT.match(words[i]).group(1)
+        if UNSAFE_NAME.match(name) or name in os.environ:
             return None
         i += 1
     return words[i:] if i == len(words) else None
