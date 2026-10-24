@@ -175,13 +175,6 @@ path_append "$HOME/.krew/bin"
 path_append "/usr/local/go/bin"
 # --- END PATH ---
 
-# --- IDE TERMINAL CLAUDE ---
-# Runs claude in tmux so Cozempic can reload it in place; the IDE tab stays attached.
-if [[ $TERMINAL_EMULATOR == JetBrains-JediTerm ]]; then
-  claude() { claude-tmux idea "${commands[claude]}" "$@"; }
-fi
-# --- END IDE TERMINAL CLAUDE ---
-
 # --- LOAD PROFILE CONFIGS ---
 # This file is built by setup.sh from ~/dotfiles/profiles
 # It is ignored by .gitignore

@@ -33,7 +33,8 @@ claude-with() {
       [[ "$token" == "--" ]] && break
       selection+=("$token")
     done
-    claude-tmux "with-${(j:-:)${(@o)selection}}" zsh -ic 'claude-with "$@"' claude-with "$@"
+    local args_hash=${"$(print -rn -- "$*" | cksum)"%% *}
+    claude-tmux "with-${(j:-:)${(@o)selection}}-${args_hash}" zsh -ic 'claude-with "$@"' claude-with "$@"
     return
   fi
 

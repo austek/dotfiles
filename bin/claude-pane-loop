@@ -7,6 +7,14 @@
 grace=${CLAUDE_TMUX_GRACE:-60}
 resume_line="^cd [^;|&\`\$<>]+ && claude( [^;|&\`\$<>]*)?\$"
 
+# A leading `env NAME=value` (claude-burst) applies to resumed claude too, which Cozempic types bare.
+if [[ $1 == env ]]; then
+    for assignment in "${@:2}"; do
+        [[ $assignment =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || break
+        export "${assignment?}"
+    done
+fi
+
 "$@"
 status=$?
 [[ -t 0 ]] || exit "$status"
