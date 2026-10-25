@@ -13,7 +13,7 @@ sed -i.bak \
     "$msg_file"
 rm -f "$msg_file.bak"
 
-local_hook=$(git rev-parse --git-path hooks/commit-msg)
+local_hook="$(git rev-parse --path-format=absolute --git-common-dir)/hooks/commit-msg"
 if [[ -f "$local_hook" && -x "$local_hook" ]]; then
     exec "$local_hook" "$@"
 fi

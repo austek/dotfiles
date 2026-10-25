@@ -23,7 +23,7 @@ QUOTE_STRING_EXTS = {"js", "jsx", "ts", "tsx", "php"}
 _TRAILING_WS = re.compile(r"[ \t]+(?=\n)")
 _DIRECTIVE = re.compile(
     r"^(?:#|//)\s*(?:noqa|type:|pragma|pylint:|fmt:|isort:|-\*-|(?:vim?|coding)[:=]"
-    r"|nolint|go:|@ts-|eslint-|prettier-ignore|nosec)"
+    r"|nolint|go:|@ts-|eslint-|prettier-ignore|nosec|shellcheck)"
 )
 
 _DOUBLE = r'"(?:\\.|[^"\\])*"'
@@ -58,7 +58,9 @@ _HASH = re.compile(
 
 
 def _replace_hash_comment(m: re.Match[str]) -> str:
-    return m.group("str") or ""
+    if m.group("str"):
+        return m.group("str")
+    return m.group("comment") if _DIRECTIVE.match(m.group("comment")) else ""
 
 
 def _split_shebang(source: str) -> tuple[str, str]:

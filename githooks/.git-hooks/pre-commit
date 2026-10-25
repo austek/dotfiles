@@ -4,7 +4,7 @@
 # `git show`, not the working tree, so partial `git add -p` staging is safe.
 set -euo pipefail
 
-local_hook=$(git rev-parse --git-path hooks/pre-commit)
+local_hook="$(git rev-parse --path-format=absolute --git-common-dir)/hooks/pre-commit"
 if [[ -f "$local_hook" && -x "$local_hook" ]]; then
     "$local_hook" "$@"
 fi

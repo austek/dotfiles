@@ -110,6 +110,11 @@ def test_hash_style_keeps_shell_parameter_expansions():
     assert strip_hash_comments(source) == 'echo ${#arr[@]} $# ${v#pre} http://x/#frag \n'
 
 
+def test_hash_style_keeps_directive_comments():
+    source = "# shellcheck disable=SC2016\necho 'x' # narrative\n# noqa: E501\n"
+    assert strip_hash_comments(source) == "# shellcheck disable=SC2016\necho 'x' \n# noqa: E501\n"
+
+
 def test_hash_style_preserves_crlf():
     assert strip_hash_comments("echo a # c\r\necho b\r\n") == "echo a \r\necho b\r\n"
 
