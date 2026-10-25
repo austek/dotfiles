@@ -41,6 +41,8 @@ RISKY_TARGET = re.compile(
 
 SAFE_VAR_PREFIX = re.compile(r"^\$(?:\{TMPDIR\}|TMPDIR)/(?!.*\.\.)[^$`]+$")
 FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
+FIND_WRAPPERS = {"sudo", "rtk", "env", "command", "nice", "nohup", "time", "exec"}
+FIND_GLOBAL_OPTS = {"-H", "-L", "-P"}
 SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash", "ksh", "eval", "ssh"}
 RM_WORD = re.compile(r"\brm\b")
 
@@ -164,13 +166,34 @@ def extract_exec(tokens: list[str]) -> tuple[list[str], list[list[str]]]:
     return outer, inners + ([current] if current else [])
 
 
+def _skip_find_options(args: list[str]) -> list[str]:
+    i = 0
+    while i < len(args):
+        if args[i] == "-D":
+            i += 2
+        elif args[i] in FIND_GLOBAL_OPTS or re.fullmatch(r"-O\d?", args[i]):
+            i += 1
+        else:
+            break
+    return args[i:]
+
+
+def find_start_paths(seg: list[str]) -> list[str]:
+    if not seg or posixpath.basename(seg[0]) not in FIND_WRAPPERS | {"find"}:
+        return []
+    idx = next((i for i, t in enumerate(seg) if posixpath.basename(t) == "find"), None)
+    if idx is None:
+        return []
+    rest = _skip_find_options(seg[idx + 1:])
+    return list(itertools.takewhile(lambda t: not t.startswith(("-", "!", "(")), rest))
+
+
 def check_find_paths(segments: list[list[str]], inners: list[list[str]]) -> str | None:
     destructive = any(is_force_recursive(i) for i in inners) or any("-delete" in s for s in segments)
     if not destructive:
         return None
-    for seg in (s for s in segments if s and posixpath.basename(s[0]) == "find"):
-        starts = itertools.takewhile(lambda t: not t.startswith(("-", "!", "(")), seg[1:])
-        verdict = next((v for t in starts if t != "." and (v := check_target(seg, t))), None)
+    for seg in segments:
+        verdict = next((v for t in find_start_paths(seg) if t != "." and (v := check_target(seg, t))), None)
         if verdict:
             return verdict
     return None

@@ -84,6 +84,11 @@ DENY = [
     "find $HOME -delete",
     "find /tmp -exec rm -rf $X \\;",
     "find /tmp -exec sh -c 'rm -rf /' \\;",
+    "find -L / -delete",
+    "find -H -D tree / -delete",
+    "sudo find / -delete",
+    "sudo -u root find / -exec rm -rf {} \\;",
+    "rtk find ~ -delete",
 ]
 
 ALLOW = [

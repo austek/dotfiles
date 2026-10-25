@@ -26,6 +26,18 @@ def test_load_state_warns_and_returns_none_for_corrupt_file(tmp_path, capsys):
     assert str(state_file) in capsys.readouterr().err
 
 
+def test_load_state_warns_and_returns_none_for_unreadable_file(tmp_path, monkeypatch, capsys):
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}")
+
+    def deny(self, *args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(type(state_file), "read_text", deny)
+    assert load_state(state_file) is None
+    assert str(state_file) in capsys.readouterr().err
+
+
 def test_save_then_load_round_trips(tmp_path):
     state_file = tmp_path / "nested" / "state.json"
     state = _sample_state()

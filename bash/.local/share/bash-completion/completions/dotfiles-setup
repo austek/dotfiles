@@ -11,6 +11,8 @@ _dotfiles_setup_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD - 1]}"
+    [[ "$prev" == "=" ]] && prev="${COMP_WORDS[COMP_CWORD - 2]}"
+    [[ "$cur" == "=" ]] && cur=""
 
     case "${COMP_WORDS[1]}" in
         install)

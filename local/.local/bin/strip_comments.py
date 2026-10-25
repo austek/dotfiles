@@ -45,7 +45,7 @@ def _replace_c_comment(m: re.Match[str]) -> str:
         return m.group("str")
     if m.group("line"):
         return m.group("line") if _DIRECTIVE.match(m.group("line")) else ""
-    return " " + "\n" * m.group("block").count("\n")
+    return " " + "".join(re.findall(r"\r\n|\n|\r", m.group("block")))
 
 
 def strip_c_style_comments(source: str, ext: str = "js") -> str:
@@ -53,7 +53,8 @@ def strip_c_style_comments(source: str, ext: str = "js") -> str:
 
 
 _HASH = re.compile(
-    r"""(?P<str>"(?:\\.|[^"\\])*"|'[^']*')|(?<![^ \t\r\n;])(?P<comment>\#[^\r\n]*)"""
+    r"""(?P<str>\$'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|'[^']*'|\\[\s\S])"""
+    r"""|(?<![^ \t\r\n;])(?P<comment>\#[^\r\n]*)"""
 )
 
 

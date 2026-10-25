@@ -97,13 +97,13 @@ claude-with() {
     done
     added=()
   }
+  setopt localtraps
   trap '_claude_with_revert; return 143' HUP TERM
 
   command claude "${claude_args[@]}"
   local exit_status=$?
 
   _claude_with_revert
-  trap - HUP TERM
 
   return $exit_status
 }

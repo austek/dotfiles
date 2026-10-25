@@ -180,6 +180,13 @@ def runs_inner_command(words: list[str]) -> bool:
     return words[0] == "xargs" or (words[0] == "find" and bool(EXEC_FLAGS & set(words[1:])))
 
 
+GLOB_CHARS = re.compile(r"[*?\[{]")
+
+
+def globbed_path(word: str) -> bool:
+    return bool(GLOB_CHARS.search(word)) and ("/" in word or word.startswith("~"))
+
+
 def command_allowed(words: list[str], rules: dict) -> bool:
     text = join_words(words)
     if SENSITIVE.search(text) or words[0].startswith("$"):
@@ -187,7 +194,7 @@ def command_allowed(words: list[str], rules: dict) -> bool:
     if matches(text, rules["deny"]) or matches(text, rules["ask"]):
         return False
     if words[0] in SAFE_COMMANDS:
-        return not has_unsafe_flag(words) and not any("$" in w for w in words[1:])
+        return not has_unsafe_flag(words) and not any("$" in w or globbed_path(w) for w in words[1:])
     return not runs_inner_command(words) and matches(text, rules["allow"])
 
 

@@ -79,6 +79,16 @@ class TestAuditBypasses(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertFalse(allowed(command))
 
+    def test_globbed_paths_on_safe_commands_are_rejected(self):
+        for command in ("cat ~/.s[s]h/i[d]_rsa", "cat ~/.ss?/id_r*", "cat /etc/{shadow,passwd}", "ls src/*.py"):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command))
+
+    def test_patterns_that_are_not_paths_stay_allowed(self):
+        for command in ("jq '.a[0]' f.json", "grep 'a[0-9]*' f.txt", "tr '[:lower:]' '[:upper:]'", "echo {a,b}"):
+            with self.subTest(command=command):
+                self.assertTrue(allowed(command))
+
     def test_find_file_writing_actions_are_rejected(self):
         for command in ("find . -fprint /tmp/x", "find . -fprintf /tmp/x %p", "find . -fls /tmp/x"):
             with self.subTest(command=command):

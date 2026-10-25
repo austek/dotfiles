@@ -31,7 +31,7 @@ def load_state(state_file: Path | None = None) -> MachineState | None:
         data = json.loads(state_file.read_text())
         data["applied_package_names"] = tuple(data["applied_package_names"])
         return MachineState(**data)
-    except (ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError):
         print(f"warning: ignoring unreadable state file {state_file}", file=sys.stderr)
         return None
 

@@ -20,7 +20,7 @@ export_assignment() {
     export "$key=$value"
 }
 
-if [ -r "$secrets" ] && case $(stat -c %a "$secrets") in *00) true ;; *) false ;; esac; then
+if [ -r "$secrets" ] && case $(stat -L -c %a "$secrets") in *00) true ;; *) false ;; esac; then
     while IFS= read -r line || [ -n "$line" ]; do
         case $line in '' | '#'* | ';'*) continue ;; esac
         export_assignment "$line"

@@ -115,6 +115,15 @@ def test_hash_style_keeps_directive_comments():
     assert strip_hash_comments(source) == "# shellcheck disable=SC2016\necho 'x' \n# noqa: E501\n"
 
 
+def test_hash_style_respects_shell_escaped_quotes():
+    for source in ("echo 'it'\\''s # x'\n", "echo $'a\\'b # c'\n", "echo \\# not a comment\n"):
+        assert strip_hash_comments(source) == source
+
+
+def test_c_style_block_comment_keeps_crlf_line_breaks():
+    assert strip_comments("a /* x\r\ny */ b\r\n", "js") == "a  \r\n b\r\n"
+
+
 def test_hash_style_preserves_crlf():
     assert strip_hash_comments("echo a # c\r\necho b\r\n") == "echo a \r\necho b\r\n"
 
