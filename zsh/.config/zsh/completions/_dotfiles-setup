@@ -25,7 +25,7 @@ case $state in
           '(-v --verbose)'{-v,--verbose}'[show step-by-step progress]' \
           '-vv[also show raw output from apt/stow/dpkg/etc]' \
           '-vvv[full debug: also enable command tracing]' \
-          '--reconfigure[re-prompt for git identity and re-detect the overlay root]' \
+          '--reconfigure[re-prompt for git identity even if already configured]' \
           '--force[back up files that block stow and stow anyway]' \
           '--accept-drift[overwrite settings.json even if edited since last install]' \
           '(-h --help)'{-h,--help}'[show help message]'

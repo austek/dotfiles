@@ -19,6 +19,13 @@ def test_load_state_returns_none_when_file_missing(tmp_path):
     assert load_state(tmp_path / "state.json") is None
 
 
+def test_load_state_warns_and_returns_none_for_corrupt_file(tmp_path, capsys):
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{not json")
+    assert load_state(state_file) is None
+    assert str(state_file) in capsys.readouterr().err
+
+
 def test_save_then_load_round_trips(tmp_path):
     state_file = tmp_path / "nested" / "state.json"
     state = _sample_state()

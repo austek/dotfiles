@@ -80,7 +80,7 @@ the git-identity, package-fork, or overlay work above — no identity prompt, no
 list, `~/.dotfiles-private` never consulted, and no generated `~/.claude/settings.json`. It just installs straight from this repo's `packages/` files
 every time. Prefer `dotfiles-setup install` unless you have a specific reason to bypass it.
 
-`dotfiles-setup install` also accepts `--dry-run`, `-v`/`-vv`/`-vvv` (verbosity), `--reconfigure` (re-prompt git identity and re-detect the overlay), and `--accept-drift`.
+`dotfiles-setup install` also accepts `--dry-run`, `-v`/`-vv`/`-vvv` (verbosity), `--reconfigure` (re-prompt for the git identity), and `--accept-drift`.
 
 [NOTE]
 If stow fails because existing files block a symlink, re-run with `--force`. Each blocking file moves to

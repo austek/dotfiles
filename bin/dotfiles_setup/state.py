@@ -3,6 +3,7 @@ so it survives across re-clones/forks and never enters git history."""
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -31,6 +32,7 @@ def load_state(state_file: Path | None = None) -> MachineState | None:
         data["applied_package_names"] = tuple(data["applied_package_names"])
         return MachineState(**data)
     except (ValueError, KeyError, TypeError):
+        print(f"warning: ignoring unreadable state file {state_file}", file=sys.stderr)
         return None
 
 
