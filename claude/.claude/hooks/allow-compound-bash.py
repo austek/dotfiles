@@ -181,10 +181,13 @@ def runs_inner_command(words: list[str]) -> bool:
 
 
 GLOB_CHARS = re.compile(r"[*?\[{]")
+FILE_ARG_COMMANDS = {"cat", "head", "tail", "wc", "ls", "stat", "readlink", "realpath", "diff", "sort", "cut"}
 
 
-def globbed_path(word: str) -> bool:
-    return bool(GLOB_CHARS.search(word)) and ("/" in word or word.startswith("~"))
+def globbed_path(word: str, command: str) -> bool:
+    if not GLOB_CHARS.search(word):
+        return False
+    return command in FILE_ARG_COMMANDS or "/" in word or word.startswith("~")
 
 
 def command_allowed(words: list[str], rules: dict) -> bool:
@@ -194,7 +197,7 @@ def command_allowed(words: list[str], rules: dict) -> bool:
     if matches(text, rules["deny"]) or matches(text, rules["ask"]):
         return False
     if words[0] in SAFE_COMMANDS:
-        return not has_unsafe_flag(words) and not any("$" in w or globbed_path(w) for w in words[1:])
+        return not has_unsafe_flag(words) and not any("$" in w or globbed_path(w, words[0]) for w in words[1:])
     return not runs_inner_command(words) and matches(text, rules["allow"])
 
 

@@ -469,7 +469,7 @@ def _audit_checked_out_pr(run: Runner, repo_root: Path, pr: str, limit: int) -> 
         print(f"=== Auditing PR {pr} ({len(files)} file(s)) ===")
         return _run_simple(run, ["coderabbit", "review", "--base", base_branch, "--agent"], cwd=repo_root)
     print(f"=== Auditing PR {pr} ({len(files)} file(s), batching over the {limit}-file limit) ===")
-    return _run_scoped(run, ScopedAudit(repo_root, f"pr-{pr}", "ref", base_branch, head_branch, files, limit))
+    return _run_scoped(run, ScopedAudit(repo_root, _slug(f"pr-{pr}"), "ref", base_branch, head_branch, files, limit))
 
 
 def _dispatch(run: Runner, args: argparse.Namespace, repo_root: Path, branch: str, limit: int) -> int:

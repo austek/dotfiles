@@ -154,6 +154,11 @@ def test_main_uncommitted_over_limit_snapshots_untracked_files(tmp_path):
     assert any(c[0][:3] == ("git", "ls-tree", "-r") and "deadbeef" in c[0] and "new.py" in c[0] for c in run.calls)
 
 
+def test_pr_url_slug_is_a_valid_branch_component():
+    slug = cra._slug("pr-https://github.com/o/r/pull/7")
+    assert slug == "pr-https-github-com-o-r-pull-7"
+
+
 def test_main_pr_uses_existing_review_when_present(tmp_path):
     responses = {
         ("git", "rev-parse", "--show-toplevel"): ok(str(tmp_path / "repo") + "\n"),
