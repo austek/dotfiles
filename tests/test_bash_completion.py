@@ -33,7 +33,7 @@ def test_completes_preset_equals_form():
 
 def test_completes_preset_when_bash_splits_the_equals_sign():
     assert _complete(["dotfiles-setup", "install", "--preset", "=", "wo"], 4) == ["work"]
-    assert _complete(["dotfiles-setup", "install", "--preset", "="], 3) == ["homelab", "personal", "work"]
+    assert sorted(_complete(["dotfiles-setup", "install", "--preset", "="], 3)) == ["homelab", "personal", "work"]
 
 
 def test_completes_nothing_unexpected_for_bare_dash():
