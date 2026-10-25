@@ -4,8 +4,7 @@
 # `git show`, not the working tree, so partial `git add -p` staging is safe.
 set -euo pipefail
 
-git_dir=$(git rev-parse --git-dir)
-local_hook="$git_dir/hooks/pre-commit"
+local_hook=$(git rev-parse --git-path hooks/pre-commit)
 if [[ -f "$local_hook" && -x "$local_hook" ]]; then
     "$local_hook" "$@"
 fi
@@ -17,7 +16,8 @@ documented="\`${marker}:\`"
 found=0
 while IFS= read -r -d '' file; do
     [[ -f "$file" ]] || continue
-    if git show ":$file" 2>/dev/null | sed "s/${documented}//g" | grep -qF "${marker}:"; then
+    hits=$(git show ":$file" 2>/dev/null | sed "s/${documented}//g" | grep -cF "${marker}:" || true)
+    if [[ "${hits:-0}" -gt 0 ]]; then
         echo "pre-commit: $file has a leftover ${marker}: marker — resolve or remove it before committing." >&2
         found=1
     fi

@@ -17,6 +17,7 @@ jobs:
   shellcheck:
     name: Validate Shell Scripts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -45,6 +46,7 @@ jobs:
   python:
     name: Validate Python CLI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -65,7 +67,7 @@ jobs:
         run: uv run --locked --no-build ruff check .
 
       - name: Run pytest with coverage
-        run: uv run --locked --no-build pytest --cov --cov-report=term-missing --cov-fail-under=75 -v
+        run: uv run --locked --no-build pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=75 -v
 
       - name: Smoke-test the CLI entry points
         run: |

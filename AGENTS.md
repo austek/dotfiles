@@ -12,7 +12,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 ### 1. Package Management (Strict Rule)
 - **NEVER** suggest or use `apt-get install` directly to add applications.
 - To add or remove applications, update the text files located in the `~/.dotfiles/packages/` directory.
-- Available package lists include: `apt_common.txt` (all presets, headless-safe), `apt_desktop.txt` (GUI packages, pulled in by `work`/`personal` only), `apt_work.txt`, `apt_personal.txt`, `apt_homelab.txt`, and `github_bins.txt`.
+- Available package lists include: `apt_common.txt` (all presets, headless-safe), `apt_desktop.txt` (GUI packages, pulled in by `work`/`personal` only), `apt_rust.txt` (Rust tooling shared by `personal` and `homelab`), `apt_work.txt`, `apt_personal.txt`, `apt_homelab.txt`, and `github_bins.txt`.
 - The `setup.sh` script handles downloading and installing `.deb` packages from GitHub releases based on the text list.
 
 ### 2. Snap-Free Environment
@@ -38,8 +38,8 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 
 ### 6. Claude Remote Foothold
 - `dotfiles-setup install` ends by installing `~/.config/systemd/user/claude-foothold-<preset>.service` (`bin/dotfiles_setup/foothold.py`), which starts a tmux session `claude-foothold-<preset>` running `claude --remote-control foothold-<preset>` with the preset's generated profile from `~/.config/dotfiles/claude-profiles/`. It also runs `loginctl enable-linger` so the unit starts at boot without a login, then `systemctl --user enable --now`.
-- The unit probes `api.anthropic.com` before launching; without that wait, Remote Control fails session creation at boot because the link gains carrier before DNS works. Its `PATH` includes `~/.local/share/sonarqube-cli/bin` so the SonarQube plugin finds `sonar`. The tmux pane runs `bin/claude-foothold-launch`, which sources `~/.config/dotfiles/secrets.env` before `exec`ing `claude`, since the unit never sources `~/.zshrc` and a tmux server that was already running hands new sessions its own environment, not the unit's `EnvironmentFile`; every var in that file reaches Claude.
-- It is skipped when `systemctl` or `tmux` is missing, and failures warn without failing the install. The unit is rewritten only when its content changes; an already-running session is not restarted, so kill the tmux session and restart the unit to pick up changes.
+- The unit probes `api.anthropic.com` before launching; without that wait, Remote Control fails session creation at boot because the link gains carrier before DNS works. Its `PATH` includes `~/.local/share/sonarqube-cli/bin` so the SonarQube plugin finds `sonar`. The tmux pane runs `bin/claude-foothold-launch`, which sources `~/.config/dotfiles/secrets.env` before `exec`ing `bin/claude-pane-loop claude …` (which keeps the pane open briefly after exit so a typed `--resume` line can restart claude), since the unit never sources `~/.zshrc` and a tmux server that was already running hands new sessions its own environment, not the unit's `EnvironmentFile`; every var in that file reaches Claude.
+- It is skipped when `systemctl`, `tmux` or `curl` is missing, and failures warn without failing the install. The unit is rewritten only when its content changes; an already-running session is not restarted, so kill the tmux session and restart the unit to pick up changes.
 - When an install changes the saved preset, `retire_foothold` disables the previous preset's unit, kills its tmux session and removes its unit file after the new unit is enabled.
 
 ## Presets and Portability

@@ -58,6 +58,50 @@ class TestCompoundCommands(unittest.TestCase):
         self.assertFalse(allowed("git ls-files | xargs rm"))
 
 
+class TestAuditBypasses(unittest.TestCase):
+    def test_hash_after_escaped_char_is_not_a_comment(self):
+        for command in ("echo a\\ #; rm x", "echo \\;#; rm x"):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command))
+
+    def test_for_loop_over_exported_or_unsafe_variable_is_rejected(self):
+        self.assertFalse(allowed("for HOME in /tmp; do git status; done"))
+        self.assertFalse(allowed("for PATH in /tmp; do git status; done"))
+
+    def test_printf_v_is_rejected(self):
+        self.assertFalse(allowed("printf -v HOME /tmp; git status"))
+
+    def test_hidden_or_abbreviated_flags_are_rejected(self):
+        for command in (
+            "sort --out=/tmp/zz in", "A=-o; sort $A /tmp/zz in", "sort $(echo -o) /tmp/zz in",
+            "sort $'-o' /tmp/zz in", "date --se=1", "find . $(echo -delete)",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command))
+
+    def test_find_file_writing_actions_are_rejected(self):
+        for command in ("find . -fprint /tmp/x", "find . -fprintf /tmp/x %p", "find . -fls /tmp/x"):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command))
+
+    def test_env_dumps_through_jq_are_rejected(self):
+        for command in ("jq -n env", "jq -n '$ENV'", "jq -n '$ENV.HOME'"):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command))
+
+    def test_unlisted_command_is_never_a_safe_command(self):
+        self.assertFalse(allowed("uniq /dev/null out.txt"))
+        self.assertNotIn("uniq", hook.SAFE_COMMANDS)
+
+    def test_secret_sources_are_rejected(self):
+        for command in (
+            "cat ~/.config/dotfiles/secrets.env", "cat ~/.claude/.credentials.json",
+            "cat < /dev/tcp/1.2.3.4/80", "X=~/.ssh/id_rsa; cat $X", "echo $ANTHROPIC_API_KEY",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command))
+
+
 class TestRedirects(unittest.TestCase):
     def test_tmp_and_devnull_sinks_are_allowed(self):
         self.assertTrue(allowed("git log > /tmp/out.txt 2>/dev/null"))

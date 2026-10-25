@@ -203,6 +203,9 @@ main() {
         log_error "Dotfiles directory not found at $DOTFILES_DIR. Please clone it first."
         exit 1
     fi
+    [[ -z "${PACKAGE_FILE_OVERRIDE:-}" ]] || PACKAGE_FILE_OVERRIDE=$(realpath -m -- "$PACKAGE_FILE_OVERRIDE")
+    [[ -z "${CLAUDE_PROFILE_DIR_OVERRIDE:-}" ]] || CLAUDE_PROFILE_DIR_OVERRIDE=$(realpath -m -- "$CLAUDE_PROFILE_DIR_OVERRIDE")
+    [[ -z "${PRIVATE_ROOT:-}" ]] || PRIVATE_ROOT=$(realpath -m -- "$PRIVATE_ROOT")
     cd "$DOTFILES_DIR"
 
     if [[ "$DRY_RUN" = false ]]; then

@@ -1,7 +1,1 @@
-cargo
-cargo-audit
-cargo-deny
-coderabbit
-mcp-grafana
-rust-clippy
-rustfmt
+# Personal-only extras. Shared Rust tooling lives in apt_rust.txt.

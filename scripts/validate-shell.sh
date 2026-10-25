@@ -28,13 +28,16 @@ done < <(find . -path "./gradle/.gradle" -prune -o -type f \( -name "*.sh" -o -n
 while IFS= read -r -d '' file; do
     if [[ -f "$file" && -x "$file" ]]; then
         FIRST_LINE=$(head -n 1 "$file" 2>/dev/null || true)
-        if [[ "$FIRST_LINE" =~ ^#!.*/bash$ ]] || [[ "$FIRST_LINE" =~ ^#!.*/sh$ ]]; then
+        if [[ "$FIRST_LINE" =~ ^#!.*[/[:space:]](bash|sh)$ ]]; then
             SHELL_FILES+=("$file")
         fi
     fi
 done < <(find . -path "./gradle/.gradle" -prune -o -type f -executable -not -path "./.git/*" -not -path "*/.oh-my-zsh/*" -not -path "*/shellcheck-stable/*" -print0)
 
-readarray -t UNIQUE_FILES < <(printf '%s\n' "${SHELL_FILES[@]}" | sort -u)
+UNIQUE_FILES=()
+if [[ ${#SHELL_FILES[@]} -gt 0 ]]; then
+    readarray -t UNIQUE_FILES < <(printf '%s\n' "${SHELL_FILES[@]}" | sort -u)
+fi
 
 if [[ ${#UNIQUE_FILES[@]} -eq 0 ]]; then
     echo -e "${YELLOW}No shell scripts found${NC}"

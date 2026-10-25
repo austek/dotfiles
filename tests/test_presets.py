@@ -1,7 +1,17 @@
 import json
 
 import pytest
-from dotfiles_setup.presets import Preset, load_preset, resolve_packages
+from dotfiles_setup.presets import Preset, load_preset, package_names, resolve_packages
+
+
+def test_package_names_drops_comments_blanks_and_whitespace():
+    assert package_names("# c\n\n  git \nzsh\n") == {"git", "zsh"}
+
+
+def test_load_preset_rejects_path_traversal(tmp_path):
+    (tmp_path / "x.json").write_text("{}")
+    with pytest.raises(FileNotFoundError):
+        load_preset(tmp_path / "presets", "../x")
 
 
 def _write_manifest(dir_, name, **fields):

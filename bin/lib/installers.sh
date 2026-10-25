@@ -12,7 +12,7 @@ install_sdkman() {
         log_dry_run "Would download and install SDKMAN from https://get.sdkman.io"
     else
         log_info "Downloading and running SDKMAN install script..."
-        curl -s "https://get.sdkman.io" | bash
+        curl_https -fsSL "https://get.sdkman.io" | bash
         log_success "SDKMAN installed."
     fi
 }
@@ -56,7 +56,7 @@ install_nvm() {
 
     log_info "Downloading and running NVM install script from $nvm_install_script_url..."
     local nvm_install_status
-    if curl -o- "$nvm_install_script_url" | bash; then
+    if curl_https -fsSL "$nvm_install_script_url" | bash; then
         nvm_install_status=0
     else
         nvm_install_status=$?
@@ -124,7 +124,7 @@ install_lazydocker() {
     install_from_url "lazydocker" lazydocker_is_installed resolve_lazydocker targz install_lazydocker_step
 }
 
-zoom_is_installed() { dpkg -l | grep -q "^ii.*zoom"; }
+zoom_is_installed() { grep -q "^ii  zoom " < <(dpkg -l); }
 
 resolve_zoom() {
     local url="https://zoom.us/client/latest/zoom_amd64.deb"
@@ -145,7 +145,7 @@ install_zoom() {
     install_from_url "Zoom" zoom_is_installed resolve_zoom deb install_zoom_step
 }
 
-slack_is_installed() { dpkg -l | grep -q "^ii.*slack-desktop"; }
+slack_is_installed() { grep -q "^ii  slack-desktop " < <(dpkg -l); }
 
 resolve_slack() {
     local version
@@ -246,7 +246,7 @@ fetch_and_extract_antigravity_ide() {
         cp -- "$cached_tarball" "$tarball_path"
     else
         log_info "Downloading Antigravity IDE ${version:-unknown} from $download_url..." >&2
-        if ! curl_https -sL -o "$tarball_path" "$download_url"; then
+        if ! curl_https -fsSL -o "$tarball_path" "$download_url"; then
             log_error "Failed to download Antigravity IDE from $download_url"
             log_warn "$MSG_CONTINUING_SETUP" >&2
             return 1

@@ -23,15 +23,15 @@ class MachineState:
 
 
 def load_state(state_file: Path | None = None) -> MachineState | None:
-    # A Path = STATE_FILE default would bind at def-time, before any test or
-    # caller can monkeypatch STATE_FILE; resolving it in the body re-reads
-    # the current module-level value on every call instead.
     state_file = state_file if state_file is not None else STATE_FILE
     if not state_file.is_file():
         return None
-    data = json.loads(state_file.read_text())
-    data["applied_package_names"] = tuple(data["applied_package_names"])
-    return MachineState(**data)
+    try:
+        data = json.loads(state_file.read_text())
+        data["applied_package_names"] = tuple(data["applied_package_names"])
+        return MachineState(**data)
+    except (ValueError, KeyError, TypeError):
+        return None
 
 
 def save_state(state: MachineState, state_file: Path | None = None) -> None:

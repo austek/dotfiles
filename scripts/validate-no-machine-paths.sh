@@ -14,7 +14,8 @@ NC='\033[0m'
 # Placeholder names and in-container paths that are not machine-specific.
 ALLOWED='chrome|user|username|<user>'
 
-cd "$(git rev-parse --show-toplevel)" || exit 1
+repo_root=$(git rev-parse --show-toplevel) || exit 1
+cd "$repo_root" || exit 1
 
 echo "Checking tracked files for machine-specific home paths..."
 

@@ -23,11 +23,15 @@ def _run_on_tty(tmp_path, typed, grace="2", command=("claude", "first")):
         [str(LOOP), *command], stdin=slave, stdout=subprocess.PIPE, env=env, text=True, cwd=tmp_path,
     )
     os.close(slave)
-    proc.stdout.readline()
-    if typed is not None:
-        os.write(master, typed.encode())
-    code = proc.wait(timeout=15)
-    os.close(master)
+    try:
+        proc.stdout.readline()
+        if typed is not None:
+            os.write(master, typed.encode())
+        code = proc.wait(timeout=15)
+    finally:
+        proc.kill()
+        proc.stdout.close()
+        os.close(master)
     runs = tmp_path / "runs"
     return code, runs.read_text().split("\n")[:-1] if runs.exists() else []
 

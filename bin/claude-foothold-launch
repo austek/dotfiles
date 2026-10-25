@@ -20,11 +20,11 @@ export_assignment() {
     export "$key=$value"
 }
 
-if [ -r "$secrets" ]; then
+if [ -r "$secrets" ] && case $(stat -c %a "$secrets") in *00) true ;; *) false ;; esac; then
     while IFS= read -r line || [ -n "$line" ]; do
         case $line in '' | '#'* | ';'*) continue ;; esac
         export_assignment "$line"
     done < "$secrets"
 fi
 
-exec "${0%/*}/claude-pane-loop" claude --remote-control "$1" --settings "$2"
+exec "$(dirname -- "$0")/claude-pane-loop" claude --remote-control "$1" --settings "$2"

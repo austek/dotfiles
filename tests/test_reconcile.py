@@ -1,4 +1,12 @@
-from dotfiles_setup.reconcile import reconcile_package_file
+from dotfiles_setup.reconcile import names_to_append, reconcile_package_file
+
+
+def test_names_to_append_skips_previously_carried_and_existing_names():
+    assert names_to_append(["a", "b", "c", "d"], ["a", "b"], {"c"}) == ["d"]
+
+
+def test_names_to_append_on_first_run_offers_everything_missing():
+    assert names_to_append(["b", "a"], None, {"a"}) == ["b"]
 
 
 def test_reconcile_creates_file_on_first_run(tmp_path):
@@ -22,14 +30,14 @@ def test_reconcile_noop_when_preset_unchanged(tmp_path):
 
 def test_reconcile_appends_only_new_entries_when_preset_gains_a_package(tmp_path):
     package_file = tmp_path / "work.txt"
-    package_file.write_text("curl\n# my own note\nzsh\nripgrep\n")  # ripgrep hand-added by user
+    package_file.write_text("curl\n# my own note\nzsh\nripgrep\n")
     added, changed = reconcile_package_file(
         package_file, ["curl", "zsh", "bat"], previous_names=["curl", "zsh"]
     )
     assert added == ["bat"]
     assert changed is True
     text = package_file.read_text()
-    assert "ripgrep" in text  # user's hand-added entry survives
+    assert "ripgrep" in text
     assert "bat" in text
 
 

@@ -52,6 +52,38 @@ DENY = [
     "/bin/rm -rf /",
     "/usr/bin/rm -rf /home",
     "sudo /bin/rm -rf /",
+    "echo a#b; rm -rf /",
+    'bash -c "rm -rf /"',
+    'sh -c "rm -rf $HOME"',
+    'eval "rm -rf /"',
+    "ssh host 'rm -rf /etc'",
+    "rm -rf //",
+    "rm -rf /etc/.",
+    "rm -rf ~/.",
+    "rm -rf ../..",
+    "rm -rf $A/$B",
+    "rm -rf /e*",
+    "rm -rf /sbin",
+    "rm -rf /home/user",
+    "rm -rf /tmp/../etc",
+    "rm --rec --forc /",
+    'rm -rf "/unclosed',
+    "echo / | xargs rm -rf",
+    "xargs -a list rm -rf",
+    "rm -rf $(cat x)",
+    "rm -rf `cat x`",
+    "rm -rf $(pwd)/..",
+    "rm -rf $'/'",
+    "rm -rf $TMPDIR/../..",
+    "rm -rf /tmp/$X",
+    "find / -exec rm -rf {} \\;",
+    "find ~ -exec rm -rf {} ';'",
+    "find /etc -execdir rm -rf {} +",
+    "find / -ok rm -rf {} \\;",
+    "find / -delete",
+    "find $HOME -delete",
+    "find /tmp -exec rm -rf $X \\;",
+    "find /tmp -exec sh -c 'rm -rf /' \\;",
 ]
 
 ALLOW = [
@@ -68,9 +100,11 @@ ALLOW = [
     # quoted text is one token, so its contents are never read as path/flag tokens
     "echo 'rm -rf /'",
     'gh api -f body="do not run rm -rf / here"',
-    # unbalanced quotes: unparseable, so deliberately not blocked
-    "rm -rf \"/unclosed",
+    "echo 'unclosed",
     "/bin/rm -rf /tmp/build",
+    "find /tmp/build -exec rm -rf {} \\;",
+    "find . -name '*.pyc' -delete",
+    "find / -exec grep x {} +",
 ]
 
 

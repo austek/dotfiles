@@ -70,3 +70,61 @@ def test_hash_style_respects_strings_containing_hash():
 def test_unknown_extension_passes_through_unchanged():
     source = "whatever content\n"
     assert strip_comments(source, "xyz") == source
+
+
+def test_c_style_handles_escaped_quotes_in_strings():
+    source = 'x = "a \\" // still string"; // gone\n'
+    assert strip_comments(source, "js") == 'x = "a \\" // still string"; \n'
+
+
+def test_c_style_rust_lifetime_does_not_open_a_string():
+    source = "fn f<'a>(x: &'a str) {} // gone\nlet y = 1;\n"
+    assert strip_comments(source, "rs") == "fn f<'a>(x: &'a str) {} \nlet y = 1;\n"
+
+
+def test_c_style_char_literal_with_slashes_is_kept():
+    assert strip_comments("c = '/'; // x\n", "java") == "c = '/'; \n"
+
+
+def test_c_style_triple_quoted_string_is_kept():
+    source = 'val s = """// not a comment"""\n'
+    assert strip_comments(source, "kt") == source
+
+
+def test_c_style_preserves_crlf_line_endings():
+    assert strip_comments("a; // c\r\nb;\r\n", "js") == "a; \r\nb;\r\n"
+
+
+def test_c_style_keeps_directive_comments():
+    source = "//go:build linux\n// @ts-ignore\n//nolint:errcheck\n// plain\n"
+    assert strip_comments(source, "go") == "//go:build linux\n// @ts-ignore\n//nolint:errcheck\n\n"
+
+
+def test_python_keeps_directive_comments():
+    source = "import os  # noqa: F401\nx = 1  # plain\ny: int = 2  # type: ignore\n"
+    assert strip_python_comments(source) == "import os  # noqa: F401\nx = 1\ny: int = 2  # type: ignore\n"
+
+
+def test_hash_style_keeps_shell_parameter_expansions():
+    source = 'echo ${#arr[@]} $# ${v#pre} http://x/#frag # gone\n'
+    assert strip_hash_comments(source) == 'echo ${#arr[@]} $# ${v#pre} http://x/#frag \n'
+
+
+def test_hash_style_preserves_crlf():
+    assert strip_hash_comments("echo a # c\r\necho b\r\n") == "echo a \r\necho b\r\n"
+
+
+def test_cli_reports_missing_file_without_traceback(tmp_path, capsys):
+    import strip_comments as sc
+
+    assert sc._strip_file(str(tmp_path / "missing.js")) == 1
+    assert "missing.js" in capsys.readouterr().err
+
+
+def test_cli_preserves_crlf_when_rewriting(tmp_path):
+    import strip_comments as sc
+
+    f = tmp_path / "a.js"
+    f.write_bytes(b"a; // c\r\nb;\r\n")
+    assert sc._strip_file(str(f)) == 0
+    assert f.read_bytes() == b"a; \r\nb;\r\n"

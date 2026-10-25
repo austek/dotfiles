@@ -63,7 +63,7 @@ git clone <your-repo-url> ~/.dotfiles
 ~/.dotfiles/bin/dotfiles-setup install --preset homelab
 ----
 
-Run `dotfiles-setup install`, not `setup.sh` directly. Before anything else it fetches this repo, and
+Run `dotfiles-setup install`, not `setup.sh` directly. After checking `~/.claude/settings.json` for hand edits since the last install (stops with exit 3 unless `--accept-drift`), it fetches this repo, and
 the `~/.dotfiles-private` overlay when it is a git checkout, and fast-forwards each when new commits exist, so
 presets and package lists are current; a failed fetch or
 fast-forward (dirty tree, diverged branch) only warns. The first time you run it for a preset on this
@@ -79,6 +79,8 @@ You can run `~/.dotfiles/bin/setup.sh --preset <name>` directly instead, but on 
 the git-identity, package-fork, or overlay work above — no identity prompt, no forked/reconciled package
 list, `~/.dotfiles-private` never consulted, and no generated `~/.claude/settings.json`. It just installs straight from this repo's `packages/` files
 every time. Prefer `dotfiles-setup install` unless you have a specific reason to bypass it.
+
+`dotfiles-setup install` also accepts `--dry-run`, `-v`/`-vv`/`-vvv` (verbosity), `--reconfigure` (re-prompt git identity and re-detect the overlay), and `--accept-drift`.
 
 [NOTE]
 If stow fails because existing files block a symlink, re-run with `--force`. Each blocking file moves to
@@ -118,6 +120,7 @@ Instead, edit the package lists in the `~/.dotfiles/packages/` directory:
 
 * `apt_common.txt` — all presets
 * `apt_desktop.txt` — GUI packages, only pulled in by `work`/`personal`
+* `apt_rust.txt` — Rust tooling, only pulled in by `personal`/`homelab`
 * `apt_work.txt`
 * `apt_personal.txt`
 * `apt_homelab.txt`
@@ -129,7 +132,7 @@ Re-run `dotfiles-setup install --preset <name>` (the recommended command — see
 
 . *Change Configs*: Edit the files directly in their `stow` packages (e.g., `~/.dotfiles/zsh/.zshrc` or `~/.dotfiles/claude-profiles/claude_work.json`).
 
-. *Run `dotfiles-backup save`*: This helper script will automatically add all changes, commit them with a standard message, push the current branch (creating `backup/<timestamp>` when on `main`), and open a pull request if none exists. `main` is protected, so merge the PR once CI is green, then run `git switch main && git pull`.
+. *Run `dotfiles-backup save`*: This helper script will automatically add all changes (aborting first if `scripts/validate-no-machine-paths.sh` fails or `claude/.claude/settings.json` has uncommitted changes; use `/claude-settings-split` for the latter), commit them with a standard message, push the current branch (creating `backup/<timestamp>` when on `main`), and open a pull request if none exists. `main` is protected, so merge the PR once CI is green, then run `git switch main && git pull`.
 +
 [source,bash]
 .Run the backup script to commit changes and open a PR.

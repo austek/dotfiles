@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -86,59 +87,53 @@ def test_rendered_unit_launches_claude_through_the_launcher():
     assert "claude --remote-control" not in unit
 
 
-def test_launcher_exports_secrets_to_claude(tmp_path):
+def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o600):
     home = tmp_path / "home"
     (home / ".config/dotfiles").mkdir(parents=True)
-    (home / ".config/dotfiles/secrets.env").write_text("FOO='bar baz'\n")
+    if secrets is not None:
+        secrets_file = home / ".config/dotfiles/secrets.env"
+        secrets_file.write_text(secrets)
+        secrets_file.chmod(secrets_mode)
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     claude = fake_bin / "claude"
-    claude.write_text('#!/bin/sh\necho "$FOO|$1|$2|$3|$4"\n')
+    claude.write_text(f"#!/bin/sh\n{claude_script}\n")
     claude.chmod(0o755)
     launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
     result = subprocess.run(
-        [str(launcher), "foothold-x", "my profile.json"],
-        env={"HOME": str(home), "PATH": f"{fake_bin}:/usr/bin:/bin"},
-        capture_output=True, text=True, check=True,
-    )
-    assert result.stdout.strip() == "bar baz|--remote-control|foothold-x|--settings|my profile.json"
-
-
-def test_launcher_parses_secrets_as_data_not_shell(tmp_path):
-    home = tmp_path / "home"
-    (home / ".config/dotfiles").mkdir(parents=True)
-    (home / ".config/dotfiles/secrets.env").write_text(
-        "# comment\n\nPLAIN=abc def\nTICK=`touch pwned`$(touch pwned)\nDQ=\"x y\"\nSQ='p q'\n1BAD=no\n"
-        "PADDED=  ' keep me '  \nTRAILING='abc' \nNO_NEWLINE=last"
-    )
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    claude = fake_bin / "claude"
-    claude.write_text('#!/bin/sh\necho "$PLAIN|$TICK|$DQ|$SQ|$PADDED|$TRAILING|$NO_NEWLINE"\n')
-    claude.chmod(0o755)
-    launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
-    result = subprocess.run(
-        [str(launcher), "n", "s"],
+        [str(launcher), *args],
         env={"HOME": str(home), "PATH": f"{fake_bin}:/usr/bin:/bin"},
         capture_output=True, text=True, check=True, cwd=tmp_path,
     )
-    assert result.stdout.strip() == "abc def|`touch pwned`$(touch pwned)|x y|p q| keep me |abc|last"
+    return result.stdout.strip()
+
+
+def test_launcher_exports_secrets_to_claude(tmp_path):
+    out = _run_launcher(
+        tmp_path, 'echo "$FOO|$1|$2|$3|$4"', ["foothold-x", "my profile.json"], secrets="FOO='bar baz'\n",
+    )
+    assert out == "bar baz|--remote-control|foothold-x|--settings|my profile.json"
+
+
+def test_launcher_ignores_group_readable_secrets(tmp_path):
+    out = _run_launcher(tmp_path, 'echo "[$FOO]"', ["n", "s"], secrets="FOO=leak\n", secrets_mode=0o644)
+    assert out == "[]"
+
+
+def test_launcher_parses_secrets_as_data_not_shell(tmp_path):
+    secrets = (
+        "# comment\n\nPLAIN=abc def\nTICK=`touch pwned`$(touch pwned)\nDQ=\"x y\"\nSQ='p q'\n1BAD=no\n"
+        "PADDED=  ' keep me '  \nTRAILING='abc' \nNO_NEWLINE=last"
+    )
+    out = _run_launcher(
+        tmp_path, 'echo "$PLAIN|$TICK|$DQ|$SQ|$PADDED|$TRAILING|$NO_NEWLINE"', ["n", "s"], secrets=secrets,
+    )
+    assert out == "abc def|`touch pwned`$(touch pwned)|x y|p q| keep me |abc|last"
     assert not (tmp_path / "pwned").exists()
 
 
 def test_launcher_runs_claude_without_a_secrets_file(tmp_path):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    claude = fake_bin / "claude"
-    claude.write_text('#!/bin/sh\necho ok\n')
-    claude.chmod(0o755)
-    launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
-    result = subprocess.run(
-        [str(launcher), "n", "s"],
-        env={"HOME": str(tmp_path), "PATH": f"{fake_bin}:/usr/bin:/bin"},
-        capture_output=True, text=True, check=True,
-    )
-    assert result.stdout.strip() == "ok"
+    assert _run_launcher(tmp_path, "echo ok", ["n", "s"]) == "ok"
 
 
 def test_rendered_unit_hardcodes_no_home_directory():
@@ -159,9 +154,9 @@ def test_install_writes_the_unit_enables_linger_and_starts_it(tmp_path):
 def test_install_is_idempotent(tmp_path):
     _install(tmp_path)
     unit = tmp_path / "claude-foothold-homelab.service"
-    before = unit.stat().st_mtime_ns
+    os.utime(unit, ns=(0, 0))
     _install(tmp_path)
-    assert unit.stat().st_mtime_ns == before
+    assert unit.stat().st_mtime_ns == 0
 
 
 def test_install_rewrites_a_stale_unit(tmp_path):

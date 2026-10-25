@@ -15,7 +15,7 @@ def test_aborts_when_machine_paths_invalid(capsys):
     assert "Aborting" in capsys.readouterr().err
 
 
-def FIXED_NOW():
+def fixed_now():
     return datetime(2026, 9, 21, 12, 30, 45, tzinfo=UTC)
 
 
@@ -40,7 +40,7 @@ def fake_run(calls=None, branch="main", dirty=True, fail=None, has_pr=False):
 def test_from_main_creates_backup_branch_pushes_it_and_opens_pr(capsys):
     calls = []
 
-    assert main(["save"], run=fake_run(calls), now=FIXED_NOW) == 0
+    assert main(["save"], run=fake_run(calls), now=fixed_now) == 0
     assert [c for c in calls if c[:3] != ["gh", "pr", "view"]][-5:] == [
         ["git", "switch", "-c", "backup/20260921-123045"],
         ["git", "add", "."],
@@ -54,15 +54,16 @@ def test_from_main_creates_backup_branch_pushes_it_and_opens_pr(capsys):
 def test_never_pushes_to_main():
     calls = []
 
-    main(["save"], run=fake_run(calls), now=FIXED_NOW)
-    assert ["git", "push"] not in calls
-    assert not any(c[:2] == ["git", "push"] and c[-1] == "main" for c in calls)
+    main(["save"], run=fake_run(calls), now=fixed_now)
+    pushes = [c for c in calls if c[:2] == ["git", "push"]]
+    assert pushes
+    assert not any(ref == "main" or ref.endswith(":main") for c in pushes for ref in c[2:])
 
 
 def test_reuses_existing_feature_branch():
     calls = []
 
-    assert main(["save"], run=fake_run(calls, branch="backup/earlier"), now=FIXED_NOW) == 0
+    assert main(["save"], run=fake_run(calls, branch="backup/earlier"), now=fixed_now) == 0
     assert not any(c[:2] == ["git", "switch"] for c in calls)
     assert ["git", "push", "-u", "origin", "backup/earlier"] in calls
 
@@ -70,7 +71,7 @@ def test_reuses_existing_feature_branch():
 def test_nothing_to_back_up_makes_no_commit(capsys):
     calls = []
 
-    assert main(["save"], run=fake_run(calls, dirty=False), now=FIXED_NOW) == 0
+    assert main(["save"], run=fake_run(calls, dirty=False), now=fixed_now) == 0
     assert not any(c[:2] == ["git", "commit"] for c in calls)
     assert "Nothing to back up." in capsys.readouterr().out
 
@@ -78,7 +79,7 @@ def test_nothing_to_back_up_makes_no_commit(capsys):
 def test_existing_pr_is_not_recreated(capsys):
     calls = []
 
-    assert main(["save"], run=fake_run(calls, branch="backup/earlier", has_pr=True), now=FIXED_NOW) == 0
+    assert main(["save"], run=fake_run(calls, branch="backup/earlier", has_pr=True), now=fixed_now) == 0
     assert ["git", "push", "-u", "origin", "backup/earlier"] in calls
     assert not any(c[:3] == ["gh", "pr", "create"] for c in calls)
 
@@ -87,7 +88,7 @@ def test_existing_pr_is_not_recreated(capsys):
     "failing", [["git", "switch"], ["git", "commit"], ["git", "push"], ["gh", "pr"]]
 )
 def test_aborts_when_a_git_step_fails(failing, capsys):
-    assert main(["save"], run=fake_run(fail=failing), now=FIXED_NOW) == 1
+    assert main(["save"], run=fake_run(fail=failing), now=fixed_now) == 1
     assert "Aborting" in capsys.readouterr().err
 
 
@@ -104,7 +105,7 @@ def test_aborts_when_claude_settings_have_uncommitted_changes(capsys):
 
 
 def test_proceeds_when_claude_settings_are_clean(capsys):
-    assert main(["save"], run=fake_run(), now=FIXED_NOW) == 0
+    assert main(["save"], run=fake_run(), now=fixed_now) == 0
     assert "Dotfiles backup complete." in capsys.readouterr().out
 
 

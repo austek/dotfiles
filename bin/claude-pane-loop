@@ -5,7 +5,7 @@
 # Usage: claude-pane-loop <command> [args...]
 
 grace=${CLAUDE_TMUX_GRACE:-60}
-resume_line="^cd [^;|&\`\$<>]+ && claude( [^;|&\`\$<>]*)?\$"
+resume_line="^cd [^;|&\`\$<>(){}\\\\]+ && claude( [^;|&\`\$<>(){}\\\\]*)?\$"
 
 # A leading `env NAME=value` (claude-burst) applies to resumed claude too, which Cozempic types bare.
 if [[ $1 == env ]]; then

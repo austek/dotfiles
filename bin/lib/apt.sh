@@ -77,6 +77,11 @@ determine_packages_to_install() {
         all_packages+=( "${work_packages[@]}" )
     fi
 
+    if [[ "$MACHINE_PRESET" == "personal" || "$MACHINE_PRESET" == "homelab" ]] && [[ -f "$APT_PACKAGE_DIR/apt_rust.txt" ]]; then
+        mapfile -t rust_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_rust.txt")
+        all_packages+=( "${rust_packages[@]}" )
+    fi
+
     if [[ "$MACHINE_PRESET" == "personal" ]] && [[ -f "$APT_PACKAGE_DIR/apt_personal.txt" ]]; then
         mapfile -t personal_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_personal.txt")
         all_packages+=( "${personal_packages[@]}" )
@@ -207,7 +212,7 @@ detect_ubuntu_codename() {
         codename=""
     fi
     if [[ -z "$codename" ]]; then
-        log_warn "Could not detect Ubuntu codename; defaulting to 'noble'."
+        log_warn "Could not detect Ubuntu codename; defaulting to 'noble'." >&2
         codename="noble"
     fi
     printf '%s\n' "$codename"
@@ -281,8 +286,6 @@ Pin-Priority: 1001
 }
 
 stow_apt_source_files() {
-    local pgadmin_selected="$1" postgresql_selected="$2" teleport_selected="$3"
-
     local stow_apt_dir="$DOTFILES_DIR/apt"
     local temp_stow_backup_dir
     temp_stow_backup_dir=$(mktemp -d)
@@ -293,8 +296,6 @@ stow_apt_source_files() {
         "google-chrome-stable:google-chrome.sources"
         "code:vscode.sources"
         "gh:github-cli.sources"
-        "pgadmin4:pgadmin4.sources"
-        "postgresql:postgresql.sources"
     )
 
     for mapping in "${source_map[@]}"; do
@@ -303,13 +304,7 @@ stow_apt_source_files() {
         local source_file_path="$stow_apt_dir/etc/apt/sources.list.d/$source_file"
         local needed=0
 
-        if [[ "$pkg_key" == "pgadmin4" ]]; then
-            if [[ "$pgadmin_selected" -eq 1 ]]; then needed=1; fi
-        elif [[ "$pkg_key" == "postgresql" ]]; then
-            if [[ "$postgresql_selected" -eq 1 ]]; then needed=1; fi
-        elif [[ "$pkg_key" == "teleport" ]]; then
-            if [[ "$teleport_selected" -eq 1 ]]; then needed=1; fi
-        elif array_contains "$pkg_key" "${PACKAGES_TO_INSTALL[@]}"; then
+        if array_contains "$pkg_key" "${PACKAGES_TO_INSTALL[@]}"; then
             needed=1
         fi
 
@@ -373,26 +368,30 @@ stow_apt_source_files() {
     rm -rf -- "$temp_stow_backup_dir"
 }
 
+render_apt_template() {
+    local name="$1" codename="$2"
+    log_info "Configuring $name apt repository for suite: $codename"
+    sed "s/@CODENAME@/$codename/g" "$DOTFILES_DIR/apt-templates/$name.sources.template" | sudo tee "/etc/apt/sources.list.d/$name.sources" > /dev/null
+    track_change "FILE_CREATED:/etc/apt/sources.list.d/$name.sources"
+}
+
 generate_templated_apt_sources() {
-    local teleport_selected="$1"
+    local pgadmin_selected="$1" postgresql_selected="$2" teleport_selected="$3"
+    local docker_selected=0
+    array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}" && docker_selected=1
 
-    if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}" || [[ "$teleport_selected" -eq 1 ]]; then
-        local host_codename
-        # shellcheck disable=SC2119
-        host_codename=$(detect_ubuntu_codename)
-
-        if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then
-            log_info "Configuring Docker apt repository for suite: $host_codename"
-            sed "s/^Suites:.*/Suites: $host_codename/" "$DOTFILES_DIR/apt-templates/docker.sources.template" | sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null
-            track_change "FILE_CREATED:/etc/apt/sources.list.d/docker.sources"
-        fi
-
-        if [[ "$teleport_selected" -eq 1 ]]; then
-            log_info "Configuring Teleport apt repository for suite: $host_codename"
-            sed "s/^Suites:.*/Suites: $host_codename/" "$DOTFILES_DIR/apt-templates/teleport.sources.template" | sudo tee /etc/apt/sources.list.d/teleport.sources > /dev/null
-            track_change "FILE_CREATED:/etc/apt/sources.list.d/teleport.sources"
-        fi
+    if [[ $((docker_selected + pgadmin_selected + postgresql_selected + teleport_selected)) -eq 0 ]]; then
+        return 0
     fi
+
+    local host_codename
+    # shellcheck disable=SC2119
+    host_codename=$(detect_ubuntu_codename)
+
+    if [[ "$docker_selected" -eq 1 ]]; then render_apt_template docker "$host_codename"; fi
+    if [[ "$pgadmin_selected" -eq 1 ]]; then render_apt_template pgadmin4 "$host_codename"; fi
+    if [[ "$postgresql_selected" -eq 1 ]]; then render_apt_template postgresql "$host_codename"; fi
+    if [[ "$teleport_selected" -eq 1 ]]; then render_apt_template teleport "$host_codename"; fi
 }
 
 configure_apt_sources() {
@@ -424,12 +423,18 @@ configure_apt_sources() {
         if [[ "$teleport_selected" -eq 1 ]]; then
             log_dry_run "Would generate /etc/apt/sources.list.d/teleport.sources for the detected Ubuntu codename"
         fi
+        if [[ "$pgadmin_selected" -eq 1 ]]; then
+            log_dry_run "Would generate /etc/apt/sources.list.d/pgadmin4.sources for the detected Ubuntu codename"
+        fi
+        if [[ "$postgresql_selected" -eq 1 ]]; then
+            log_dry_run "Would generate /etc/apt/sources.list.d/postgresql.sources for the detected Ubuntu codename"
+        fi
         log_success "Apt sources configured (dry-run)."
         return 0
     fi
 
-    stow_apt_source_files "$pgadmin_selected" "$postgresql_selected" "$teleport_selected"
-    generate_templated_apt_sources "$teleport_selected"
+    stow_apt_source_files
+    generate_templated_apt_sources "$pgadmin_selected" "$postgresql_selected" "$teleport_selected"
 
     log_success "Apt sources configured."
 }
@@ -604,7 +609,7 @@ install_github_bins() {
         fi
 
         local pkg_name=${filename%%_*}
-        if dpkg -l | grep -q "^ii.*$pkg_name"; then
+        if grep -q "^ii  ${pkg_name}[: ]" < <(dpkg -l); then
             log_info "Package $pkg_name is already installed. Skipping."
             continue
         fi

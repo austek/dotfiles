@@ -37,18 +37,18 @@ def ensure_git_identity(
     force: bool = False,
     overlay_root: Path | None = None,
 ) -> Path:
-    # Same def-time-binding trap as state.py's STATE_FILE default: resolve
-    # the module constant in the body so a monkeypatched GITCONFIG_LOCAL is
-    # honored by callers (like cli.py) that don't pass this explicitly.
     gitconfig_local = gitconfig_local if gitconfig_local is not None else GITCONFIG_LOCAL
     overlay_identity = _overlay_identity_path(overlay_root)
     if overlay_identity is not None:
         return _symlink_to_overlay(gitconfig_local, overlay_identity)
     if gitconfig_local.is_file() and not force:
         return gitconfig_local
-    name = prompt("Git user.name: ").strip()
-    email = prompt("Git user.email: ").strip()
-    signing_key = prompt("SSH signing key path (blank to skip commit signing): ").strip()
+    try:
+        name = prompt("Git user.name: ").strip()
+        email = prompt("Git user.email: ").strip()
+        signing_key = prompt("SSH signing key path (blank to skip commit signing): ").strip()
+    except EOFError:
+        return gitconfig_local
     gitconfig_local.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"[user]\n\tname = {name}\n\temail = {email}\n"]
     if signing_key:

@@ -10,6 +10,7 @@ scratch git worktree so the extra calls never touch the caller's working tree.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import re
@@ -17,7 +18,13 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+Runner = Callable[..., "subprocess.CompletedProcess[str]"]
+Sleeper = Callable[[float], None]
 
 FREE_TIER_CEILING = 100
 RATE_LIMIT_MARGIN_SECONDS = 60
@@ -44,6 +51,12 @@ def _positive_int(value: str) -> int:
     return n
 
 
+def _not_option(value: str) -> str:
+    if value.startswith("-"):
+        raise argparse.ArgumentTypeError("must not start with '-'")
+    return value
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="coderabbitFullAudit",
@@ -56,15 +69,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         epilog=EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    _add_scope_args(parser)
+    _add_limit_arg(parser)
+    return parser
+
+
+def _add_scope_args(parser: argparse.ArgumentParser) -> None:
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument(
         "--uncommitted", action="store_true", help="review uncommitted working-tree changes"
     )
     scope.add_argument(
-        "--path", metavar="PATH", help="full-content audit of PATH (not just its diff)"
+        "--path", metavar="PATH", type=_not_option, help="full-content audit of PATH (not just its diff)"
     )
-    scope.add_argument("--pr", metavar="NUM|URL", help="review a pull request")
-    scope.add_argument("--branch", metavar="NAME", help="review the diff against NAME")
+    scope.add_argument("--pr", metavar="NUM|URL", type=_not_option, help="review a pull request")
+    scope.add_argument("--branch", metavar="NAME", type=_not_option, help="review the diff against NAME")
+
+
+def _add_limit_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--limit",
         type=_positive_int,
@@ -75,7 +97,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
             f"free-tier ceiling of {FREE_TIER_CEILING} are clamped down to it)"
         ),
     )
-    return parser
 
 
 def clamp_limit(limit: int) -> int:
@@ -89,7 +110,7 @@ def clamp_limit(limit: int) -> int:
     return limit
 
 
-def _rate_limit_event(line: str) -> dict | None:
+def _rate_limit_event(line: str) -> dict[str, Any] | None:
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
@@ -115,18 +136,24 @@ def _parse_wait(text: str) -> int:
     return sum(int(n) * _UNIT_SECONDS[unit] for n, unit in parts)
 
 
-def review_waiting_for_limit(run, cmd: list[str], cwd=None, sleep=time.sleep):
+def _announce_wait(wait: int, attempt: int) -> None:
+    print(
+        f"coderabbitFullAudit: rate limited; waiting {wait // 60} min before retrying "
+        f"({attempt + 1}/{MAX_RATE_LIMIT_WAITS}).",
+        file=sys.stderr,
+    )
+
+
+def review_waiting_for_limit(
+    run: Runner, cmd: list[str], cwd: Path | None = None, sleep: Sleeper = time.sleep
+) -> subprocess.CompletedProcess[str]:
     """Run a coderabbit command, sleeping out rate limits until the window reopens."""
     for attempt in range(MAX_RATE_LIMIT_WAITS + 1):
         result = run(cmd, cwd=cwd, capture_output=True, text=True)
         wait = rate_limit_wait_seconds(result.stdout or "")
         if wait is None or attempt == MAX_RATE_LIMIT_WAITS:
             return result
-        print(
-            f"coderabbitFullAudit: rate limited; waiting {wait // 60} min before retrying "
-            f"({attempt + 1}/{MAX_RATE_LIMIT_WAITS}).",
-            file=sys.stderr,
-        )
+        _announce_wait(wait, attempt)
         sleep(wait)
     return result
 
@@ -139,7 +166,13 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "scope"
 
 
-def _git(run, *args, cwd=None, check=True, env=None):
+def _git(
+    run: Runner,
+    *args: str,
+    cwd: Path | None = None,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     extra = {"env": env} if env else {}
     result = run(["git", *args], cwd=cwd, capture_output=True, text=True, **extra)
     if check and result.returncode != 0:
@@ -147,11 +180,11 @@ def _git(run, *args, cwd=None, check=True, env=None):
     return result
 
 
-def current_branch(run, cwd=None) -> str:
+def current_branch(run: Runner, cwd: Path | None = None) -> str:
     return _git(run, "rev-parse", "--abbrev-ref", "HEAD", cwd=cwd).stdout.strip()
 
 
-def coderabbit_yaml_exists(run, branch: str, cwd=None) -> bool:
+def coderabbit_yaml_exists(run: Runner, branch: str, cwd: Path | None = None) -> bool:
     result = run(
         ["git", "cat-file", "-e", f"{branch}:.coderabbit.yaml"],
         cwd=cwd,
@@ -161,7 +194,7 @@ def coderabbit_yaml_exists(run, branch: str, cwd=None) -> bool:
     return result.returncode == 0
 
 
-def negated_path_filters(run, branch: str, cwd=None) -> list[str]:
+def negated_path_filters(run: Runner, branch: str, cwd: Path | None = None) -> list[str]:
     result = run(["git", "show", f"{branch}:.coderabbit.yaml"], cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
         return []
@@ -169,64 +202,63 @@ def negated_path_filters(run, branch: str, cwd=None) -> list[str]:
 
 
 def _parse_negated_filters(yaml_text: str) -> list[str]:
-    patterns = []
-    in_filters = False
-    for line in yaml_text.splitlines():
-        stripped = line.strip()
-        if re.match(r"^path_filters\s*:", stripped):
-            in_filters = True
-            continue
-        if not in_filters:
-            continue
-        if re.match(r"^[A-Za-z_]+\s*:", stripped):
-            break
-        match = re.search(r"""["']!([^"']+)["']""", stripped)
-        if match:
-            patterns.append(match.group(1))
-    return patterns
+    lines = [line.strip() for line in yaml_text.splitlines()]
+    after_header = itertools.dropwhile(lambda s: not re.match(r"^path_filters\s*:", s), lines)
+    body = itertools.takewhile(lambda s: not re.match(r"^[A-Za-z_]+\s*:", s), list(after_header)[1:])
+    matches = (re.search(r"""["']!([^"']+)["']""", s) for s in body)
+    return [m.group(1) for m in matches if m]
 
 
-def repo_files(run, branch: str, scope_path: str | None = None, cwd=None) -> list[str]:
+def repo_files(
+    run: Runner, branch: str, scope_path: str | None = None, cwd: Path | None = None
+) -> list[str]:
     pathspec = [scope_path] if scope_path else ["."]
-    result = _git(run, "ls-tree", "-r", "--name-only", branch, "--", *pathspec, cwd=cwd)
-    files = [f for f in result.stdout.splitlines() if f]
+    result = _git(run, "ls-tree", "-r", "--name-only", "-z", branch, "--", *pathspec, cwd=cwd)
+    files = _nul_split(result.stdout)
     if scope_path and ".coderabbit.yaml" not in files and coderabbit_yaml_exists(run, branch, cwd=cwd):
         files.append(".coderabbit.yaml")
     excluded: set[str] = set()
     for pattern in negated_path_filters(run, branch, cwd=cwd):
         matched = _git(
-            run, "ls-tree", "-r", "--name-only", branch, "--", f":(glob){pattern}", cwd=cwd, check=False
+            run, "ls-tree", "-r", "--name-only", "-z", branch, "--", f":(glob){pattern}", cwd=cwd, check=False
         )
-        excluded.update(f for f in matched.stdout.splitlines() if f)
+        excluded.update(_nul_split(matched.stdout))
     return [f for f in files if f not in excluded]
 
 
-def uncommitted_files(run, cwd=None) -> list[str]:
-    result = _git(run, "status", "--porcelain", cwd=cwd)
-    files = []
-    for line in result.stdout.splitlines():
-        if not line:
+def _nul_split(text: str) -> list[str]:
+    return [f for f in text.split("\0") if f]
+
+
+def _porcelain_paths(entries: list[str]) -> list[str]:
+    paths, skip_next = [], False
+    for entry in entries:
+        if skip_next:
+            skip_next = False
             continue
-        path = line[3:].strip('"')
-        if " -> " in path:
-            path = path.split(" -> ")[-1]
-        files.append(path)
-    return files
+        paths.append(entry[3:])
+        skip_next = entry[0] in "RC"
+    return paths
 
 
-def branch_diff_files(run, target_branch: str, cwd=None) -> list[str]:
-    result = _git(run, "diff", "--name-only", "--no-renames", f"{target_branch}...HEAD", cwd=cwd)
-    return [f for f in result.stdout.splitlines() if f]
+def uncommitted_files(run: Runner, cwd: Path | None = None) -> list[str]:
+    result = _git(run, "status", "--porcelain", "-z", cwd=cwd)
+    return _porcelain_paths(_nul_split(result.stdout))
 
 
-def pr_diff_files(run, pr: str, cwd=None) -> list[str]:
+def branch_diff_files(run: Runner, target_branch: str, cwd: Path | None = None) -> list[str]:
+    result = _git(run, "diff", "--name-only", "-z", "--no-renames", f"{target_branch}...HEAD", cwd=cwd)
+    return _nul_split(result.stdout)
+
+
+def pr_diff_files(run: Runner, pr: str, cwd: Path | None = None) -> list[str]:
     result = run(["gh", "pr", "diff", pr, "--name-only"], cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"gh pr diff {pr} --name-only failed: {result.stderr.strip()}")
     return [f for f in result.stdout.splitlines() if f]
 
 
-def _pr_base_ref(run, pr: str, cwd=None) -> str:
+def _pr_base_ref(run: Runner, pr: str, cwd: Path | None = None) -> str:
     result = run(
         ["gh", "pr", "view", pr, "--json", "baseRefName"], cwd=cwd, capture_output=True, text=True
     )
@@ -246,7 +278,7 @@ def _append_export(content: str) -> None:
         fh.write(content)
 
 
-def _run_simple(run, cmd: list[str], cwd=None) -> int:
+def _run_simple(run: Runner, cmd: list[str], cwd: Path | None = None) -> int:
     result = review_waiting_for_limit(run, cmd, cwd=cwd)
     _write_export(result.stdout)
     if result.returncode != 0:
@@ -254,7 +286,9 @@ def _run_simple(run, cmd: list[str], cwd=None) -> int:
     return result.returncode
 
 
-def _setup_baseline(run, worktree_dir: Path, base_branch: str, baseline_mode: str, base_ref: str | None) -> None:
+def _setup_baseline(
+    run: Runner, worktree_dir: Path, base_branch: str, baseline_mode: str, base_ref: str | None
+) -> None:
     if baseline_mode == "orphan":
         _git(run, "checkout", "--orphan", base_branch, cwd=worktree_dir)
         _git(run, "rm", "-rf", ".", cwd=worktree_dir, check=False)
@@ -263,9 +297,9 @@ def _setup_baseline(run, worktree_dir: Path, base_branch: str, baseline_mode: st
         _git(run, "checkout", "-b", base_branch, base_ref, cwd=worktree_dir)
 
 
-def _stage_batch(run, worktree_dir: Path, target_ref: str, batch_files: list[str]) -> None:
-    listed = _git(run, "ls-tree", "-r", "--name-only", target_ref, "--", *batch_files, cwd=worktree_dir)
-    present = set(listed.stdout.splitlines())
+def _stage_batch(run: Runner, worktree_dir: Path, target_ref: str, batch_files: list[str]) -> None:
+    listed = _git(run, "ls-tree", "-r", "--name-only", "-z", target_ref, "--", *batch_files, cwd=worktree_dir)
+    present = set(_nul_split(listed.stdout))
     if present:
         _git(run, "checkout", target_ref, "--", *sorted(present), cwd=worktree_dir)
     deleted = [f for f in batch_files if f not in present]
@@ -274,49 +308,76 @@ def _stage_batch(run, worktree_dir: Path, target_ref: str, batch_files: list[str
     _git(run, "add", ".", cwd=worktree_dir)
 
 
-def _run_one_batch(run, worktree_dir: Path, base_branch: str, target_ref: str, batch_files: list[str], batch_num: int, total: int) -> int:
-    code_branch = f"{base_branch}-code-{batch_num}"
-    _git(run, "checkout", "-b", code_branch, base_branch, cwd=worktree_dir)
+@dataclass(frozen=True)
+class ScopedAudit:
+    repo_root: Path
+    slug: str
+    baseline_mode: str
+    base_ref: str | None
+    target_ref: str
+    files: list[str]
+    limit: int
+
+    @property
+    def base_branch(self) -> str:
+        return f"audit-base-{self.slug}"
+
+    @property
+    def worktree_dir(self) -> Path:
+        return self.repo_root.parent / f"cr-audit-scratch-{self.slug}"
+
+
+def _review_batch(
+    run: Runner, audit: ScopedAudit, files: list[str], num: int, total: int
+) -> subprocess.CompletedProcess[str]:
+    wt, base = audit.worktree_dir, audit.base_branch
+    code_branch = f"{base}-code-{num}"
+    _git(run, "checkout", "-b", code_branch, base, cwd=wt)
     try:
-        _stage_batch(run, worktree_dir, target_ref, batch_files)
-        _git(run, "commit", "-m", f"batch {batch_num}/{total} snapshot for audit", cwd=worktree_dir)
-        result = review_waiting_for_limit(
-            run, ["coderabbit", "review", "--base", base_branch, "--agent"], cwd=worktree_dir
-        )
+        _stage_batch(run, wt, audit.target_ref, files)
+        _git(run, "commit", "-m", f"batch {num}/{total} snapshot for audit", cwd=wt)
+        return review_waiting_for_limit(run, ["coderabbit", "review", "--base", base, "--agent"], cwd=wt)
     finally:
-        _git(run, "checkout", "--force", base_branch, cwd=worktree_dir, check=False)
-        _git(run, "branch", "-D", code_branch, cwd=worktree_dir, check=False)
-    if total > 1:
-        _append_export(f"\n## Batch {batch_num}/{total} ({len(batch_files)} file(s))\n\n" + result.stdout)
-    else:
-        _append_export(result.stdout)
+        _git(run, "checkout", "--force", base, cwd=wt, check=False)
+        _git(run, "branch", "-D", code_branch, cwd=wt, check=False)
+
+
+def _run_one_batch(run: Runner, audit: ScopedAudit, files: list[str], num: int, total: int) -> int:
+    result = _review_batch(run, audit, files, num, total)
+    header = f"\n## Batch {num}/{total} ({len(files)} file(s))\n\n" if total > 1 else ""
+    _append_export(header + result.stdout)
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr)
     return result.returncode
 
 
-def _run_scoped(run, repo_root: Path, slug: str, baseline_mode: str, base_ref: str | None, target_ref: str, files: list[str], limit: int) -> int:
-    batches = chunk(files, limit)
-    worktree_dir = repo_root.parent / f"cr-audit-scratch-{slug}"
-    base_branch = f"audit-base-{slug}"
-    _git(run, "worktree", "add", "--detach", str(worktree_dir), cwd=repo_root)
+def _run_batches(run: Runner, audit: ScopedAudit) -> int:
+    batches = chunk(audit.files, audit.limit)
+    codes = []
+    for i, batch in enumerate(batches, start=1):
+        print(f"--- batch {i}/{len(batches)} ({len(batch)} file(s)) ---")
+        codes.append(_run_one_batch(run, audit, batch, i, len(batches)))
+    return next((c for c in codes if c), 0)
+
+
+def _remove_scratch(run: Runner, audit: ScopedAudit) -> None:
+    root = audit.repo_root
+    _git(run, "worktree", "remove", "--force", str(audit.worktree_dir), cwd=root, check=False)
+    _git(run, "branch", "-D", audit.base_branch, cwd=root, check=False)
+    _git(run, "worktree", "prune", cwd=root, check=False)
+
+
+def _run_scoped(run: Runner, audit: ScopedAudit) -> int:
+    _git(run, "worktree", "add", "--detach", str(audit.worktree_dir), cwd=audit.repo_root)
     try:
-        _setup_baseline(run, worktree_dir, base_branch, baseline_mode, base_ref)
-        EXPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        EXPORT_FILE.write_text("")
-        exit_code = 0
-        for i, batch in enumerate(batches, start=1):
-            print(f"--- batch {i}/{len(batches)} ({len(batch)} file(s)) ---")
-            batch_code = _run_one_batch(run, worktree_dir, base_branch, target_ref, batch, i, len(batches))
-            exit_code = exit_code or batch_code
-        return exit_code
+        _setup_baseline(run, audit.worktree_dir, audit.base_branch, audit.baseline_mode, audit.base_ref)
+        _write_export("")
+        return _run_batches(run, audit)
     finally:
-        _git(run, "worktree", "remove", "--force", str(worktree_dir), cwd=repo_root, check=False)
-        _git(run, "branch", "-D", base_branch, cwd=repo_root, check=False)
-        _git(run, "worktree", "prune", cwd=repo_root, check=False)
+        _remove_scratch(run, audit)
 
 
-def _audit_content_scope(run, repo_root: Path, branch: str, limit: int, scope_path: str | None) -> int:
+def _content_scope_files(run: Runner, repo_root: Path, branch: str, scope_path: str | None) -> list[str]:
     if not coderabbit_yaml_exists(run, branch, cwd=repo_root):
         raise RuntimeError(
             f".coderabbit.yaml not found on '{branch}' (must be tracked in git); "
@@ -326,13 +387,19 @@ def _audit_content_scope(run, repo_root: Path, branch: str, limit: int, scope_pa
     files = repo_files(run, branch, scope_path, cwd=repo_root)
     if not files:
         raise RuntimeError(f"no files in scope under '{scope_path or '.'}' after applying .coderabbit.yaml path_filters")
-    label = scope_path or "full repo"
-    print(f"=== Auditing {label} ({len(files)} file(s)) ===")
+    return files
+
+
+def _audit_content_scope(
+    run: Runner, repo_root: Path, branch: str, limit: int, scope_path: str | None
+) -> int:
+    files = _content_scope_files(run, repo_root, branch, scope_path)
+    print(f"=== Auditing {scope_path or 'full repo'} ({len(files)} file(s)) ===")
     slug = _slug(scope_path or "full-repo")
-    return _run_scoped(run, repo_root, slug, "orphan", None, branch, files, limit)
+    return _run_scoped(run, ScopedAudit(repo_root, slug, "orphan", None, branch, files, limit))
 
 
-def _snapshot_with_untracked(run, repo_root: Path) -> str:
+def _snapshot_with_untracked(run: Runner, repo_root: Path) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
         _git(run, "read-tree", "HEAD", cwd=repo_root, env=env)
@@ -341,7 +408,7 @@ def _snapshot_with_untracked(run, repo_root: Path) -> str:
     return _git(run, "commit-tree", tree, "-p", "HEAD", "-m", "audit snapshot", cwd=repo_root).stdout.strip()
 
 
-def _audit_uncommitted(run, repo_root: Path, limit: int) -> int:
+def _audit_uncommitted(run: Runner, repo_root: Path, limit: int) -> int:
     files = uncommitted_files(run, cwd=repo_root)
     if not files:
         raise RuntimeError("no uncommitted changes to audit")
@@ -352,10 +419,10 @@ def _audit_uncommitted(run, repo_root: Path, limit: int) -> int:
     snapshot = _snapshot_with_untracked(run, repo_root)
     if not snapshot:
         raise RuntimeError("git commit-tree produced no snapshot to diff")
-    return _run_scoped(run, repo_root, "uncommitted", "ref", "HEAD", snapshot, files, limit)
+    return _run_scoped(run, ScopedAudit(repo_root, "uncommitted", "ref", "HEAD", snapshot, files, limit))
 
 
-def _audit_branch(run, repo_root: Path, current: str, target_branch: str, limit: int) -> int:
+def _audit_branch(run: Runner, repo_root: Path, current: str, target_branch: str, limit: int) -> int:
     files = branch_diff_files(run, target_branch, cwd=repo_root)
     if not files:
         raise RuntimeError(f"no diff between '{target_branch}' and '{current}'")
@@ -366,53 +433,62 @@ def _audit_branch(run, repo_root: Path, current: str, target_branch: str, limit:
         f"=== Auditing diff against '{target_branch}' ({len(files)} file(s), "
         f"batching over the {limit}-file limit) ==="
     )
-    return _run_scoped(run, repo_root, _slug(target_branch), "ref", target_branch, current, files, limit)
+    audit = ScopedAudit(repo_root, _slug(target_branch), "ref", target_branch, current, files, limit)
+    return _run_scoped(run, audit)
 
 
-def _audit_pr(run, repo_root: Path, pr: str, limit: int) -> int:
+def _audit_pr(run: Runner, repo_root: Path, pr: str, limit: int) -> int:
     print(f"=== Checking for an existing CodeRabbit review of PR {pr} ===")
     existing = run(["coderabbit", "pullrequest", pr, "--agent"], cwd=repo_root, capture_output=True, text=True)
     if existing.returncode == 0 and existing.stdout.strip():
         _write_export(existing.stdout)
         return 0
-
     print(f"No existing review found for PR {pr}; falling back to a live diff review.")
-    original_branch = current_branch(run, cwd=repo_root)
+    original = _restore_point(run, repo_root)
     checkout = run(["gh", "pr", "checkout", pr], cwd=repo_root, capture_output=True, text=True)
     if checkout.returncode != 0:
         raise RuntimeError(f"gh pr checkout {pr} failed: {checkout.stderr.strip()}")
     try:
-        head_branch = current_branch(run, cwd=repo_root)
-        base_branch = _pr_base_ref(run, pr, cwd=repo_root)
-        files = pr_diff_files(run, pr, cwd=repo_root)
-        if not files:
-            raise RuntimeError(f"PR {pr} has no diffed files")
-        if len(files) <= limit:
-            print(f"=== Auditing PR {pr} ({len(files)} file(s)) ===")
-            return _run_simple(run, ["coderabbit", "review", "--base", base_branch, "--agent"], cwd=repo_root)
-        print(f"=== Auditing PR {pr} ({len(files)} file(s), batching over the {limit}-file limit) ===")
-        return _run_scoped(run, repo_root, f"pr-{pr}", "ref", base_branch, head_branch, files, limit)
+        return _audit_checked_out_pr(run, repo_root, pr, limit)
     finally:
-        _git(run, "checkout", original_branch, cwd=repo_root, check=False)
+        _git(run, "checkout", original, cwd=repo_root, check=False)
 
 
-def main(argv: list[str] | None = None, run=subprocess.run) -> int:
-    parser = build_arg_parser()
-    args = parser.parse_args(argv)
+def _restore_point(run: Runner, repo_root: Path) -> str:
+    branch = current_branch(run, cwd=repo_root)
+    return _git(run, "rev-parse", "HEAD", cwd=repo_root).stdout.strip() if branch == "HEAD" else branch
+
+
+def _audit_checked_out_pr(run: Runner, repo_root: Path, pr: str, limit: int) -> int:
+    head_branch = current_branch(run, cwd=repo_root)
+    base_branch = _pr_base_ref(run, pr, cwd=repo_root)
+    files = pr_diff_files(run, pr, cwd=repo_root)
+    if not files:
+        raise RuntimeError(f"PR {pr} has no diffed files")
+    if len(files) <= limit:
+        print(f"=== Auditing PR {pr} ({len(files)} file(s)) ===")
+        return _run_simple(run, ["coderabbit", "review", "--base", base_branch, "--agent"], cwd=repo_root)
+    print(f"=== Auditing PR {pr} ({len(files)} file(s), batching over the {limit}-file limit) ===")
+    return _run_scoped(run, ScopedAudit(repo_root, f"pr-{pr}", "ref", base_branch, head_branch, files, limit))
+
+
+def _dispatch(run: Runner, args: argparse.Namespace, repo_root: Path, branch: str, limit: int) -> int:
+    if args.uncommitted:
+        return _audit_uncommitted(run, repo_root, limit)
+    if args.pr is not None:
+        return _audit_pr(run, repo_root, args.pr, limit)
+    if args.branch is not None:
+        return _audit_branch(run, repo_root, branch, args.branch, limit)
+    return _audit_content_scope(run, repo_root, branch, limit, args.path)
+
+
+def main(argv: list[str] | None = None, run: Runner = subprocess.run) -> int:
+    args = build_arg_parser().parse_args(argv)
     limit = clamp_limit(args.limit)
     try:
         repo_root = Path(_git(run, "rev-parse", "--show-toplevel").stdout.strip())
         branch = current_branch(run, cwd=repo_root)
-        if args.path is not None:
-            exit_code = _audit_content_scope(run, repo_root, branch, limit, args.path)
-        elif args.uncommitted:
-            exit_code = _audit_uncommitted(run, repo_root, limit)
-        elif args.pr is not None:
-            exit_code = _audit_pr(run, repo_root, args.pr, limit)
-        elif args.branch is not None:
-            exit_code = _audit_branch(run, repo_root, branch, args.branch, limit)
-        else:
-            exit_code = _audit_content_scope(run, repo_root, branch, limit, None)
+        exit_code = _dispatch(run, args, repo_root, branch, limit)
     except RuntimeError as exc:
         print(f"coderabbitFullAudit: {exc}", file=sys.stderr)
         return 1

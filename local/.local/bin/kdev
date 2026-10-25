@@ -13,17 +13,23 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
   extraPortMappings:
-  - { containerPort: 80,    hostPort: 80,    protocol: TCP }  # ingress-nginx
-  - { containerPort: 443,   hostPort: 443,   protocol: TCP }  # ingress-nginx
-  - { containerPort: 30005, hostPort: 5005,  protocol: TCP }  # JVM remote debug
-  - { containerPort: 30080, hostPort: 30080, protocol: TCP }  # Istio ingress (main HTTP)
-  - { containerPort: 30410, hostPort: 30410, protocol: TCP }  # Keycloak
-  - { containerPort: 30300, hostPort: 30300, protocol: TCP }  # Grafana
-  - { containerPort: 30909, hostPort: 30909, protocol: TCP }  # Prometheus
-  - { containerPort: 30900, hostPort: 30900, protocol: TCP }  # Sonar
-  - { containerPort: 30025, hostPort: 30025, protocol: TCP }  # Mailpit UI
-  - { containerPort: 31230, hostPort: 31230, protocol: TCP }  # ArgoCD
+  - { containerPort: 80,    hostPort: 80,    listenAddress: "127.0.0.1", protocol: TCP }  # ingress-nginx
+  - { containerPort: 443,   hostPort: 443,   listenAddress: "127.0.0.1", protocol: TCP }  # ingress-nginx
+  - { containerPort: 30005, hostPort: 5005,  listenAddress: "127.0.0.1", protocol: TCP }  # JVM remote debug
+  - { containerPort: 30080, hostPort: 30080, listenAddress: "127.0.0.1", protocol: TCP }  # Istio ingress (main HTTP)
+  - { containerPort: 30410, hostPort: 30410, listenAddress: "127.0.0.1", protocol: TCP }  # Keycloak
+  - { containerPort: 30300, hostPort: 30300, listenAddress: "127.0.0.1", protocol: TCP }  # Grafana
+  - { containerPort: 30909, hostPort: 30909, listenAddress: "127.0.0.1", protocol: TCP }  # Prometheus
+  - { containerPort: 30900, hostPort: 30900, listenAddress: "127.0.0.1", protocol: TCP }  # Sonar
+  - { containerPort: 30025, hostPort: 30025, listenAddress: "127.0.0.1", protocol: TCP }  # Mailpit UI
+  - { containerPort: 31230, hostPort: 31230, listenAddress: "127.0.0.1", protocol: TCP }  # ArgoCD
 EOF
 }
 
@@ -50,7 +56,7 @@ case "$cmd" in
             --timeout=90s || exit 1
 
         echo "🚧 Installing Ingress Controller..."
-        kubectl --context "kind-${CLUSTER_NAME}" apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml || exit 1
+        kubectl --context "kind-${CLUSTER_NAME}" apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_NGINX_REF:-controller-v1.12.1}/deploy/static/provider/kind/deploy.yaml || exit 1
 
         echo "⏳ Waiting for Ingress..."
         kubectl --context "kind-${CLUSTER_NAME}" wait --namespace ingress-nginx \
@@ -66,8 +72,7 @@ case "$cmd" in
         ;;
 
     bounce)
-        "$0" down
-        "$0" up
+        "$0" down && "$0" up
         ;;
 
     load)
@@ -107,12 +112,12 @@ case "$cmd" in
         fi
 
         echo "⎈ Adding Helm Repositories..."
-        while read -r repo_name repo_url; do
+        while read -r repo_name repo_url || [[ -n "$repo_name" ]]; do
             [[ -z "$repo_name" || "$repo_name" == \#* ]] && continue
             echo "   Adding $repo_name..."
             helm repo add "$repo_name" "$repo_url" \
                 --username "$repo_user" \
-                --password "$repo_pass"
+                --password "$repo_pass" || exit 1
         done < "$HELM_REPOS_FILE"
 
         helm repo update

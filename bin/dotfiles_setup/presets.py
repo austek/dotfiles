@@ -19,7 +19,7 @@ class Preset:
 
 def load_preset(presets_dir: Path, name: str) -> Preset:
     manifest_path = presets_dir / f"{name}.json"
-    if not manifest_path.is_file():
+    if Path(name).name != name or not manifest_path.is_file():
         raise FileNotFoundError(f"No preset named '{name}' in {presets_dir}")
     data = json.loads(manifest_path.read_text())
     return Preset(
@@ -31,14 +31,16 @@ def load_preset(presets_dir: Path, name: str) -> Preset:
     )
 
 
+def package_names(text: str) -> set[str]:
+    stripped = (line.strip() for line in text.splitlines())
+    return {line for line in stripped if line and not line.startswith("#")}
+
+
 def resolve_packages(packages_dir: Path, preset: Preset) -> tuple[str, ...]:
     names: set[str] = set()
     for filename in preset.package_files:
         file_path = packages_dir / filename
         if not file_path.is_file():
             raise FileNotFoundError(f"Preset '{preset.name}' declares missing package file: {file_path}")
-        for line in file_path.read_text().splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                names.add(stripped)
+        names |= package_names(file_path.read_text())
     return tuple(sorted(names))

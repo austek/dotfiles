@@ -7,13 +7,17 @@ cspike-clean() {
   fi
 
   local name="$1"
+  if [[ $name == */* || $name == .* ]]; then
+    echo "cspike-clean: invalid spike name '$name'." >&2
+    return 1
+  fi
   local target_dir="$HOME/.claude/scratches/spikes/spike-${name}"
 
-  if ! git worktree remove "$target_dir" --force; then
+  if ! git worktree remove "$target_dir"; then
     echo "cspike-clean: failed to remove worktree '$target_dir'; leaving branch '$name' in place." >&2
     return 1
   fi
-  if ! git branch -D "$name"; then
+  if ! git branch -d "$name"; then
     echo "cspike-clean: worktree removed, but failed to delete branch '$name'." >&2
     return 1
   fi

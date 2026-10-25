@@ -4,11 +4,11 @@
 # swallowed by tmux — requires `allow-passthrough on` in tmux.conf.
 set -euo pipefail
 
-message="${1:-Claude Code}"
+message="$(printf '%s' "${1:-Claude Code}" | tr -d '[:cntrl:]')"
 osc9=$'\e]9;'"$message"$'\a'
 
 if [ -n "${TMUX:-}" ]; then
-    printf '\ePtmux;\e%s\e\\' "$osc9"
+    printf '\ePtmux;\e%s\e\134' "$osc9"
 else
     printf '%s' "$osc9"
 fi

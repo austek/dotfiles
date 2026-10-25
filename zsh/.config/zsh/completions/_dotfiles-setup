@@ -1,9 +1,11 @@
 #compdef dotfiles-setup
 
-local -a commands
+local -a commands presets
 commands=(
   'install:install packages and dotfiles for a machine profile'
+  'private:manage the optional private overlay repo'
 )
+presets=( ${${(f)"$(print -l -- $HOME/.dotfiles/presets/*.json(N:t:r))"}:-work personal homelab} )
 
 _arguments -C \
   '(-h --help)'{-h,--help}'[show help message]' \
@@ -18,12 +20,27 @@ case $state in
     case ${words[1]} in
       install)
         _arguments \
-          '--profile[machine profile to set up]:profile:(work personal homelab)' \
+          '--preset[machine profile to set up]:preset:($presets)' \
           '--dry-run[show what would be done without executing commands]' \
           '(-v --verbose)'{-v,--verbose}'[show step-by-step progress]' \
           '-vv[also show raw output from apt/stow/dpkg/etc]' \
           '-vvv[full debug: also enable command tracing]' \
+          '--reconfigure[re-prompt for git identity and re-detect the overlay root]' \
+          '--force[back up files that block stow and stow anyway]' \
+          '--accept-drift[overwrite settings.json even if edited since last install]' \
           '(-h --help)'{-h,--help}'[show help message]'
+        ;;
+      private)
+        if (( CURRENT == 2 )); then
+          _values 'private-command' 'clone[clone your private overlay repo]'
+        else
+          _arguments \
+            '--repo[git URL of your private overlay repo]:url:' \
+            '--dest[clone destination]:path:_files -/' \
+            '--dry-run[show what would be done without executing commands]' \
+            '(-v --verbose)'{-v,--verbose}'[confirm what was cloned and where]' \
+            '(-h --help)'{-h,--help}'[show help message]'
+        fi
         ;;
     esac
     ;;
