@@ -1,5 +1,6 @@
 # Runs a claude command in a tmux session named claude-<label>-<dir>-<path hash> so it survives closing
 # the terminal; claude-pane-loop keeps the pane briefly after exit so Cozempic can resume in place.
+# Reattaches a detached session for the directory; a session already attached elsewhere gets a -N suffix.
 # Runs it directly when already in tmux, without a TTY, for -p/--print, or without tmux.
 # Usage: claude-tmux <label> <command> [args...]
 claude-tmux() {
@@ -19,5 +20,10 @@ claude-tmux() {
   for name in $watched; do setup+=(\; set-option -ga update-environment $name); done
   local loop=$HOME/.dotfiles/bin/claude-pane-loop
   [[ -x $loop ]] || loop=
-  tmux $setup \; new-session -A -s "claude-${label//[.:]/_}-${${PWD:t}//[.:]/_}-${dir_hash}" -- $loop "$@"
+  local base="claude-${label//[.:]/_}-${${PWD:t}//[.:]/_}-${dir_hash}" session=$base
+  local -i n=1
+  while [[ $(tmux display-message -p -t "=$session:" '#{session_attached}' 2>/dev/null) == [1-9]* ]]; do
+    session=$base-$((++n))
+  done
+  tmux $setup \; new-session -A -s "$session" -- $loop "$@"
 }
