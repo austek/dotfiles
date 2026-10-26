@@ -139,7 +139,8 @@ def test_kdev_up_generates_ingress_ready_loopback_config(sandbox):
     cfg = (home / ".config" / "kdev" / "kind-config.yaml").read_text()
     assert 'node-labels: "ingress-ready=true"' in cfg
     mappings = [line for line in cfg.splitlines() if "containerPort" in line]
-    assert mappings and all('listenAddress: "127.0.0.1"' in line for line in mappings)
+    assert mappings
+    assert all('listenAddress: "127.0.0.1"' in line for line in mappings)
 
 
 def test_kdev_repos_adds_each_repo_including_unterminated_last_line(sandbox):
