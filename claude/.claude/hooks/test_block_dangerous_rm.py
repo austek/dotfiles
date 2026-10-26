@@ -89,6 +89,9 @@ DENY = [
     "sudo find / -delete",
     "sudo -u root find / -exec rm -rf {} \\;",
     "rtk find ~ -delete",
+    "FOO=1 find / -delete",
+    "timeout 5 find / -delete",
+    "( find / -delete )",
 ]
 
 ALLOW = [

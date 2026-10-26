@@ -190,7 +190,7 @@ def globbed_path(word: str, command: str) -> bool:
     return command in FILE_ARG_COMMANDS or "/" in word or word.startswith("~")
 
 
-PATTERN_COMMANDS = {"grep", "egrep", "fgrep"}
+PATTERN_COMMANDS = {"grep", "egrep", "fgrep", "jq"}
 
 
 def has_globbed_path(words: list[str]) -> bool:

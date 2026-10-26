@@ -41,7 +41,6 @@ RISKY_TARGET = re.compile(
 
 SAFE_VAR_PREFIX = re.compile(r"^\$(?:\{TMPDIR\}|TMPDIR)/(?!.*\.\.)[^$`]+$")
 FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
-FIND_WRAPPERS = {"sudo", "rtk", "env", "command", "nice", "nohup", "time", "exec"}
 FIND_GLOBAL_OPTS = {"-H", "-L", "-P"}
 SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash", "ksh", "eval", "ssh"}
 RM_WORD = re.compile(r"\brm\b")
@@ -179,8 +178,6 @@ def _skip_find_options(args: list[str]) -> list[str]:
 
 
 def find_start_paths(seg: list[str]) -> list[str]:
-    if not seg or posixpath.basename(seg[0]) not in FIND_WRAPPERS | {"find"}:
-        return []
     idx = next((i for i, t in enumerate(seg) if posixpath.basename(t) == "find"), None)
     if idx is None:
         return []

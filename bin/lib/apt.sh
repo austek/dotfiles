@@ -363,9 +363,10 @@ render_apt_template() {
 }
 
 remove_stale_rendered_source() {
-    local path="${APT_SOURCES_DIR:-/etc/apt/sources.list.d}/$1.sources"
+    local name="$1"
+    local path="${APT_SOURCES_DIR:-/etc/apt/sources.list.d}/$name.sources"
     if [[ -f "$path" ]] && grep -qF "$APT_RENDERED_MARKER" "$path"; then
-        log_info "Removing deselected apt source: $1"
+        log_info "Removing deselected apt source: $name"
         sudo rm -f "$path"
     fi
 }

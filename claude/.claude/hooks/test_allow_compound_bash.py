@@ -81,7 +81,8 @@ class TestAuditBypasses(unittest.TestCase):
 
     def test_globbed_paths_on_safe_commands_are_rejected(self):
         for command in ("cat ~/.s[s]h/i[d]_rsa", "cat ~/.ss?/id_r*", "cat /etc/{shadow,passwd}", "ls src/*.py", "cat .en?", "cat i[d]_rsa",
-                        "grep foo .en?", "grep -rn foo ./src/*", "egrep foo cred?"):
+                        "grep foo .en?", "grep -rn foo ./src/*", "egrep foo cred?",
+                        "jq -R . .en?", "jq -Rr . cred?"):
             with self.subTest(command=command):
                 self.assertFalse(allowed(command))
 
