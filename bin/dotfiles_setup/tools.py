@@ -9,7 +9,7 @@ import os
 from collections.abc import Collection
 from pathlib import Path
 
-from dotfiles_setup import release_installers, vendor_installers
+from dotfiles_setup import antigravity, release_installers, vendor_installers
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all, fetch_https
 
 __all__ = ["TOOL_INSTALLERS", "Tooling", "fetch_https", "install_tools"]
@@ -113,6 +113,7 @@ TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("nvm", install_nvm),
     *release_installers.RELEASE_INSTALLERS,
     *vendor_installers.VENDOR_INSTALLERS,
+    ("antigravity-ide", antigravity.install_antigravity_ide),
 )
 
 

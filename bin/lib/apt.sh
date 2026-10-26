@@ -400,10 +400,6 @@ install_packages() {
 
     local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit" "auditr" "sonarqube-cli" "uv" "cargo-deny" "cargo-audit")
 
-    if array_contains "antigravity-ide" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_antigravity_ide
-    fi
-
     local apt_packages_to_install=()
     for pkg in "${PACKAGES_TO_INSTALL[@]}"; do
         if ! array_contains "$pkg" "${custom_install_packages[@]}"; then

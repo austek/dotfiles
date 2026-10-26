@@ -13,11 +13,6 @@ curl_https() {
     curl --proto '=https' "$@"
 }
 
-print_resolved() {
-    local version="$1" url="$2" cache_key="$3"
-    printf '%s\t%s\t%s\n' "$version" "$url" "$cache_key"
-}
-
 array_contains() {
     local seeking=$1; shift
     local in=1
