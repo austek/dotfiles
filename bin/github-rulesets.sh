@@ -77,6 +77,7 @@ fi
 
 skipped_private=0
 skipped_forks=0
+failed=0
 
 while read -r visibility is_fork repo; do
   [[ -z "${repo:-}" ]] && continue
@@ -97,7 +98,8 @@ while read -r visibility is_fork repo; do
         --jq "[.[] | select(.name == \"$RULESET_NAME\")] | first | .id // empty" 2>/dev/null); then
     :
   else
-    echo "$OWNER/$repo: SKIP (rulesets unavailable)"
+    echo "$OWNER/$repo: FAIL (rulesets unavailable)"
+    failed=$((failed + 1))
     continue
   fi
 
@@ -108,7 +110,8 @@ while read -r visibility is_fork repo; do
       types=$(jq -r '[.rules[].type] | join(" ")' <<< "$current_json")
       [[ " $types " == *" pull_request "* ]] && had_pr=1
     else
-      echo "$OWNER/$repo: SKIP (cannot read ruleset $existing)"
+      echo "$OWNER/$repo: FAIL (cannot read ruleset $existing)"
+      failed=$((failed + 1))
       continue
     fi
   fi
@@ -131,16 +134,26 @@ while read -r visibility is_fork repo; do
   fi
 
   if [[ -n "$existing" ]]; then
-    build_payload "$want_pr" "$current_json" |
-      gh api -X PUT "repos/$OWNER/$repo/rulesets/$existing" --input - --jq '"updated (pr='"$want_pr"')"' |
-      sed "s|^|$OWNER/$repo: |"
+    method=PUT endpoint="repos/$OWNER/$repo/rulesets/$existing" verb=updated
   else
-    build_payload "$want_pr" |
-      gh api -X POST "repos/$OWNER/$repo/rulesets" --input - --jq '"created (pr='"$want_pr"')"' |
-      sed "s|^|$OWNER/$repo: |"
+    method=POST endpoint="repos/$OWNER/$repo/rulesets" verb=created
+    current_json=""
+  fi
+
+  if result=$(build_payload "$want_pr" "$current_json" |
+      gh api -X "$method" "$endpoint" --input - --jq '"'"$verb"' (pr='"$want_pr"')"' 2>&1); then
+    echo "$OWNER/$repo: $result"
+  else
+    echo "$OWNER/$repo: FAIL ($(head -n 1 <<< "$result"))"
+    failed=$((failed + 1))
   fi
 done <<< "$candidates"
 
 echo
 echo "skipped: $skipped_private private (rulesets need GitHub Pro), $skipped_forks forks"
 echo "Status checks are not set here: required check names differ per repo."
+
+if ((failed > 0)); then
+  echo "$failed repositories failed" >&2
+  exit 1
+fi
