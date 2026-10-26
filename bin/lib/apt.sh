@@ -45,6 +45,10 @@ determine_packages_to_install() {
         log_error "--package-file '$PACKAGE_FILE_OVERRIDE' does not exist."
         exit 1
     fi
+    if [[ ! -r "$PACKAGE_FILE_OVERRIDE" ]]; then
+        log_error "--package-file '$PACKAGE_FILE_OVERRIDE' is not readable."
+        exit 1
+    fi
     mapfile -t PACKAGES_TO_INSTALL < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$PACKAGE_FILE_OVERRIDE" | sort -u)
     log_info "Found ${#PACKAGES_TO_INSTALL[@]} unique packages to install."
 }
