@@ -66,6 +66,25 @@ stow_with_backup() {
     [[ -z "$stage" ]] || finalize_stow_backup "$stage"
 }
 
+stow_pkg_is_linked() {
+    local root="$1" pkg="$2" target="$3"
+    local file rel
+    file=$(command find "$root/$pkg" \( -type f -o -type l \) -print -quit 2>/dev/null || true)
+    [[ -n "$file" ]] || return 1
+    rel="${file#"$root/$pkg/"}"
+    [[ -e "$target/$rel" ]] || return 1
+    [[ "$(readlink -f "$target/$rel")" == "$(readlink -f "$file")" ]]
+}
+
+pkgs_not_yet_linked() {
+    local root="$1" target="$2"
+    shift 2
+    local pkg
+    for pkg in "$@"; do
+        stow_pkg_is_linked "$root" "$pkg" "$target" || printf '%s\n' "$pkg"
+    done
+}
+
 configure_dotfiles() {
     log_step "Step 7: Configuring dotfiles..."
 
@@ -147,6 +166,8 @@ configure_dotfiles() {
             log_dry_run "Would stow (unfolded) to $HOME: ${nofold[*]:-none}"
             log_dry_run "Would stow (folded) to $HOME: ${folded[*]:-none}"
         else
+            local newly_stowed=()
+            mapfile -t newly_stowed < <(pkgs_not_yet_linked "$DOTFILES_DIR" "$HOME" "${packages_to_stow[@]}")
             cd "$DOTFILES_DIR"
             if (( ${#nofold[@]} > 0 )); then
                 stow_with_backup --restow --no-folding "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${nofold[@]}"
@@ -155,8 +176,8 @@ configure_dotfiles() {
                 stow_with_backup --restow "${private_override_ignores[@]}" --target="$HOME" --verbose=1 "${folded[@]}"
             fi
             cd "$HOME"
-            for pkg in "${packages_to_stow[@]}"; do
-                track_change "STOW_HOME:$pkg"
+            for pkg in "${newly_stowed[@]}"; do
+                [[ -n "$pkg" ]] && track_change "STOW_HOME:$pkg"
             done
             log_success "All $HOME packages stowed."
         fi
@@ -208,6 +229,8 @@ configure_dotfiles() {
         if [[ "$DRY_RUN" = true ]]; then
             log_dry_run "Would stow (unfolded, from $PRIVATE_ROOT, overriding any public file at the same path) to $HOME: ${private_packages[*]}"
         else
+            local newly_stowed_private=()
+            mapfile -t newly_stowed_private < <(pkgs_not_yet_linked "$PRIVATE_ROOT" "$HOME" "${private_packages[@]}")
             for pkg in "${private_packages[@]}"; do
                 while IFS= read -r -d '' file; do
                     clear_public_symlink_at_private_path "$pkg" "$file"
@@ -216,8 +239,8 @@ configure_dotfiles() {
             cd "$PRIVATE_ROOT"
             stow_with_backup --restow --no-folding --target="$HOME" --verbose=1 "${private_packages[@]}"
             cd "$HOME"
-            for pkg in "${private_packages[@]}"; do
-                track_change "STOW_PRIVATE:$pkg"
+            for pkg in "${newly_stowed_private[@]}"; do
+                [[ -n "$pkg" ]] && track_change "STOW_PRIVATE:$pkg"
             done
             log_success "All private-overlay packages stowed."
         fi

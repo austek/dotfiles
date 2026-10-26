@@ -761,6 +761,51 @@ stow_with_backup --target="$HOME" pkg >/dev/null 2>&1
 check "force-stow: never moves a file reached through a symlink outside HOME" test "$(cat "$STOW_TMP/external/f")" = external
 stow_teardown
 
+# --- rollback tracks only packages newly stowed in this run ---
+stow_sandbox
+mkdir -p "$STOW_TMP/repo/pkgA" "$STOW_TMP/repo/pkgB" "$STOW_TMP/repo/pkgC/.cfg" "$HOME"
+echo a > "$STOW_TMP/repo/pkgA/.rca"
+echo b > "$STOW_TMP/repo/pkgB/.rcb"
+echo c > "$STOW_TMP/repo/pkgC/.cfg/f"
+ln -s "$STOW_TMP/repo/pkgA/.rca" "$HOME/.rca"
+ln -s "$STOW_TMP/repo/pkgC/.cfg" "$HOME/.cfg"
+echo other > "$HOME/.rcb"
+unlinked=$(pkgs_not_yet_linked "$STOW_TMP/repo" "$HOME" pkgA pkgB pkgC | tr '\n' ' ')
+check "track: already-linked and folded packages are not reported" test "$unlinked" = "pkgB "
+stow_teardown
+
+# --- apt sources: unneeded files are ignored, never moved out of the repo ---
+stow_sandbox
+mkdir -p "$STOW_TMP/repo/apt/etc/apt/sources.list.d"
+for f in 1password.sources google-chrome.sources vscode.sources github-cli.sources; do
+    : > "$STOW_TMP/repo/apt/etc/apt/sources.list.d/$f"
+done
+stow_calls="$STOW_TMP/stow_calls"
+sudo() { printf '%s\n' "$*" >> "$stow_calls"; }
+(
+    DOTFILES_DIR="$STOW_TMP/repo"
+    PACKAGES_TO_INSTALL=(gh)
+    stow_apt_source_files
+) >/dev/null 2>&1 || true
+check "apt stow: unneeded sources are passed to stow --ignore" grep -q -- '--ignore=1password\\.sources\$' "$stow_calls"
+check "apt stow: needed source is not ignored" test -z "$(grep -- 'github-cli' "$stow_calls" || true)"
+check "apt stow: repo checkout keeps every tracked source" test "$(command find "$STOW_TMP/repo/apt" -name '*.sources' | wc -l)" -eq 4
+unset -f sudo
+stow_teardown
+
+# --- Oh My Zsh and SDKMAN leave ~/.zshrc alone ---
+stow_sandbox
+DRY_RUN=false
+curl_https() { printf '%s\n' "$*" >> "$STOW_TMP/curl_args"; echo "true"; }
+bash() { cat > /dev/null; }
+sh() { printf '%s %s %s\n' "${KEEP_ZSHRC:-}" "${RUNZSH:-}" "${CHSH:-}" > "$STOW_TMP/omz_env"; }
+install_sdkman >/dev/null 2>&1
+install_omz >/dev/null 2>&1
+check "sdkman: installer URL disables rc update" grep -q 'get.sdkman.io?rcupdate=false' "$STOW_TMP/curl_args"
+check "omz: keeps zshrc and skips shell switch" test "$(cat "$STOW_TMP/omz_env")" = "yes no no"
+unset -f curl_https bash sh
+stow_teardown
+
 echo
 echo "Passed: $PASS_COUNT  Failed: $FAIL_COUNT"
 if [[ "$FAIL_COUNT" -gt 0 ]]; then

@@ -286,10 +286,7 @@ Pin-Priority: 1001
 }
 
 stow_apt_source_files() {
-    local stow_apt_dir="$DOTFILES_DIR/apt"
-    local temp_stow_backup_dir
-    temp_stow_backup_dir=$(mktemp -d)
-    register_temp_dir "$temp_stow_backup_dir"
+    local stow_ignores=()
 
     local source_map=(
         "1password:1password.sources"
@@ -301,17 +298,10 @@ stow_apt_source_files() {
     for mapping in "${source_map[@]}"; do
         local pkg_key="${mapping%%:*}"
         local source_file="${mapping#*:}"
-        local source_file_path="$stow_apt_dir/etc/apt/sources.list.d/$source_file"
-        local needed=0
 
-        if array_contains "$pkg_key" "${PACKAGES_TO_INSTALL[@]}"; then
-            needed=1
-        fi
-
-        if [[ -f "$source_file_path" ]] && [[ $needed -eq 0 ]]; then
-            log_info "Temporarily hiding unneeded source file: $source_file"
-            mkdir -p "$(dirname "$temp_stow_backup_dir/$source_file")"
-            mv "$source_file_path" "$temp_stow_backup_dir/$source_file"
+        if ! array_contains "$pkg_key" "${PACKAGES_TO_INSTALL[@]}"; then
+            log_info "Skipping unneeded source file: $source_file"
+            stow_ignores+=("--ignore=${source_file//./\\.}\$")
         fi
     done
 
@@ -322,7 +312,7 @@ stow_apt_source_files() {
     # Assigned via `if` rather than a bare `stow_output=$(...)`: under `set -e`, a bare
     # assignment aborts the script the instant stow (inside the pipe) fails, before
     # stow_status=$? ever runs — skipping the conflict backup/retry logic below entirely.
-    if stow_output=$(sudo stow --dir="$DOTFILES_DIR" --restow --no-folding --target=/ --verbose=1 apt 2>&1 | grep -v "WARNING\|existing target"); then
+    if stow_output=$(sudo stow --dir="$DOTFILES_DIR" --restow --no-folding "${stow_ignores[@]}" --target=/ --verbose=1 apt 2>&1 | grep -v "WARNING\|existing target"); then
         stow_status=0
     else
         stow_status=$?
@@ -337,7 +327,7 @@ stow_apt_source_files() {
 
         local conflict_files
         # shellcheck disable=SC2015
-        conflict_files=$( (cd "$DOTFILES_DIR" && sudo stow --dir="$DOTFILES_DIR" --no --no-folding --target=/ --verbose=1 apt 2>&1 | perl -ne 'if (/existing target.*?:\s*(\S+)/) { print "$1\n" } elsif (/existing target\s+(\S+)\s+since/) { print "$1\n" }') || true)
+        conflict_files=$( (cd "$DOTFILES_DIR" && sudo stow --dir="$DOTFILES_DIR" --no --no-folding "${stow_ignores[@]}" --target=/ --verbose=1 apt 2>&1 | perl -ne 'if (/existing target.*?:\s*(\S+)/) { print "$1\n" } elsif (/existing target\s+(\S+)\s+since/) { print "$1\n" }') || true)
 
         if [[ -n "$conflict_files" ]]; then
             local stow_backup_root="/var/backups/dotfiles-stow"
@@ -353,19 +343,13 @@ stow_apt_source_files() {
             done <<< "$conflict_files"
 
             cd "$DOTFILES_DIR"
-            quiet_run sudo stow --dir="$DOTFILES_DIR" --restow --no-folding --target=/ --verbose=1 apt
+            quiet_run sudo stow --dir="$DOTFILES_DIR" --restow --no-folding "${stow_ignores[@]}" --target=/ --verbose=1 apt
             cd "$HOME"
             track_change "STOW_ROOT:apt"
         fi
     else
         track_change "STOW_ROOT:apt"
     fi
-
-    log_info "Restoring hidden source files..."
-    if [[ -d "$temp_stow_backup_dir" ]] && [[ "$(ls -A "$temp_stow_backup_dir")" ]]; then
-        rsync -a "$temp_stow_backup_dir/" "$stow_apt_dir/etc/apt/sources.list.d/"
-    fi
-    rm -rf -- "$temp_stow_backup_dir"
 }
 
 render_apt_template() {

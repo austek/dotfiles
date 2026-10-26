@@ -12,7 +12,7 @@ install_sdkman() {
         log_dry_run "Would download and install SDKMAN from https://get.sdkman.io"
     else
         log_info "Downloading and running SDKMAN install script..."
-        curl_https -fsSL "https://get.sdkman.io" | bash
+        curl_https -fsSL "https://get.sdkman.io?rcupdate=false" | bash
         log_success "SDKMAN installed."
     fi
 }
@@ -25,7 +25,7 @@ install_omz() {
         log_dry_run "Would download and install Oh My Zsh"
     else
         log_info "Downloading and running Oh My Zsh install script..."
-        sh -c "$(curl_https -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+        KEEP_ZSHRC=yes RUNZSH=no CHSH=no sh -c "$(curl_https -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
         log_success "Oh My Zsh installed."
     fi
 }
