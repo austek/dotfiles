@@ -12,6 +12,14 @@ GHOSTTY_ENTRY_ID = "com.mitchellh.ghostty.desktop"
 TERMINAL_SCHEMA = "org.gnome.desktop.default-applications.terminal"
 
 
+def _config_dir(home: Path) -> Path:
+    """Returns XDG_CONFIG_HOME when it is an absolute path inside home, else ~/.config."""
+    configured = Path(os.environ.get("XDG_CONFIG_HOME", ""))
+    if configured.is_absolute() and configured.resolve().is_relative_to(home.resolve()):
+        return configured.resolve()
+    return home / ".config"
+
+
 def change_shell(t: Tooling) -> None:
     t.logger.step("Step 8: Changing default shell to Zsh...")
     zsh = shutil.which("zsh") or "/usr/bin/zsh"
@@ -76,7 +84,7 @@ def set_default_terminal(t: Tooling) -> None:
     if ghostty is None:
         t.logger.warn("Ghostty is not installed. Skipping default terminal configuration.")
         return
-    config_dir = Path(os.environ.get("XDG_CONFIG_HOME") or t.home / ".config")
+    config_dir = _config_dir(t.home)
     if dry_run_all(
         t, f"Would register and set x-terminal-emulator alternative to {ghostty}",
         f"Would set {GHOSTTY_ENTRY_ID} as the preferred entry in {config_dir / 'xdg-terminals.list'}",

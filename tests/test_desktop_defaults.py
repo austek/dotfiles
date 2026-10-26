@@ -60,6 +60,17 @@ def test_the_shell_change_is_a_dry_run_notice_only(tmp_path, on_path):
     assert machine.commands == []
 
 
+def test_xdg_config_home_inside_home_is_honoured(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "custom"))
+    assert dd._config_dir(tmp_path) == (tmp_path / "custom").resolve()
+
+
+@pytest.mark.parametrize("configured", ["relative/dir", "", "/etc"])
+def test_xdg_config_home_that_is_relative_or_outside_home_is_ignored(tmp_path, monkeypatch, configured):
+    monkeypatch.setenv("XDG_CONFIG_HOME", configured)
+    assert dd._config_dir(tmp_path) == tmp_path / ".config"
+
+
 def test_ghostty_not_installed_skips_everything(tmp_path, on_path):
     machine = Machine()
     dd.set_default_terminal(make(tmp_path, machine))

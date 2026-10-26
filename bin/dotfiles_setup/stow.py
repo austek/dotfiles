@@ -15,9 +15,10 @@ from dotfiles_setup.tooling import Tooling, dry_run_all
 UNFOLD_LIMIT = 1000
 FOLD_PACKAGES = frozenset({"gradle"})
 _CONFLICT_PATTERNS = (
-    re.compile(r"^.*existing target is (?:neither a link nor a directory|not owned by stow): (.+)$"),
-    re.compile(r"^.*cannot stow .* over existing target (.+) since .*$"),
+    re.compile(r"existing target is (?:neither a link nor a directory|not owned by stow): (.+)$"),
+    re.compile(r"cannot stow \S+ over existing target (\S+) since "),
 )
+STOW_PACKAGES_FILE = ".stow-packages"
 _REGEX_SPECIALS = re.compile(r"[.\[\\*^$()+?{}|]")
 
 
@@ -43,7 +44,7 @@ def package_lines(stow_file: Path) -> list[str]:
 
 
 def _conflicts(output: str) -> list[str]:
-    found = {m.group(1) for line in output.splitlines() for p in _CONFLICT_PATTERNS if (m := p.match(line))}
+    found = {m.group(1) for line in output.splitlines() for p in _CONFLICT_PATTERNS if (m := p.search(line))}
     return sorted(found)
 
 
@@ -135,7 +136,7 @@ def _regular_files(directory: Path) -> list[Path]:
 
 def private_override_ignores(plan: StowPlan) -> list[str]:
     """Paths the private overlay overrides must be excluded from the public stow, or the two fight over them every rerun."""
-    stow_file = plan.private_root / ".stow-packages" if plan.private_root else None
+    stow_file = plan.private_root / STOW_PACKAGES_FILE if plan.private_root else None
     if stow_file is None or not stow_file.is_file():
         return []
     ignores = []
@@ -166,7 +167,7 @@ def _track_new(plan: StowPlan, action: str, packages: Sequence[str]) -> None:
 
 def stow_common_to_home(plan: StowPlan, ignores: list[str]) -> bool:
     logger, home = plan.t.logger, plan.t.home
-    stow_file = plan.dotfiles_dir / ".stow-packages"
+    stow_file = plan.dotfiles_dir / STOW_PACKAGES_FILE
     if not stow_file.is_file():
         logger.warn(f".stow-packages file not found. Skipping {home} stow.")
         return True
@@ -208,7 +209,7 @@ def stow_private_to_home(plan: StowPlan) -> bool:
     if plan.private_root is None:
         return True
     logger, home = plan.t.logger, plan.t.home
-    stow_file = plan.private_root / ".stow-packages"
+    stow_file = plan.private_root / STOW_PACKAGES_FILE
     if not stow_file.is_file():
         logger.info(f"No .stow-packages in the private overlay ({plan.private_root}). Skipping private stow.")
         return True

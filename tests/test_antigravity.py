@@ -72,7 +72,8 @@ def test_unsupported_architecture_installs_nothing(tmp_path):
     machine = Machine()
     t, downloads, layout = make(tmp_path, machine)
     assert ag.install_antigravity_ide(t, layout, machine="riscv64")
-    assert downloads == [] and machine.commands == []
+    assert downloads == []
+    assert machine.commands == []
 
 
 def test_dry_run_resolves_and_installs_nothing(tmp_path):
@@ -82,7 +83,8 @@ def test_dry_run_resolves_and_installs_nothing(tmp_path):
     machine = Machine()
     t, downloads, layout = make(tmp_path, machine, fetch=refuse, dry_run=True)
     assert ag.install_antigravity_ide(t, layout, machine="x86_64")
-    assert downloads == [] and machine.commands == []
+    assert downloads == []
+    assert machine.commands == []
 
 
 def test_resolve_takes_the_build_from_the_download_page(tmp_path):
@@ -107,7 +109,8 @@ def test_an_up_to_date_install_is_skipped(tmp_path):
     layout.build_file.parent.mkdir(parents=True)
     layout.build_file.write_text(f"{BUILD}\n")
     assert ag.install_antigravity_ide(t, layout, machine="x86_64")
-    assert downloads == [] and machine.commands == []
+    assert downloads == []
+    assert machine.commands == []
 
 
 def test_a_new_build_is_staged_swapped_and_wired_up_in_order(tmp_path):
@@ -203,4 +206,5 @@ def test_the_tarball_is_cached_by_build_id(tmp_path):
     t, downloads, layout = make(tmp_path, machine)
     ag.install_antigravity_ide(t, layout, machine="x86_64")
     cached = Path(tmp_path) / "cache/dotfiles-setup/antigravity-ide" / f"{BUILD}.tar.gz"
-    assert cached.is_file() and len(downloads) == 1
+    assert cached.is_file()
+    assert len(downloads) == 1
