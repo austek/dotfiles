@@ -1,0 +1,22 @@
+x-preset: &preset
+  build:
+    context: .
+    args:
+      UBUNTU_VERSION: ${UBUNTU_VERSION:-26.04}
+  environment:
+    GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+  volumes:
+    - ..:/src:ro
+  stdin_open: false
+  tty: false
+
+services:
+  work:
+    <<: *preset
+    command: [work]
+  personal:
+    <<: *preset
+    command: [personal]
+  homelab:
+    <<: *preset
+    command: [homelab]

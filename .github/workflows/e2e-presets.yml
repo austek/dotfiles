@@ -1,0 +1,49 @@
+name: Preset E2E
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'bin/**'
+      - 'packages/**'
+      - 'presets/**'
+      - 'apt/**'
+      - 'apt-templates/**'
+      - 'system/**'
+      - 'claude/**'
+      - 'claude-profiles/**'
+      - 'e2e/**'
+      - '.stow-packages'
+      - '.github/workflows/e2e-presets.yml'
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preset:
+    name: Install preset ${{ matrix.preset }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: ${{ fromJSON(github.event_name == 'pull_request' && '["homelab"]' || '["work","personal","homelab"]') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the preset twice and assert the result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PRESET: ${{ matrix.preset }}
+        run: docker compose -f e2e/compose.yaml run --rm --build "$PRESET"
