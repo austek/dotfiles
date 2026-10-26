@@ -45,8 +45,7 @@ source "$SCRIPT_DIR/lib/dotfiles.sh"
 SETUP_STEPS=(
     install_core_deps disable_snapd strip_snap_from_system_path configure_apt_sources
     install_packages enable_gpaste_extension install_github_bins configure_docker_group
-    configure_dotfiles configure_claude_profile configure_rtk_cli configure_cozempic_cli
-    configure_serena configure_caveman_proxy change_shell set_default_terminal
+    configure_dotfiles configure_claude_profile change_shell set_default_terminal
 )
 ONLY_STEPS=()
 

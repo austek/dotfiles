@@ -7,23 +7,21 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from dotfiles_setup.backends import InstallResult
 
-STEPS_BEFORE_TOOLS = (
+SETUP_STEPS = (
     "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
+    "install_packages", "enable_gpaste_extension", "install_github_bins", "configure_docker_group",
+    "configure_dotfiles", "configure_claude_profile", "change_shell", "set_default_terminal",
 )
-STEPS_APT_PACKAGES = ("install_packages",)
-STEPS_AFTER_APT = (
-    "enable_gpaste_extension", "install_github_bins", "configure_docker_group",
-    "configure_dotfiles", "configure_claude_profile", "configure_rtk_cli", "configure_cozempic_cli",
-    "configure_serena", "configure_caveman_proxy", "change_shell", "set_default_terminal",
-)
-STEPS_AFTER_TOOLS = STEPS_APT_PACKAGES + STEPS_AFTER_APT
+AFTER_APT_SOURCES = "configure_apt_sources"
+AFTER_APT_PACKAGES = "install_packages"
+AFTER_CLAUDE_PROFILE = "configure_claude_profile"
 
 
 def setup_argv(
@@ -45,6 +43,18 @@ def setup_argv(
     argv += ["--only", ",".join(only_steps)] if only_steps else []
     argv += ["--dry-run"] if dry_run else []
     return argv
+
+
+def _stages(step_hooks: Mapping[str, Callable[[], bool]]) -> list[tuple[tuple[str, ...], Callable[[], bool] | None]]:
+    """Splits SETUP_STEPS into runs of shell steps, each followed by the hook keyed on its last step."""
+    stages: list[tuple[tuple[str, ...], Callable[[], bool] | None]] = []
+    current: list[str] = []
+    for step in SETUP_STEPS:
+        current.append(step)
+        if step in step_hooks:
+            stages.append((tuple(current), step_hooks[step]))
+            current = []
+    return stages + [(tuple(current), None)] if current else stages
 
 
 def _run_stages(
@@ -83,8 +93,7 @@ class AptBackend:
         private_root: Path | None = None,
         verbosity: int = 0,
         force_stow: bool = False,
-        tools_hook: Callable[[], bool] | None = None,
-        post_apt_hook: Callable[[], bool] | None = None,
+        step_hooks: Mapping[str, Callable[[], bool]] | None = None,
         run: Callable[..., Any] = subprocess.run,
     ) -> InstallResult:
         def segment(steps: tuple[str, ...]) -> InstallResult:
@@ -101,14 +110,9 @@ class AptBackend:
                 stdout=(result.stdout or "") + (result.stderr or ""),
             )
 
-        if tools_hook is None:
+        if not step_hooks:
             return segment(())
-        stages = [(STEPS_BEFORE_TOOLS, tools_hook)]
-        if post_apt_hook is None:
-            stages.append((STEPS_AFTER_TOOLS, None))
-        else:
-            stages += [(STEPS_APT_PACKAGES, post_apt_hook), (STEPS_AFTER_APT, None)]
-        return _run_stages(segment, stages)
+        return _run_stages(segment, _stages(step_hooks))
 
     def print_completion(self, *, dry_run: bool, run: Callable[..., Any] = subprocess.run) -> None:
         sys.stdout.flush()

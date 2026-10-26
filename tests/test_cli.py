@@ -246,7 +246,9 @@ def test_install_runs_setup_sh_in_segments_around_the_tool_installers(isolated_d
     calls = stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab"]) == 0
     only = [call[call.index("--only") + 1].split(",") for call in calls if "--only" in call]
-    assert [steps[0] for steps in only] == ["install_core_deps", "install_packages", "enable_gpaste_extension"]
+    assert [steps[0] for steps in only] == [
+        "install_core_deps", "install_packages", "enable_gpaste_extension", "change_shell",
+    ]
 
 
 def test_install_omits_private_root_when_no_overlay(isolated_dotfiles, monkeypatch):

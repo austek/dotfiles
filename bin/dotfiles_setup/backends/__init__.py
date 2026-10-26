@@ -4,7 +4,7 @@ this project — this Protocol exists so adding one later doesn't require
 touching presets.py, state.py, or cli.py's orchestration."""
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -33,8 +33,7 @@ class Backend(Protocol):
         private_root: Path | None = None,
         verbosity: int = 0,
         force_stow: bool = False,
-        tools_hook: Callable[[], bool] | None = None,
-        post_apt_hook: Callable[[], bool] | None = None,
+        step_hooks: Mapping[str, Callable[[], bool]] | None = None,
         run: Callable[..., Any] = ...,
     ) -> InstallResult: ...
     def print_completion(self, *, dry_run: bool, run: Callable[..., Any] = ...) -> None: ...

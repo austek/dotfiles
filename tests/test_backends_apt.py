@@ -3,53 +3,61 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from dotfiles_setup.backends.apt import AptBackend
+from dotfiles_setup.backends.apt import (
+    AFTER_APT_PACKAGES,
+    AFTER_APT_SOURCES,
+    AFTER_CLAUDE_PROFILE,
+    SETUP_STEPS,
+    AptBackend,
+)
 
 
-def test_tool_segments_cover_the_setup_sh_steps_in_order():
-    from dotfiles_setup.backends.apt import STEPS_AFTER_TOOLS, STEPS_BEFORE_TOOLS
-
+def test_setup_steps_match_the_steps_setup_sh_lists_in_order():
     script = Path(__file__).resolve().parent.parent / "bin" / "setup.sh"
     listed = subprocess.run(["bash", str(script), "--list-steps"], capture_output=True, text=True, check=True)
-    assert listed.stdout.split() == [*STEPS_BEFORE_TOOLS, *STEPS_AFTER_TOOLS]
+    assert listed.stdout.split() == list(SETUP_STEPS)
 
 
-def test_install_runs_the_tool_hook_between_two_setup_segments(tmp_path):
+def test_every_hook_key_is_a_setup_step():
+    assert {AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_CLAUDE_PROFILE} <= set(SETUP_STEPS)
+
+
+def run_with_hooks(tmp_path, hooks):
     events = []
 
     def fake_run(argv, **kwargs):
-        events.append(argv[argv.index("--only") + 1].split(",")[0])
+        events.append(argv[argv.index("--only") + 1].split(","))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
         tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
-        tools_hook=lambda: events.append("tools") or True, run=fake_run,
+        step_hooks={step: (lambda name=step: events.append(f"hook:{name}") or True) for step in hooks}, run=fake_run,
     )
+    return result, events
+
+
+def test_each_hook_runs_right_after_the_step_it_is_keyed_on(tmp_path):
+    result, events = run_with_hooks(tmp_path, [AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_CLAUDE_PROFILE])
     assert result.succeeded
-    assert events == ["install_core_deps", "tools", "install_packages"]
+    assert events == [
+        ["install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources"],
+        "hook:configure_apt_sources",
+        ["install_packages"],
+        "hook:install_packages",
+        ["enable_gpaste_extension", "install_github_bins", "configure_docker_group",
+         "configure_dotfiles", "configure_claude_profile"],
+        "hook:configure_claude_profile",
+        ["change_shell", "set_default_terminal"],
+    ]
 
 
-def test_install_runs_the_post_apt_hook_right_after_install_packages(tmp_path):
-    events = []
-
-    def fake_run(argv, **kwargs):
-        events.append(argv[argv.index("--only") + 1])
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
-    result = backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
-        tools_hook=lambda: events.append("tools") or True,
-        post_apt_hook=lambda: events.append("post-apt") or True, run=fake_run,
-    )
-    assert result.succeeded
-    assert events[:4] == ["install_core_deps,disable_snapd,strip_snap_from_system_path,configure_apt_sources",
-                          "tools", "install_packages", "post-apt"]
-    assert events[4].startswith("enable_gpaste_extension")
+def test_steps_not_split_by_a_hook_run_together(tmp_path):
+    _, events = run_with_hooks(tmp_path, [AFTER_APT_SOURCES])
+    assert [e[0] for e in events if isinstance(e, list)] == ["install_core_deps", "install_packages"]
 
 
-def test_a_failed_post_apt_hook_skips_the_remaining_steps(tmp_path):
+def test_a_failed_hook_skips_the_remaining_steps(tmp_path):
     runs = []
 
     def fake_run(argv, **kwargs):
@@ -59,7 +67,7 @@ def test_a_failed_post_apt_hook_skips_the_remaining_steps(tmp_path):
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
         tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
-        tools_hook=lambda: True, post_apt_hook=lambda: False, run=fake_run,
+        step_hooks={AFTER_APT_SOURCES: lambda: True, AFTER_APT_PACKAGES: lambda: False}, run=fake_run,
     )
     assert (result.succeeded, len(runs)) == (False, 2)
 
@@ -74,7 +82,7 @@ def test_install_skips_the_second_segment_when_the_first_fails(tmp_path):
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
         tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
-        tools_hook=lambda: pytest.fail("tools must not run"), run=fake_run,
+        step_hooks={AFTER_APT_SOURCES: lambda: pytest.fail("tools must not run")}, run=fake_run,
     )
     assert (result.succeeded, result.returncode, len(runs)) == (False, 3, 1)
 
@@ -89,7 +97,7 @@ def test_install_fails_without_the_second_segment_when_a_tool_fails(tmp_path):
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
         tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
-        tools_hook=lambda: False, run=fake_run,
+        step_hooks={AFTER_APT_SOURCES: lambda: False}, run=fake_run,
     )
     assert (result.succeeded, len(runs)) == (False, 1)
 
