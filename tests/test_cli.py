@@ -228,9 +228,22 @@ def test_dry_run_skips_claude_profile_write(isolated_dotfiles):
     assert not (tmp_path / "state" / "claude-profiles" / "claude_homelab.json").exists()
 
 
-def test_dry_run_still_forks_the_package_file_setup_sh_reads(isolated_dotfiles):
+def test_dry_run_does_not_create_the_forked_package_file(isolated_dotfiles):
     main(["install", "--preset", "homelab", "--dry-run"])
-    assert (state.package_dir() / "homelab.txt").exists()
+    assert not (state.package_dir() / "homelab.txt").exists()
+
+
+def test_dry_run_leaves_an_existing_forked_package_file_unchanged(isolated_dotfiles):
+    main(["install", "--preset", "homelab"])
+    package_file = state.package_dir() / "homelab.txt"
+    package_file.write_text("vim\n")
+    main(["install", "--preset", "homelab", "--dry-run"])
+    assert package_file.read_text() == "vim\n"
+
+
+def test_dry_run_hands_the_flow_the_packages_it_would_install(isolated_dotfiles, flow_calls):
+    main(["install", "--preset", "homelab", "--dry-run"])
+    assert flow_calls[0].packages == frozenset({"zsh", "curl"})
 
 
 def test_dry_run_skips_state_persistence(isolated_dotfiles):
@@ -261,10 +274,10 @@ def test_install_passes_no_overlay_root_when_there_is_none(isolated_dotfiles, fl
     assert flow_calls[0].overlay_root is None
 
 
-def test_install_hands_the_flow_the_preset_and_package_file(isolated_dotfiles, flow_calls):
+def test_install_hands_the_flow_the_preset_and_packages(isolated_dotfiles, flow_calls):
     assert main(["install", "--preset", "homelab"]) == 0
     assert flow_calls[0].preset_name == "homelab"
-    assert flow_calls[0].package_file == state.package_dir() / "homelab.txt"
+    assert flow_calls[0].packages == frozenset({"zsh", "curl"})
 
 
 def test_install_raises_helpful_error_for_unknown_preset(isolated_dotfiles, capsys):

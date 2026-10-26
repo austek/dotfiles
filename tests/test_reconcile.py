@@ -1,4 +1,4 @@
-from dotfiles_setup.reconcile import names_to_append, reconcile_package_file
+from dotfiles_setup.reconcile import effective_names, names_to_append, reconcile_package_file
 
 
 def test_names_to_append_skips_previously_carried_and_existing_names():
@@ -7,6 +7,20 @@ def test_names_to_append_skips_previously_carried_and_existing_names():
 
 def test_names_to_append_on_first_run_offers_everything_missing():
     assert names_to_append(["b", "a"], None, {"a"}) == ["b"]
+
+
+def test_effective_names_without_a_file_is_the_resolved_set_and_writes_nothing(tmp_path):
+    package_file = tmp_path / "packages" / "work.txt"
+    assert effective_names(package_file, ["zsh", "curl"], None) == frozenset({"zsh", "curl"})
+    assert not package_file.parent.exists()
+
+
+def test_effective_names_keeps_user_removals_and_adds_new_preset_entries(tmp_path):
+    package_file = tmp_path / "work.txt"
+    package_file.write_text("zsh\nvim\n")
+    names = effective_names(package_file, ["zsh", "curl", "git"], previous_names=["zsh", "curl"])
+    assert names == frozenset({"zsh", "vim", "git"})
+    assert package_file.read_text() == "zsh\nvim\n"
 
 
 def test_reconcile_creates_file_on_first_run(tmp_path):
