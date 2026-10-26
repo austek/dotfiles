@@ -400,12 +400,6 @@ install_packages() {
 
     local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit" "auditr" "sonarqube-cli" "uv" "cargo-deny" "cargo-audit")
 
-    if array_contains "lazydocker" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_lazydocker
-    fi
-    if array_contains "zoom" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_zoom
-    fi
     if array_contains "istioctl" "${PACKAGES_TO_INSTALL[@]}"; then
         install_istioctl
     fi
@@ -429,12 +423,6 @@ install_packages() {
     fi
     if array_contains "uv" "${PACKAGES_TO_INSTALL[@]}"; then
         install_uv
-    fi
-    if array_contains "slack-desktop" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_slack
-    fi
-    if array_contains "jetbrains-toolbox" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_jetbrains_toolbox
     fi
     if array_contains "antigravity-ide" "${PACKAGES_TO_INSTALL[@]}"; then
         install_antigravity_ide

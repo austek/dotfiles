@@ -1,17 +1,17 @@
-"""Tool-manager installers that run between the shell apt and package steps:
-sdkman, oh-my-zsh and nvm."""
+"""Third-party installers that run between the shell apt-source and package
+steps: the script-based tool managers (sdkman, oh-my-zsh, nvm) and the
+release-artifact installers in release_installers.py."""
 from __future__ import annotations
 
 import json
 import os
-import subprocess
-import urllib.request
 from collections.abc import Callable, Collection
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from dotfiles_setup.log import Logger
+from dotfiles_setup import release_installers
+from dotfiles_setup.tooling import Tooling, dry_run_all, fetch_https
+
+__all__ = ["TOOL_INSTALLERS", "Tooling", "fetch_https", "install_tools"]
 
 SDKMAN_URL = "https://get.sdkman.io?rcupdate=false"
 OMZ_URL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
@@ -19,32 +19,11 @@ NVM_RELEASE_API = "https://api.github.com/repos/nvm-sh/nvm/releases/latest"
 NVM_FALLBACK_URL = "https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh"
 NVM_HELP_URL = "https://github.com/nvm-sh/nvm#installing-and-updating"
 MSG_CONTINUING_SETUP = "Continuing with setup..."
-FETCH_TIMEOUT_SECONDS = 60
 NODE_LTS_SCRIPT = (
     'export NVM_DIR="$1"; . "$1/nvm.sh"; '
     '[ -s "$1/bash_completion" ] && . "$1/bash_completion"; '
     "nvm install --lts && nvm use --lts && nvm alias default 'lts/*'"
 )
-
-
-def fetch_https(url: str) -> str:
-    if not url.startswith("https://"):
-        raise ValueError(f"Refusing non-https URL: {url}")
-    with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT_SECONDS) as response:
-        return response.read().decode()
-
-
-@dataclass(frozen=True)
-class Tooling:
-    logger: Logger
-    home: Path
-    run: Callable[..., Any] = subprocess.run
-    fetch: Callable[[str], str] = fetch_https
-
-
-def _dry_run(t: Tooling, *messages: str) -> bool:
-    shown = [t.logger.dry_run_notice(message) for message in messages]
-    return all(shown)
 
 
 def _run_script(t: Tooling, name: str, url: str, argv: list[str], env: dict[str, str] | None = None) -> bool:
@@ -63,7 +42,7 @@ def install_sdkman(t: Tooling) -> bool:
     if (t.home / ".sdkman").is_dir():
         t.logger.info("SDKMAN is already installed. Skipping.")
         return True
-    if _dry_run(t, "Would download and install SDKMAN from https://get.sdkman.io"):
+    if dry_run_all(t, "Would download and install SDKMAN from https://get.sdkman.io"):
         return True
     ok = _run_script(t, "SDKMAN", SDKMAN_URL, ["bash"])
     if ok:
@@ -76,7 +55,7 @@ def install_omz(t: Tooling) -> bool:
     if (t.home / ".oh-my-zsh").is_dir():
         t.logger.info("Oh My Zsh is already installed. Skipping.")
         return True
-    if _dry_run(t, "Would download and install Oh My Zsh"):
+    if dry_run_all(t, "Would download and install Oh My Zsh"):
         return True
     env = {**os.environ, "KEEP_ZSHRC": "yes", "RUNZSH": "no", "CHSH": "no"}
     ok = _run_script(t, "Oh My Zsh", OMZ_URL, ["sh", "-s", "--", "--unattended"], env)
@@ -115,9 +94,9 @@ def install_nvm(t: Tooling) -> bool:
     if nvm_dir.is_dir():
         t.logger.info("NVM directory already exists. Skipping.")
         return True
-    if _dry_run(t, "Would fetch NVM latest release from GitHub API",
-                "Would download and run NVM install script",
-                "Would install latest LTS version of Node.js"):
+    if dry_run_all(t, "Would fetch NVM latest release from GitHub API",
+                   "Would download and run NVM install script",
+                   "Would install latest LTS version of Node.js"):
         return True
     if not _run_script(t, "NVM", _nvm_script_url(t), ["bash"]):
         t.logger.error(f"NVM install script failed. Visit: {NVM_HELP_URL}")
@@ -127,10 +106,12 @@ def install_nvm(t: Tooling) -> bool:
     return True
 
 
+# Order matters only for failure: a False return stops the sequence.
 TOOL_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = (
     ("oh-my-zsh", install_omz),
     ("sdkman", install_sdkman),
     ("nvm", install_nvm),
+    *release_installers.RELEASE_INSTALLERS,
 )
 
 

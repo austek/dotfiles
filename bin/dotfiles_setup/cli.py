@@ -24,6 +24,7 @@ from dotfiles_setup import (
     reconcile,
     settings_drift,
     state,
+    tooling,
     tools,
     update,
 )
@@ -363,8 +364,11 @@ class _Install:
 
 
 def _tools_hook(logger: Logger, env: Env, plan: _Install) -> Callable[[], bool]:
-    tooling = tools.Tooling(logger, Path.home(), run=env.run, fetch=tools.fetch_https)
-    return lambda: tools.install_tools(tooling, presets.package_names(plan.package_file.read_text()))
+    t = tools.Tooling(
+        logger, Path.home(), run=env.run,
+        fetch=tooling.fetch_https, download=tooling.download_https, redirect=tooling.redirect_location,
+    )
+    return lambda: tools.install_tools(t, presets.package_names(plan.package_file.read_text()))
 
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:

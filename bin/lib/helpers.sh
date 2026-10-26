@@ -57,7 +57,7 @@ download_with_cache() {
     return 0
 }
 
-# Generic download-install flow shared by the six URL-based installers.
+# Generic download-install flow shared by the remaining URL-based installers.
 # NAME is a display string; CHECK_FN/RESOLVE_FN/INSTALL_FN are function
 # names invoked indirectly (never eval'd); EXTRACT_KIND is one of
 # targz|zip|deb. RESOLVE_FN prints "version\turl\tcache_key" on stdout
@@ -139,16 +139,5 @@ install_from_url() {
     fi
 
     log_success "$name installed successfully${version:+ v$version}."
-}
-
-# Shared by zoom's and slack's install steps.
-install_deb_or_fix_broken() {
-    local deb_path="$1" dpkg_grep_pattern="$2"
-    if quiet_run sudo dpkg -i "$deb_path"; then
-        return 0
-    fi
-    log_warn "dpkg reported errors. Running 'apt --fix-broken install'..."
-    quiet_run sudo apt-get -y --fix-broken install
-    grep -q "^ii.*$dpkg_grep_pattern" < <(dpkg -l)
 }
 
