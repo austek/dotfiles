@@ -196,16 +196,25 @@ def test_the_docker_group_is_a_dry_run_notice_only(tmp_path):
     assert not machine.ran("sudo")
 
 
-def test_sudo_credentials_are_checked_and_the_refresh_loop_stops(tmp_path):
+def test_passwordless_sudo_needs_no_prompt(tmp_path):
     machine = Machine()
     session = ss.SudoSession(make(tmp_path, machine))
     assert session.start()
     session.stop()
-    assert machine.commands == [["sudo", "-v"]]
+    assert machine.commands == [["sudo", "-n", "true"]]
+
+
+def test_a_sudo_that_needs_a_password_is_prompted_with_validate(tmp_path):
+    machine = Machine(failing=[("sudo", "-n")])
+    session = ss.SudoSession(make(tmp_path, machine))
+    assert session.start()
+    session.stop()
+    assert machine.commands == [["sudo", "-n", "true"], ["sudo", "-v"]]
 
 
 def test_a_failed_sudo_prompt_fails_the_session(tmp_path):
-    assert not ss.SudoSession(make(tmp_path, Machine(failing=[("sudo", "-v")]))).start()
+    machine = Machine(failing=[("sudo", "-n"), ("sudo", "-v")])
+    assert not ss.SudoSession(make(tmp_path, machine)).start()
 
 
 def test_sudo_is_not_prompted_in_a_dry_run(tmp_path):
