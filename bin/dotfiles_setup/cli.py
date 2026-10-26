@@ -1,5 +1,4 @@
-"""Argument parsing and entry point for dotfiles-setup. Port of the
-argument-parsing block and startup banner in bin/setup.sh's main()."""
+"""Argument parsing and entry point for dotfiles-setup."""
 from __future__ import annotations
 
 import argparse
@@ -16,11 +15,9 @@ from typing import Any
 
 from dotfiles_setup import (
     claude_plugins,
-    claude_profile,
-    claude_tools,
-    desktop_defaults,
     foothold,
     identity,
+    install_flow,
     overlay,
     presets,
     private,
@@ -28,13 +25,10 @@ from dotfiles_setup import (
     rollback,
     settings_drift,
     state,
-    stow,
     tooling,
-    tools,
     update,
 )
 from dotfiles_setup.backends import Backend, InstallResult
-from dotfiles_setup.backends import apt as apt_backend
 from dotfiles_setup.log import Logger
 from dotfiles_setup.presets import Preset
 from dotfiles_setup.result import Err, Ok, Result
@@ -176,6 +170,7 @@ class Env:
     state_dir: Path = field(default_factory=lambda: state.state_dir())
     dotfiles_dir: Path = field(default_factory=lambda: _dotfiles_dir())
     backend_factory: BackendFactory = _apt_backend
+    euid: Callable[[], int] = os.geteuid
 
     def now_iso(self) -> str:
         return self.clock().isoformat()
@@ -249,11 +244,7 @@ def _settings_drift_exit_code(args: argparse.Namespace, logger: Logger, env: Env
 
 
 def _log_install_failure(logger: Logger, result: InstallResult) -> None:
-    # backends/apt.py streams setup.sh output live; stdout is set only when a caller passes a capturing run (tests).
-    if result.stdout:
-        logger.error(result.stdout)
-    else:
-        logger.error(f"setup.sh exited with code {result.returncode}. See output above.")
+    logger.error(result.stdout or f"The install failed with exit code {result.returncode}. See output above.")
 
 
 def _prepare_checkout(args: argparse.Namespace, logger: Logger, dotfiles_dir: Path) -> Path | None:
@@ -369,8 +360,8 @@ class _Install:
     prior: state.MachineState | None
 
 
-def _tooling(logger: Logger, env: Env) -> tools.Tooling:
-    return tools.Tooling(
+def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
+    return tooling.Tooling(
         logger, Path.home(), run=env.run,
         fetch=tooling.fetch_https, download=tooling.download_https, redirect=tooling.redirect_location,
     )
@@ -381,32 +372,11 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
     return rollback.RollbackContext(t, rollback.RollbackLog.for_home(t.home), plan.dotfiles_dir, plan.overlay_root)
 
 
-def _step_hooks(
-    logger: Logger, env: Env, plan: _Install, force: bool, claude_dir: Path
-) -> dict[str, Callable[[], bool]]:
-    t = _tooling(logger, env)
-    stow_plan = stow.StowPlan(
-        t, plan.dotfiles_dir, plan.overlay_root, force, t.home / ".local/state/dotfiles/stow-backups",
-        env.clock().strftime("%Y%m%d%H%M%S"), rollback.RollbackLog.for_home(t.home),
+def _flow_inputs(logger: Logger, env: Env, plan: _Install, force: bool, claude_dir: Path) -> install_flow.FlowInputs:
+    return install_flow.FlowInputs(
+        _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.package_file, plan.overlay_root,
+        force, claude_dir, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(),
     )
-
-    def names() -> set[str]:
-        return presets.package_names(plan.package_file.read_text())
-
-    def run_session_steps() -> bool:
-        if not stow.configure_dotfiles(stow_plan):
-            return False
-        claude_profile.configure_claude_profile(t, plan.preset.name, claude_dir)
-        claude_tools.configure_claude_tools(t, plan.preset.name)
-        desktop_defaults.change_shell(t)
-        desktop_defaults.set_default_terminal(t)
-        return True
-
-    return {
-        apt_backend.AFTER_APT_SOURCES: lambda: tools.install_tools(t, names()),
-        apt_backend.AFTER_APT_PACKAGES: lambda: tools.install_post_apt_tools(t, names()),
-        apt_backend.AFTER_DOCKER_GROUP: run_session_steps,
-    }
 
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
@@ -414,17 +384,12 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     _write_claude_profile(logger, plan.preset, plan.dotfiles_dir, claude_dir, plan.overlay_root, plan.preset.name)
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root)
     _write_claude_settings(logger, claude_settings, env)
-    result = plan.backend.install(
-        plan.package_file, preset_name=plan.preset.name,
-        dry_run=args.dry_run, private_root=plan.overlay_root, verbosity=args.verbosity,
-        step_hooks=_step_hooks(logger, env, plan, args.force, claude_dir), run=env.run,
-    )
+    result = install_flow.run_install(_flow_inputs(logger, env, plan, args.force, claude_dir))
     if not result.succeeded:
         _log_install_failure(logger, result)
         if result.rollback_pending:
             rollback.offer_rollback(_rollback_context(logger, env, plan), interactive=sys.stdin.isatty())
         return result.returncode
-    _rollback_context(logger, env, plan).log.discard()
     _finish_install(args, logger, env, plan, claude_settings)
     return 0
 
@@ -435,7 +400,7 @@ def _finish_install(
     claude_dir = env.state_dir / "claude-profiles"
     claude_plugins.update_claude_plugins(logger, claude_settings)
     _sync_foothold(logger, plan.preset, claude_dir, plan.prior)
-    plan.backend.print_completion(dry_run=args.dry_run, run=env.run)
+    install_flow.print_completion_banner(logger)
     if not args.dry_run:
         _save_state(env, plan)
     logger.success(f"Machine preset set to '{plan.preset.name}'.")

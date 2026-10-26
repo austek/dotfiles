@@ -1,4 +1,4 @@
-"""Logging/output primitives. Port of bin/lib/log.sh."""
+"""Logging/output primitives."""
 from __future__ import annotations
 
 import subprocess

@@ -74,7 +74,7 @@ path_append "/usr/local/go/bin"
 # --- END PATH ---
 
 # --- LOAD PROFILE CONFIGS ---
-# This file is built by setup.sh from ~/dotfiles/profiles
+# This file is built by dotfiles-setup from ~/dotfiles/claude-profiles
 # It is ignored by .gitignore
 if [[ -r ~/.zshrc.profile ]]; then
   source ~/.zshrc.profile

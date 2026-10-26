@@ -1,11 +1,11 @@
 import json
 import os
 from datetime import UTC, datetime
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from dotfiles_setup import overlay, state
+from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.cli import (
     Env,
@@ -129,7 +129,20 @@ def foothold_retirements(monkeypatch):
 
 
 @pytest.fixture
-def isolated_dotfiles(tmp_path, monkeypatch, plugin_updates, foothold_installs, foothold_retirements):
+def flow_calls(monkeypatch):
+    """Replaces the real install steps (sudo, apt, stow) with a recorder that succeeds."""
+    calls = []
+
+    def run_install(inputs):
+        calls.append(inputs)
+        return InstallResult(True, 0, "")
+
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", run_install)
+    return calls
+
+
+@pytest.fixture
+def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothold_installs, foothold_retirements):
     """A minimal fake dotfiles_dir with one preset + its package files, plus
     state/overlay redirected into tmp_path so tests never touch the real
     machine's ~/.config/dotfiles or ~/.dotfiles-private."""
@@ -183,16 +196,20 @@ def test_install_is_idempotent_on_rerun(isolated_dotfiles):
     assert "ripgrep" in package_file.read_text()
 
 
+def fail_flow(monkeypatch, message="apt-get exploded"):
+    result = InstallResult(False, 1, message)
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: result)
+
+
 def test_install_reports_backend_failure(isolated_dotfiles, monkeypatch):
-    stub_subprocess(monkeypatch, returncode=1, stdout="apt-get exploded")
+    fail_flow(monkeypatch)
     assert main(["install", "--preset", "homelab"]) == 1
 
 
-def test_install_reports_backend_failure_with_no_captured_output(isolated_dotfiles, capsys, monkeypatch):
-    """Names the exit code when the streamed backend run left no output to print."""
-    stub_subprocess(monkeypatch, returncode=3, stdout=None, stderr=None)
+def test_install_reports_a_failure_with_no_message(isolated_dotfiles, capsys, monkeypatch):
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: InstallResult(False, 3, ""))
     assert main(["install", "--preset", "homelab"]) == 3
-    assert "exited with code 3" in capsys.readouterr().err
+    assert "exit code 3" in capsys.readouterr().err
 
 
 def test_dry_run_skips_git_identity(isolated_dotfiles, monkeypatch):
@@ -222,40 +239,32 @@ def test_dry_run_skips_state_persistence(isolated_dotfiles):
 
 
 def test_install_does_not_persist_state_on_failure(isolated_dotfiles, monkeypatch):
-    stub_subprocess(monkeypatch, returncode=1, stdout="apt-get exploded")
+    fail_flow(monkeypatch)
     main(["install", "--preset", "homelab"])
     assert state.load_state() is None
 
 
-def test_install_forwards_verbosity_to_backend(isolated_dotfiles, monkeypatch):
-    calls = stub_subprocess(monkeypatch)
+def test_install_forwards_verbosity_to_the_flow(isolated_dotfiles, flow_calls):
     assert main(["install", "--preset", "homelab", "-vv"]) == 0
-    assert calls[0][calls[0].index("--verbosity") + 1] == "2"
+    assert flow_calls[0].t.logger.verbosity == 2
 
 
-def test_install_passes_private_root_to_backend_when_overlay_present(isolated_dotfiles, monkeypatch, tmp_path):
+def test_install_passes_the_overlay_root_to_the_flow(isolated_dotfiles, flow_calls, monkeypatch, tmp_path):
     private_root = tmp_path / "dotfiles-private"
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
-    calls = stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab"]) == 0
-    setup_calls = [call for call in calls if "--only" in call]
-    assert setup_calls
-    assert all(call[call.index("--private-root") + 1] == str(private_root) for call in setup_calls)
+    assert flow_calls[0].overlay_root == private_root
 
 
-def test_install_runs_setup_sh_in_segments_around_the_tool_installers(isolated_dotfiles, monkeypatch):
-    calls = stub_subprocess(monkeypatch)
+def test_install_passes_no_overlay_root_when_there_is_none(isolated_dotfiles, flow_calls):
     assert main(["install", "--preset", "homelab"]) == 0
-    only = [call[call.index("--only") + 1].split(",") for call in calls if "--only" in call]
-    assert [steps[0] for steps in only] == [
-        "install_core_deps", "install_packages", "enable_gpaste_extension",
-    ]
+    assert flow_calls[0].overlay_root is None
 
 
-def test_install_omits_private_root_when_no_overlay(isolated_dotfiles, monkeypatch):
-    calls = stub_subprocess(monkeypatch)
+def test_install_hands_the_flow_the_preset_and_package_file(isolated_dotfiles, flow_calls):
     assert main(["install", "--preset", "homelab"]) == 0
-    assert "--private-root" not in calls[0]
+    assert flow_calls[0].preset_name == "homelab"
+    assert flow_calls[0].package_file == state.package_dir() / "homelab.txt"
 
 
 def test_install_raises_helpful_error_for_unknown_preset(isolated_dotfiles, capsys):
@@ -263,13 +272,14 @@ def test_install_raises_helpful_error_for_unknown_preset(isolated_dotfiles, caps
     assert "nonexistent" in capsys.readouterr().err
 
 
-def test_install_checks_for_dotfiles_updates_before_the_backend_runs(isolated_dotfiles, monkeypatch):
+def test_install_checks_for_dotfiles_updates_before_the_install_runs(isolated_dotfiles, monkeypatch):
     order = []
     monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda repo, logger: order.append(repo) or False)
-    stub_subprocess(monkeypatch, calls=order)
+    monkeypatch.setattr(
+        "dotfiles_setup.cli.install_flow.run_install", lambda inputs: order.append("flow") or InstallResult(True, 0, ""),
+    )
     main(["install", "--preset", "homelab"])
-    assert order[0] == isolated_dotfiles[0]
-    assert isinstance(order[1], list)
+    assert order == [isolated_dotfiles[0], "flow"]
 
 
 def test_install_pulls_private_overlay_after_dotfiles(isolated_dotfiles, monkeypatch, tmp_path):
@@ -442,14 +452,14 @@ def test_install_keeps_the_foothold_when_the_preset_is_unchanged(isolated_dotfil
     assert foothold_retirements == []
 
 
-def test_install_skips_the_foothold_when_the_backend_fails(isolated_dotfiles, foothold_installs, monkeypatch):
-    stub_subprocess(monkeypatch, returncode=1, stdout="boom")
+def test_install_skips_the_foothold_when_the_install_fails(isolated_dotfiles, foothold_installs, monkeypatch):
+    fail_flow(monkeypatch, "boom")
     main(["install", "--preset", "homelab"])
     assert foothold_installs == []
 
 
-def test_install_skips_claude_plugin_update_when_the_backend_fails(isolated_dotfiles, plugin_updates, monkeypatch):
-    stub_subprocess(monkeypatch, returncode=1, stdout="boom")
+def test_install_skips_claude_plugin_update_when_the_install_fails(isolated_dotfiles, plugin_updates, monkeypatch):
+    fail_flow(monkeypatch, "boom")
     main(["install", "--preset", "homelab"])
     assert plugin_updates == []
 
@@ -610,38 +620,31 @@ def test_main_private_clone_returns_nonzero_on_git_failure(tmp_path, monkeypatch
     assert "not found" in capsys.readouterr().err
 
 
-def test_install_force_flag_reaches_the_stow_step(isolated_dotfiles, monkeypatch):
-    seen = []
-    monkeypatch.setattr("dotfiles_setup.cli.stow.configure_dotfiles", lambda plan: seen.append(plan.force) or True)
-    stub_subprocess(monkeypatch)
+def test_install_force_flag_reaches_the_flow(isolated_dotfiles, flow_calls):
     assert main(["install", "--preset", "homelab", "--force"]) == 0
-    assert seen == [True]
+    assert flow_calls[0].force is True
 
 
-def test_a_successful_install_removes_the_rollback_log(isolated_dotfiles, monkeypatch):
-    log = Path.home() / ".dotfiles-setup-rollback.log"
-    log.write_text("STOW_HOME:a\n")
-    stub_subprocess(monkeypatch)
+def test_force_is_off_by_default(isolated_dotfiles, flow_calls):
     assert main(["install", "--preset", "homelab"]) == 0
-    assert not log.exists()
+    assert flow_calls[0].force is False
 
 
-def test_a_failed_install_keeps_the_rollback_log(isolated_dotfiles, monkeypatch):
-    log = Path.home() / ".dotfiles-setup-rollback.log"
-    log.write_text("STOW_HOME:a\n")
-    monkeypatch.setattr("dotfiles_setup.cli.rollback.offer_rollback", lambda ctx, interactive: None)
-    stub_subprocess(monkeypatch, returncode=1)
-    assert main(["install", "--preset", "homelab"]) == 1
-    assert log.exists()
-
-
-def test_a_failed_stow_offers_a_rollback(isolated_dotfiles, monkeypatch):
+def test_a_failed_step_offers_a_rollback(isolated_dotfiles, monkeypatch):
     offered = []
-    monkeypatch.setattr("dotfiles_setup.cli.stow.configure_dotfiles", lambda plan: False)
+    failed = InstallResult(False, 1, "Step 'x' failed.", rollback_pending=True)
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: failed)
     monkeypatch.setattr("dotfiles_setup.cli.rollback.offer_rollback", lambda ctx, interactive: offered.append(ctx))
-    stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab"]) == 1
     assert len(offered) == 1
+
+
+def test_a_failure_with_nothing_to_roll_back_offers_nothing(isolated_dotfiles, monkeypatch):
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: InstallResult(False, 1, "no"))
+    monkeypatch.setattr(
+        "dotfiles_setup.cli.rollback.offer_rollback", lambda ctx, interactive: pytest.fail("no rollback expected"),
+    )
+    assert main(["install", "--preset", "homelab"]) == 1
 
 
 def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):

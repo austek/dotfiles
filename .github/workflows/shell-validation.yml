@@ -40,9 +40,6 @@ jobs:
           chmod +x scripts/validate-no-machine-paths.sh
           ./scripts/validate-no-machine-paths.sh
 
-      - name: Run install-function regression tests
-        run: bash scripts/test-install-functions.sh
-
   python:
     name: Validate Python CLI
     runs-on: ubuntu-latest

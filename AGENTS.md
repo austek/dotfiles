@@ -5,7 +5,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 ## Repository Context
 - This repository contains personal configuration files (dotfiles) for an Ubuntu-based development environment.
 - It is designed to be automated, preset-aware, and easily deployed on new machines.
-- The core architecture relies on **GNU Stow** to manage symlinks and a custom `setup.sh` script to orchestrate the installation.
+- The core architecture relies on **GNU Stow** to manage symlinks and the `dotfiles-setup` Python CLI (`bin/dotfiles_setup/`) to orchestrate the installation. There is no installer shell script: every step lives in a Python module, and `install_flow.py` lists them in run order.
 
 ## Architecture & Design Principles
 
@@ -13,14 +13,14 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - **NEVER** suggest or use `apt-get install` directly to add applications.
 - To add or remove applications, update the text files located in the `~/.dotfiles/packages/` directory.
 - Available package lists include: `apt_common.txt` (all presets, headless-safe), `apt_desktop.txt` (GUI packages, pulled in by `work`/`personal` only), `apt_rust.txt` (Rust tooling shared by `personal` and `homelab`), `apt_work.txt`, `apt_personal.txt`, `apt_homelab.txt`, and `github_bins.txt`.
-- The `setup.sh` script handles downloading and installing `.deb` packages from GitHub releases based on the text list.
+- `apt_packages.py` downloads and installs the `.deb` packages from GitHub releases listed in `github_bins.txt`.
 
 ### 2. Snap-Free Environment
 - This is a strictly Snap-Free edition.
 - `snapd` is automatically removed and blocked via an `apt` preference file in the `system/` package. Do not write scripts that rely on snap packages.
 
 ### 3. Preset-Aware Setup
-- The setup is preset-aware; `setup.sh` requires a `--preset work`, `--preset personal`, or `--preset homelab` argument. `dotfiles-setup install` requires `--preset` only on a machine with no saved preset; otherwise it reuses the saved one, and an explicit `--preset` overrides and replaces it.
+- The setup is preset-aware. `dotfiles-setup install` requires `--preset` only on a machine with no saved preset; otherwise it reuses the saved one, and an explicit `--preset` overrides and replaces it.
 - It builds configuration files based on the chosen preset.
 - Per-preset Claude Code settings are stored in `~/.dotfiles/claude-profiles/`. See "Presets and Portability" below for how a preset's package list is resolved and forked per machine.
 
@@ -79,7 +79,8 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - Edit configuration files directly inside their respective `stow` packages (e.g., `~/.dotfiles/zsh/.zshrc`).
 - Symlinks are managed by `stow <package-name>` (to create) and `stow -D <package-name>` (to delete).
 - `dotfiles-setup install --force` moves files that block stow to `~/.local/state/dotfiles/stow-backups/<timestamp>/<path relative to $HOME>` and logs each move, then stows. Without it, a conflict fails the install with a hint to re-run with `--force`. Never make force the default.
-- Manual stowing is for quick adjustments; `setup.sh` handles it automatically during normal installation.
+- Manual stowing is for quick adjustments; `dotfiles-setup install` handles it automatically (`stow.py`).
+- Steps that change the system record what they did in `~/.dotfiles-setup-rollback.log` (`RollbackLog.track`); a failed install offers to undo them via `rollback.py`. A new step that touches system state must record its undo entry there.
 
 ### Saving Changes
 - Use the provided `dotfiles-backup save` command to save changes.

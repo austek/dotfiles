@@ -106,8 +106,7 @@ def stow_with_backup(plan: StowPlan, args: Sequence[str], cwd: Path) -> bool:
         if stage is not None:
             finalize_stow_backup(plan, stage)
         plan.t.logger.error(
-            "Stow failed. If files block it, re-run with --force (dotfiles-setup) or --force-stow (setup.sh) "
-            "to back them up and stow anyway."
+            "Stow failed. If files block it, re-run with --force to back them up and stow anyway."
         )
         return False
     return stage is None or finalize_stow_backup(plan, stage)

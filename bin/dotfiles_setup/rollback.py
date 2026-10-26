@@ -1,6 +1,5 @@
-"""Rollback log shared with bin/lib/rollback.sh: each change a setup run makes
-is appended as `ACTION:data`, and a failed run can undo them newest first.
-The shell segments and the Python hooks write to the same file."""
+"""Rollback log: each change a setup run makes is appended as `ACTION:data`,
+and a failed run can undo them newest first."""
 from __future__ import annotations
 
 from collections.abc import Callable
