@@ -4,7 +4,6 @@
   },
   "permissions": {
     "allow": [
-      "Bash(gh api repos/compress4j/*/rulesets)",
       "Bash(grep *)",
       "Bash(head *)",
       "Bash(jq *)",
@@ -16,11 +15,13 @@
       "Glob",
       "Grep",
       "Read",
-      "Bash(gh api repos/ZirekHQ/*/rulesets)",
       "Bash(docker manifest inspect *)",
       "Bash(jobs *)",
       "Bash(mkdocs --version)",
       "mcp__serena__*"
+    ],
+    "ask": [
+      "Bash(rg *--pre*)"
     ],
     "defaultMode": "auto"
   },
