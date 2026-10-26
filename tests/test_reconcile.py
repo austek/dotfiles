@@ -1,4 +1,8 @@
-from dotfiles_setup.reconcile import effective_names, names_to_append, reconcile_package_file
+from dotfiles_setup.reconcile import (
+    effective_names,
+    names_to_append,
+    reconcile_package_file,
+)
 
 
 def test_names_to_append_skips_previously_carried_and_existing_names():

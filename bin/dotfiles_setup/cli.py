@@ -330,7 +330,8 @@ def _plan(
     combined = combine_package_names(backend, logical_names, overlay_names)
     package_file = state.package_dir(env.state_dir) / f"{preset.name}.txt"
     previous_names = prior.applied_package_names if prior and prior.preset_name == preset.name else None
-    packages = _reconcile_packages(logger, package_file, combined, previous_names)
+    packages = reconcile.effective_names(package_file, combined, previous_names)
+    _reconcile_packages(logger, package_file, combined, previous_names)
     return _Install(preset, backend, combined, package_file, packages, overlay_root, env.dotfiles_dir, prior)
 
 
@@ -342,14 +343,12 @@ def combine_package_names(
 
 def _reconcile_packages(
     logger: Logger, package_file: Path, combined: tuple[str, ...], previous_names: tuple[str, ...] | None
-) -> frozenset[str]:
-    names = reconcile.effective_names(package_file, combined, previous_names)
+) -> None:
     if logger.dry_run_notice(f"Would reconcile {package_file}."):
-        return names
+        return
     added, _ = reconcile.reconcile_package_file(package_file, combined, previous_names)
     if added:
         logger.info(f"Added {len(added)} new package(s) to {package_file}")
-    return names
 
 
 @dataclass(frozen=True)
