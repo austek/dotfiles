@@ -13,6 +13,12 @@ def test_resolve_name_returns_logical_name_when_no_override():
     assert backend.resolve_name("ripgrep") == "ripgrep"
 
 
+def test_apt_backend_satisfies_backend_protocol():
+    from dotfiles_setup.backends import Backend
+
+    assert isinstance(AptBackend(dotfiles_dir=Path("/x"), backend_overrides={}), Backend)
+
+
 def test_detect_true_when_apt_get_on_path(monkeypatch):
     backend = AptBackend(dotfiles_dir=Path("/x"), backend_overrides={})
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/apt-get" if name == "apt-get" else None)

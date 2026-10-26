@@ -9,24 +9,22 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+
+from git_ops import (
+    RunFn,
+    claude_settings_changed,
+    create_branch,
+    current_branch,
+    has_changes,
+    pr_exists,
+)
 
 DEFAULT_BRANCH = "main"
-RunFn = Callable[..., Any]
+__all__ = ["DEFAULT_BRANCH", "RunFn", "claude_settings_changed", "main"]
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
-
-
-def claude_settings_changed(dotfiles_dir: Path, run: RunFn = subprocess.run) -> bool:
-    result = run(
-        ["git", "status", "--porcelain", "--", "claude/.claude/settings.json"],
-        cwd=dotfiles_dir,
-        capture_output=True,
-        text=True,
-    )
-    return bool((result.stdout or "").strip())
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -81,7 +79,7 @@ def _save_steps(dotfiles_dir: Path, branch: str, run: RunFn) -> list[list[str]]:
         ["git", "commit", "-m", "chore: update configs and package lists"],
         ["git", "push", "-u", "origin", branch],
     ]
-    if run(["gh", "pr", "view", branch], cwd=dotfiles_dir, capture_output=True).returncode != 0:
+    if not pr_exists(dotfiles_dir, branch, run=run):
         steps.append(["gh", "pr", "create", "--base", DEFAULT_BRANCH, "--fill"])
     return steps
 
@@ -91,7 +89,7 @@ def _run_save(run: RunFn = subprocess.run, now: Callable[[], datetime] = datetim
     error = _preflight_error(dotfiles_dir, run)
     if error:
         return _abort(error)
-    if not _has_changes(dotfiles_dir, run=run):
+    if not has_changes(dotfiles_dir, run=run):
         print("Nothing to back up.")
         return 0
     branch = _backup_branch(dotfiles_dir, run=run, now=now)
@@ -104,30 +102,14 @@ def _run_save(run: RunFn = subprocess.run, now: Callable[[], datetime] = datetim
     return 0
 
 
-def _has_changes(dotfiles_dir: Path, run: RunFn = subprocess.run) -> bool:
-    result = run(
-        ["git", "status", "--porcelain"],
-        cwd=dotfiles_dir,
-        capture_output=True,
-        text=True,
-    )
-    return bool((result.stdout or "").strip())
-
-
 def _backup_branch(
     dotfiles_dir: Path, run: RunFn = subprocess.run, now: Callable[[], datetime] = datetime.now
 ) -> str | None:
-    current = run(
-        ["git", "branch", "--show-current"],
-        cwd=dotfiles_dir,
-        capture_output=True,
-        text=True,
-    )
-    branch = (current.stdout or "").strip()
+    branch = current_branch(dotfiles_dir, run=run)
     if branch not in ("", DEFAULT_BRANCH):
         return branch
     branch = f"backup/{now():%Y%m%d-%H%M%S}"
-    if run(["git", "switch", "-c", branch], cwd=dotfiles_dir).returncode != 0:
+    if not create_branch(dotfiles_dir, branch, run=run):
         print(f"Aborting: cannot create branch {branch}.", file=sys.stderr)
         return None
     return branch

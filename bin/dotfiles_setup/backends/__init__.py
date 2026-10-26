@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,7 @@ class InstallResult:
     stdout: str
 
 
+@runtime_checkable
 class Backend(Protocol):
     name: str
 

@@ -1,4 +1,11 @@
-from dotfiles_setup.state import MachineState, load_state, save_state
+from dotfiles_setup.state import (
+    MachineState,
+    load_state,
+    package_dir,
+    save_state,
+    state_dir,
+    state_file,
+)
 
 
 def _sample_state(**overrides):
@@ -13,6 +20,16 @@ def _sample_state(**overrides):
     }
     fields.update(overrides)
     return MachineState(**fields)
+
+
+def test_state_paths_derive_from_base_dir(tmp_path):
+    assert state_file(tmp_path) == tmp_path / "state.json"
+    assert package_dir(tmp_path) == tmp_path / "packages"
+
+
+def test_state_paths_resolve_home_lazily(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert state_dir() == tmp_path / ".config" / "dotfiles"
 
 
 def test_load_state_returns_none_when_file_missing(tmp_path):

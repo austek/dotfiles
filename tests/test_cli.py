@@ -7,6 +7,7 @@ import pytest
 from dotfiles_setup import overlay, state
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.cli import (
+    Env,
     _replace_settings_target,
     build_arg_parser,
     combine_package_names,
@@ -148,10 +149,8 @@ def isolated_dotfiles(tmp_path, monkeypatch, plugin_updates, foothold_installs, 
     (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps({"model": "base"}))
 
     monkeypatch.setattr("dotfiles_setup.cli._dotfiles_dir", lambda: dotfiles_dir)
-    monkeypatch.setattr("dotfiles_setup.cli.CLAUDE_HOME", tmp_path / "claude-home")
-    monkeypatch.setattr(state, "STATE_DIR", tmp_path / "state")
-    monkeypatch.setattr(state, "STATE_FILE", tmp_path / "state" / "state.json")
-    monkeypatch.setattr(state, "PACKAGE_DIR", tmp_path / "state" / "packages")
+    monkeypatch.setattr("dotfiles_setup.cli._claude_home", lambda: tmp_path / "claude-home")
+    monkeypatch.setattr(state, "state_dir", lambda: tmp_path / "state")
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: None)
     monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda *a, **kw: False)
     monkeypatch.setattr("dotfiles_setup.cli.identity.ensure_git_identity", lambda **kw: tmp_path / "gitconfig.local")
@@ -213,7 +212,7 @@ def test_dry_run_skips_claude_profile_write(isolated_dotfiles):
 
 def test_dry_run_still_forks_the_package_file_setup_sh_reads(isolated_dotfiles):
     main(["install", "--preset", "homelab", "--dry-run"])
-    assert (state.PACKAGE_DIR / "homelab.txt").exists()
+    assert (state.package_dir() / "homelab.txt").exists()
 
 
 def test_dry_run_skips_state_persistence(isolated_dotfiles):
@@ -530,11 +529,54 @@ def test_main_private_clone_clones_to_default_dest(tmp_path, monkeypatch):
     assert calls == [["git", "clone", "git@github.com:you/dotfiles-private.git", str(default_root)]]
 
 
-def test_main_private_clone_honors_dest_override(tmp_path, monkeypatch):
+def test_main_private_clone_honors_dest_override(tmp_path):
     dest = tmp_path / "custom-dest"
-    calls = stub_subprocess(monkeypatch, stdout="")
-    assert main(["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest)]) == 0
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    argv = ["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest)]
+    assert main(argv, Env(run=run)) == 0
     assert calls[0][-1] == str(dest)
+
+
+def test_install_uses_injected_clock_and_paths(isolated_dotfiles, tmp_path):
+    dotfiles_dir, _ = isolated_dotfiles
+    clock_value = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
+    env = Env(
+        clock=lambda: clock_value, claude_home=tmp_path / "injected-claude",
+        state_dir=tmp_path / "injected-state", dotfiles_dir=dotfiles_dir,
+    )
+    assert main(["install", "--preset", "homelab"], env) == 0
+    saved = state.load_state(tmp_path / "injected-state" / "state.json")
+    assert saved.created_at == clock_value.isoformat()
+    assert (tmp_path / "injected-claude" / "settings.json").is_file()
+    assert (tmp_path / "injected-state" / "packages" / "homelab.txt").is_file()
+
+
+def test_install_builds_backend_through_injected_factory(isolated_dotfiles):
+    dotfiles_dir, _ = isolated_dotfiles
+    seen = []
+
+    def factory(directory, overrides):
+        seen.append((directory, overrides))
+        return AptBackend(dotfiles_dir=directory, backend_overrides=overrides)
+
+    assert main(["install", "--preset", "homelab"], Env(dotfiles_dir=dotfiles_dir, backend_factory=factory)) == 0
+    assert seen == [(dotfiles_dir, {})]
+
+
+def test_env_now_iso_uses_clock():
+    env = Env(clock=lambda: datetime(2030, 1, 2, tzinfo=UTC))
+    assert env.now_iso() == "2030-01-02T00:00:00+00:00"
+
+
+def test_each_subcommand_parser_is_built_by_its_own_function():
+    parser = build_arg_parser()
+    assert parser.parse_args(["install", "-vv", "--force"]).verbosity == 2
+    assert parser.parse_args(["private", "clone", "--repo", "x"]).private_command == "clone"
 
 
 def test_main_private_clone_dry_run_does_not_clone(tmp_path, monkeypatch, capsys):
