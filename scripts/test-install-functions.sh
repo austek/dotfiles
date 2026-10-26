@@ -680,6 +680,17 @@ fi
 PACKAGE_FILE_OVERRIDE=""
 MACHINE_PRESET=""
 
+# --- validate_machine_preset rejects a missing --package-file ---
+MACHINE_PRESET="work"
+PACKAGE_FILE_OVERRIDE=""
+if (validate_machine_preset >/dev/null 2>&1); then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("validate_machine_preset: accepted a preset without --package-file")
+else
+    PASS_COUNT=$((PASS_COUNT + 1))
+fi
+MACHINE_PRESET=""
+
 # --- stow backup helpers (--force-stow) ---
 check() {
     local scenario="$1"
