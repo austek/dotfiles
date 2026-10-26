@@ -30,6 +30,40 @@ def test_install_runs_the_tool_hook_between_two_setup_segments(tmp_path):
     assert events == ["install_core_deps", "tools", "install_packages"]
 
 
+def test_install_runs_the_post_apt_hook_right_after_install_packages(tmp_path):
+    events = []
+
+    def fake_run(argv, **kwargs):
+        events.append(argv[argv.index("--only") + 1])
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    result = backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tools_hook=lambda: events.append("tools") or True,
+        post_apt_hook=lambda: events.append("post-apt") or True, run=fake_run,
+    )
+    assert result.succeeded
+    assert events[:4] == ["install_core_deps,disable_snapd,strip_snap_from_system_path,configure_apt_sources",
+                          "tools", "install_packages", "post-apt"]
+    assert events[4].startswith("enable_gpaste_extension")
+
+
+def test_a_failed_post_apt_hook_skips_the_remaining_steps(tmp_path):
+    runs = []
+
+    def fake_run(argv, **kwargs):
+        runs.append(argv)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    result = backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tools_hook=lambda: True, post_apt_hook=lambda: False, run=fake_run,
+    )
+    assert (result.succeeded, len(runs)) == (False, 2)
+
+
 def test_install_skips_the_second_segment_when_the_first_fails(tmp_path):
     runs = []
 

@@ -34,6 +34,7 @@ class Backend(Protocol):
         verbosity: int = 0,
         force_stow: bool = False,
         tools_hook: Callable[[], bool] | None = None,
+        post_apt_hook: Callable[[], bool] | None = None,
         run: Callable[..., Any] = ...,
     ) -> InstallResult: ...
     def print_completion(self, *, dry_run: bool, run: Callable[..., Any] = ...) -> None: ...

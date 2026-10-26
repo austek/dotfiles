@@ -40,8 +40,6 @@ source "$SCRIPT_DIR/lib/helpers.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/apt.sh"
 # shellcheck source=/dev/null
-source "$SCRIPT_DIR/lib/installers.sh"
-# shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/dotfiles.sh"
 
 SETUP_STEPS=(

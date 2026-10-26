@@ -363,12 +363,16 @@ class _Install:
     prior: state.MachineState | None
 
 
-def _tools_hook(logger: Logger, env: Env, plan: _Install) -> Callable[[], bool]:
+def _tool_hooks(logger: Logger, env: Env, plan: _Install) -> tuple[Callable[[], bool], Callable[[], bool]]:
     t = tools.Tooling(
         logger, Path.home(), run=env.run,
         fetch=tooling.fetch_https, download=tooling.download_https, redirect=tooling.redirect_location,
     )
-    return lambda: tools.install_tools(t, presets.package_names(plan.package_file.read_text()))
+
+    def names() -> set[str]:
+        return presets.package_names(plan.package_file.read_text())
+
+    return (lambda: tools.install_tools(t, names()), lambda: tools.install_post_apt_tools(t, names()))
 
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
@@ -376,10 +380,11 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     _write_claude_profile(logger, plan.preset, plan.dotfiles_dir, claude_dir, plan.overlay_root, plan.preset.name)
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root)
     _write_claude_settings(logger, claude_settings, env)
+    tools_hook, post_apt_hook = _tool_hooks(logger, env, plan)
     result = plan.backend.install(
         plan.package_file, preset_name=plan.preset.name, claude_profile_dir=claude_dir,
         dry_run=args.dry_run, private_root=plan.overlay_root, verbosity=args.verbosity,
-        force_stow=args.force, tools_hook=_tools_hook(logger, env, plan), run=env.run,
+        force_stow=args.force, tools_hook=tools_hook, post_apt_hook=post_apt_hook, run=env.run,
     )
     if not result.succeeded:
         _log_install_failure(logger, result)

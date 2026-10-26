@@ -242,11 +242,11 @@ def test_install_passes_private_root_to_backend_when_overlay_present(isolated_do
     assert all(call[call.index("--private-root") + 1] == str(private_root) for call in setup_calls)
 
 
-def test_install_runs_setup_sh_in_two_segments_around_the_tool_installers(isolated_dotfiles, monkeypatch):
+def test_install_runs_setup_sh_in_segments_around_the_tool_installers(isolated_dotfiles, monkeypatch):
     calls = stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab"]) == 0
     only = [call[call.index("--only") + 1].split(",") for call in calls if "--only" in call]
-    assert [steps[0] for steps in only] == ["install_core_deps", "install_packages"]
+    assert [steps[0] for steps in only] == ["install_core_deps", "install_packages", "enable_gpaste_extension"]
 
 
 def test_install_omits_private_root_when_no_overlay(isolated_dotfiles, monkeypatch):

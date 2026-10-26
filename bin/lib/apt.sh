@@ -431,16 +431,6 @@ install_packages() {
     else
         log_warn "No apt packages to install."
     fi
-
-    if array_contains "auditr" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_auditr
-    fi
-    if array_contains "cargo-deny" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_cargo_deny
-    fi
-    if array_contains "cargo-audit" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_cargo_audit
-    fi
 }
 
 enable_gpaste_extension() {

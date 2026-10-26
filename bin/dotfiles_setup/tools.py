@@ -9,7 +9,12 @@ import os
 from collections.abc import Collection
 from pathlib import Path
 
-from dotfiles_setup import antigravity, release_installers, vendor_installers
+from dotfiles_setup import (
+    antigravity,
+    post_apt_installers,
+    release_installers,
+    vendor_installers,
+)
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all, fetch_https
 
 __all__ = ["TOOL_INSTALLERS", "Tooling", "fetch_https", "install_tools"]
@@ -117,8 +122,16 @@ TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
 )
 
 
-def install_tools(t: Tooling, package_names: Collection[str]) -> bool:
-    for name, installer in TOOL_INSTALLERS:
+def _run_installers(t: Tooling, table: tuple[tuple[str, Installer], ...], package_names: Collection[str]) -> bool:
+    for name, installer in table:
         if name in package_names and installer(t) is False:
             return False
     return True
+
+
+def install_tools(t: Tooling, package_names: Collection[str]) -> bool:
+    return _run_installers(t, TOOL_INSTALLERS, package_names)
+
+
+def install_post_apt_tools(t: Tooling, package_names: Collection[str]) -> bool:
+    return _run_installers(t, post_apt_installers.POST_APT_INSTALLERS, package_names)

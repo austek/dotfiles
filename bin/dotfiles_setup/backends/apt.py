@@ -17,11 +17,13 @@ from dotfiles_setup.backends import InstallResult
 STEPS_BEFORE_TOOLS = (
     "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
 )
-STEPS_AFTER_TOOLS = (
-    "install_packages", "enable_gpaste_extension", "install_github_bins", "configure_docker_group",
+STEPS_APT_PACKAGES = ("install_packages",)
+STEPS_AFTER_APT = (
+    "enable_gpaste_extension", "install_github_bins", "configure_docker_group",
     "configure_dotfiles", "configure_claude_profile", "configure_rtk_cli", "configure_cozempic_cli",
     "configure_serena", "configure_caveman_proxy", "change_shell", "set_default_terminal",
 )
+STEPS_AFTER_TOOLS = STEPS_APT_PACKAGES + STEPS_AFTER_APT
 
 
 def setup_argv(
@@ -43,6 +45,20 @@ def setup_argv(
     argv += ["--only", ",".join(only_steps)] if only_steps else []
     argv += ["--dry-run"] if dry_run else []
     return argv
+
+
+def _run_stages(
+    segment: Callable[[tuple[str, ...]], InstallResult],
+    stages: list[tuple[tuple[str, ...], Callable[[], bool] | None]],
+) -> InstallResult:
+    result = InstallResult(succeeded=True, returncode=0, stdout="")
+    for steps, hook_after in stages:
+        result = segment(steps)
+        if not result.succeeded:
+            return result
+        if hook_after is not None and not hook_after():
+            return InstallResult(succeeded=False, returncode=1, stdout="A tool installer failed. See output above.")
+    return result
 
 
 @dataclass(frozen=True)
@@ -68,6 +84,7 @@ class AptBackend:
         verbosity: int = 0,
         force_stow: bool = False,
         tools_hook: Callable[[], bool] | None = None,
+        post_apt_hook: Callable[[], bool] | None = None,
         run: Callable[..., Any] = subprocess.run,
     ) -> InstallResult:
         def segment(steps: tuple[str, ...]) -> InstallResult:
@@ -86,12 +103,12 @@ class AptBackend:
 
         if tools_hook is None:
             return segment(())
-        before = segment(STEPS_BEFORE_TOOLS)
-        if not before.succeeded:
-            return before
-        if not tools_hook():
-            return InstallResult(succeeded=False, returncode=1, stdout="A tool installer failed. See output above.")
-        return segment(STEPS_AFTER_TOOLS)
+        stages = [(STEPS_BEFORE_TOOLS, tools_hook)]
+        if post_apt_hook is None:
+            stages.append((STEPS_AFTER_TOOLS, None))
+        else:
+            stages += [(STEPS_APT_PACKAGES, post_apt_hook), (STEPS_AFTER_APT, None)]
+        return _run_stages(segment, stages)
 
     def print_completion(self, *, dry_run: bool, run: Callable[..., Any] = subprocess.run) -> None:
         sys.stdout.flush()
