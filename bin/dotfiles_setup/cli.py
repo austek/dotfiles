@@ -309,8 +309,6 @@ def combine_package_names(
 def _reconcile_packages(
     logger: Logger, package_file: Path, combined: tuple[str, ...], previous_names: tuple[str, ...] | None
 ) -> None:
-    if logger.dry_run_notice(f"Would reconcile {package_file}."):
-        return
     added, _ = reconcile.reconcile_package_file(package_file, combined, previous_names)
     if added:
         logger.info(f"Added {len(added)} new package(s) to {package_file}")

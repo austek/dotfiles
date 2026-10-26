@@ -211,9 +211,9 @@ def test_dry_run_skips_claude_profile_write(isolated_dotfiles):
     assert not (tmp_path / "state" / "claude-profiles" / "claude_homelab.json").exists()
 
 
-def test_dry_run_skips_package_fork(isolated_dotfiles):
+def test_dry_run_still_forks_the_package_file_setup_sh_reads(isolated_dotfiles):
     main(["install", "--preset", "homelab", "--dry-run"])
-    assert not (state.PACKAGE_DIR / "homelab.txt").exists()
+    assert (state.PACKAGE_DIR / "homelab.txt").exists()
 
 
 def test_dry_run_skips_state_persistence(isolated_dotfiles):
