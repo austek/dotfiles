@@ -793,6 +793,22 @@ check "apt stow: repo checkout keeps every tracked source" test "$(command find 
 unset -f sudo
 stow_teardown
 
+# --- deselected rendered apt sources are removed; hand-made ones are not ---
+stow_sandbox
+APT_SOURCES_DIR="$STOW_TMP/sources.list.d"
+mkdir -p "$APT_SOURCES_DIR"
+printf '%s\nTypes: deb\n' "$APT_RENDERED_MARKER" > "$APT_SOURCES_DIR/pgadmin4.sources"
+printf '%s\nTypes: deb\n' "$APT_RENDERED_MARKER" > "$APT_SOURCES_DIR/docker.sources"
+printf 'Types: deb\n' > "$APT_SOURCES_DIR/postgresql.sources"
+sudo() { "$@"; }
+remove_deselected_rendered_sources 1 0 0 1 >/dev/null 2>&1
+check "apt sources: deselected rendered source is removed" test ! -e "$APT_SOURCES_DIR/pgadmin4.sources"
+check "apt sources: selected rendered source is kept" test -e "$APT_SOURCES_DIR/docker.sources"
+check "apt sources: hand-made source without the marker is kept" test -e "$APT_SOURCES_DIR/postgresql.sources"
+unset -f sudo
+unset APT_SOURCES_DIR
+stow_teardown
+
 # --- Oh My Zsh and SDKMAN leave ~/.zshrc alone ---
 stow_sandbox
 DRY_RUN=false

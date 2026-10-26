@@ -352,17 +352,38 @@ stow_apt_source_files() {
     fi
 }
 
+APT_RENDERED_MARKER="# Managed by dotfiles: rendered from apt-templates"
+
 render_apt_template() {
     local name="$1" codename="$2"
+    local dir="${APT_SOURCES_DIR:-/etc/apt/sources.list.d}"
     log_info "Configuring $name apt repository for suite: $codename"
-    sed "s/@CODENAME@/$codename/g" "$DOTFILES_DIR/apt-templates/$name.sources.template" | sudo tee "/etc/apt/sources.list.d/$name.sources" > /dev/null
-    track_change "FILE_CREATED:/etc/apt/sources.list.d/$name.sources"
+    sed "s/@CODENAME@/$codename/g" "$DOTFILES_DIR/apt-templates/$name.sources.template" | sudo tee "$dir/$name.sources" > /dev/null
+    track_change "FILE_CREATED:$dir/$name.sources"
+}
+
+remove_stale_rendered_source() {
+    local path="${APT_SOURCES_DIR:-/etc/apt/sources.list.d}/$1.sources"
+    if [[ -f "$path" ]] && grep -qF "$APT_RENDERED_MARKER" "$path"; then
+        log_info "Removing deselected apt source: $1"
+        sudo rm -f "$path"
+    fi
+}
+
+remove_deselected_rendered_sources() {
+    local docker_selected="$1" pgadmin_selected="$2" postgresql_selected="$3" teleport_selected="$4"
+    if [[ "$docker_selected" -eq 0 ]]; then remove_stale_rendered_source docker; fi
+    if [[ "$pgadmin_selected" -eq 0 ]]; then remove_stale_rendered_source pgadmin4; fi
+    if [[ "$postgresql_selected" -eq 0 ]]; then remove_stale_rendered_source postgresql; fi
+    if [[ "$teleport_selected" -eq 0 ]]; then remove_stale_rendered_source teleport; fi
 }
 
 generate_templated_apt_sources() {
     local pgadmin_selected="$1" postgresql_selected="$2" teleport_selected="$3"
     local docker_selected=0
     array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}" && docker_selected=1
+
+    remove_deselected_rendered_sources "$docker_selected" "$pgadmin_selected" "$postgresql_selected" "$teleport_selected"
 
     if [[ $((docker_selected + pgadmin_selected + postgresql_selected + teleport_selected)) -eq 0 ]]; then
         return 0
@@ -395,9 +416,6 @@ configure_apt_sources() {
     download_apt_gpg_keys "$pgadmin_selected" "$postgresql_selected" "$teleport_selected"
     configure_apt_ppas
 
-    # Dry-run must return before the code below, which physically moves
-    # tracked .sources files into a temp dir — checking DRY_RUN after that
-    # would make --dry-run mutate the working tree.
     if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would stow 'apt' package to / (includes third-party repo sources)"
         log_dry_run "Would handle any stow conflicts by backing up existing files"

@@ -1,3 +1,4 @@
+# Managed by dotfiles: rendered from apt-templates
 Types: deb
 URIs: https://apt.releases.teleport.dev/ubuntu
 Suites: @CODENAME@
