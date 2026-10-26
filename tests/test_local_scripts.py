@@ -43,6 +43,18 @@ def _logging_stub(stubs, name, extra=""):
     _stub(stubs, name, f'echo "{name} $*" >> "$STUB_LOG"\n{extra}\n')
 
 
+def _path_without(tmp_path, stubs, *names):
+    """A PATH of `stubs` plus every system binary except `names`, to simulate a missing dependency."""
+    farm = tmp_path / "farm"
+    farm.mkdir(exist_ok=True)
+    for directory in ("/usr/bin", "/bin"):
+        for entry in os.scandir(directory):
+            link = farm / entry.name
+            if entry.name not in names and not link.is_symlink():
+                link.symlink_to(entry.path)
+    return f"{stubs}:{farm}"
+
+
 def test_term_notify_strips_control_characters():
     out = subprocess.run(
         [str(BIN / "term-notify"), "hi\x1b]52;x\x07there"],
@@ -186,6 +198,95 @@ def test_kdev_repos_fails_when_helm_repo_add_fails(sandbox):
     assert "helm repo update" not in _calls(env)
 
 
+def test_kdev_up_fails_when_kind_create_fails(sandbox):
+    _, stubs, _, env = sandbox
+    _kdev_stubs(stubs)
+    _logging_stub(stubs, "kind", '[[ "$1" == create ]] && exit 9\nexit 0')
+    result = _run("kdev", ["up"], env)
+    assert result.returncode == 1
+    assert "Environment Ready" not in result.stdout
+    assert not any(c.startswith("kubectl") for c in _calls(env))
+
+
+def test_kdev_up_fails_when_the_api_server_wait_fails(sandbox):
+    _, stubs, _, env = sandbox
+    _kdev_stubs(stubs)
+    _logging_stub(stubs, "kubectl", "exit 5")
+    result = _run("kdev", ["up"], env)
+    assert result.returncode == 1
+    assert "Installing Ingress Controller" not in result.stdout
+    assert len([c for c in _calls(env) if c.startswith("kubectl")]) == 1
+
+
+def test_kdev_up_fails_when_the_ingress_manifest_fails_to_apply(sandbox):
+    _, stubs, _, env = sandbox
+    _kdev_stubs(stubs)
+    _logging_stub(stubs, "kubectl", '[[ " $* " == *" apply "* ]] && exit 6\nexit 0')
+    result = _run("kdev", ["up"], env)
+    assert result.returncode == 1
+    assert "Waiting for Ingress" not in result.stdout
+    assert "Environment Ready" not in result.stdout
+
+
+def test_kdev_up_fails_when_the_ingress_wait_fails(sandbox):
+    _, stubs, _, env = sandbox
+    _kdev_stubs(stubs)
+    _logging_stub(stubs, "kubectl", '[[ " $* " == *" ingress-nginx "* ]] && exit 6\nexit 0')
+    result = _run("kdev", ["up"], env)
+    assert result.returncode == 1
+    assert "Waiting for Ingress" in result.stdout
+    assert "Environment Ready" not in result.stdout
+
+
+def test_kdev_load_returns_the_failure_status_of_kind(sandbox):
+    _, stubs, _, env = sandbox
+    _kdev_stubs(stubs)
+    _logging_stub(stubs, "kind", "exit 4")
+    assert _run("kdev", ["load", "img:1"], env).returncode == 4
+
+
+def _kdev_repos_file(home, content="first https://a.example\n"):
+    cfg = home / ".config" / "kdev"
+    cfg.mkdir(parents=True)
+    (cfg / "helm-repos.txt").write_text(content)
+
+
+def test_kdev_repos_fails_when_helm_is_not_installed(sandbox):
+    tmp, stubs, _, env = sandbox
+    result = _run("kdev", ["repos"], {**env, "PATH": _path_without(tmp, stubs, "helm")})
+    assert result.returncode == 1
+    assert "'helm' is not installed" in result.stdout
+
+
+def test_kdev_repos_fails_when_the_repos_file_is_missing(sandbox):
+    _, stubs, _, env = sandbox
+    _kdev_stubs(stubs)
+    result = _run("kdev", ["repos"], env)
+    assert result.returncode == 1
+    assert "No helm repos configured" in result.stdout
+
+
+def test_kdev_repos_fails_when_gradle_prop_is_missing(sandbox):
+    tmp, stubs, home, env = sandbox
+    _logging_stub(stubs, "helm")
+    _kdev_repos_file(home)
+    result = _run("kdev", ["repos"], {**env, "PATH": _path_without(tmp, stubs, "gradle_prop")})
+    assert result.returncode == 1
+    assert "'gradle_prop' script not found" in result.stdout
+    assert _calls(env) == []
+
+
+def test_kdev_repos_fails_when_credentials_are_empty(sandbox):
+    _, stubs, home, env = sandbox
+    _kdev_stubs(stubs)
+    _stub(stubs, "gradle_prop", "exit 0\n")
+    _kdev_repos_file(home)
+    result = _run("kdev", ["repos"], env)
+    assert result.returncode == 1
+    assert "Could not fetch credentials" in result.stdout
+    assert _calls(env) == []
+
+
 def _flaky_sandbox(sandbox, gradle_body):
     tmp, stubs, _, env = sandbox
     _stub(
@@ -241,3 +342,38 @@ def test_flaky_it_failing_run_exits_nonzero(sandbox):
     result = _run("flaky-it", ["-n", "1"], env, cwd=repo)
     assert result.returncode == 1
     assert "Failed: 1 / 1" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["--times", "abc"], "--times requires a non-negative integer"),
+        (["--times=-1"], "--times requires a non-negative integer"),
+        (["--suite"], "--suite requires a value"),
+        (["--scope-prop", "noequals"], "--scope-prop requires a KEY=VALUE argument"),
+        (["--cpus"], "--cpus requires a value"),
+        (["--order"], "--order requires a value"),
+        (["--jvm-args"], "--jvm-args requires a value"),
+    ],
+)
+def test_flaky_it_rejects_a_malformed_option(sandbox, args, message):
+    repo, env, _ = _flaky_sandbox(sandbox, "exit 0\n")
+    result = _run("flaky-it", args, env, cwd=repo)
+    assert result.returncode == 2
+    assert message in result.stderr
+
+
+def test_flaky_it_fails_fast_without_a_systemd_user_session(sandbox):
+    repo, env, _ = _flaky_sandbox(sandbox, "exit 0\n")
+    _stub(sandbox[1], "systemd-run", "exit 1\n")
+    result = _run("flaky-it", ["-n", "1"], env, cwd=repo)
+    assert result.returncode == 2
+    assert "requires a systemd user session" in result.stderr
+
+
+def test_flaky_it_fails_when_cpus_is_given_without_taskset(sandbox):
+    repo, env, _ = _flaky_sandbox(sandbox, "exit 0\n")
+    tmp, stubs, _, _ = sandbox
+    result = _run("flaky-it", ["-n", "1", "--cpus", "0"], {**env, "PATH": _path_without(tmp, stubs, "taskset")}, cwd=repo)
+    assert result.returncode == 2
+    assert "taskset not found" in result.stderr
