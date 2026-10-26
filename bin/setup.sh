@@ -12,7 +12,6 @@ DRY_RUN=false
 VERBOSITY=0
 MACHINE_PRESET=""
 PACKAGE_FILE_OVERRIDE=""
-CLAUDE_PROFILE_DIR_OVERRIDE=""
 PRIVATE_ROOT=""
 NO_BANNER=false
 NO_HEADER=false
@@ -36,13 +35,10 @@ source "$SCRIPT_DIR/lib/rollback.sh"
 source "$SCRIPT_DIR/lib/helpers.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/apt.sh"
-# shellcheck source=/dev/null
-source "$SCRIPT_DIR/lib/dotfiles.sh"
 
 SETUP_STEPS=(
     install_core_deps disable_snapd strip_snap_from_system_path configure_apt_sources
     install_packages enable_gpaste_extension install_github_bins configure_docker_group
-    configure_claude_profile change_shell set_default_terminal
 )
 ONLY_STEPS=()
 
@@ -85,12 +81,12 @@ Usage: $0 --preset <name> --package-file <path> [OPTIONS]
 Options:
   --preset <name>                    Machine profile to set up (required)
   --package-file <path>               Pre-resolved package list (required; dotfiles-setup resolves it from the preset)
-  --claude-profile-dir <path>          Read claude-profiles/*.json from this directory instead of the repo's own
   --private-root <path>                Also stow packages listed in this dir's .stow-packages (the private overlay)
   --verbosity <0-6>                    Set VERBOSITY directly (what dotfiles-setup passes for -v/-vv/-vvv); prefer -v/-vv/-vvv by hand
   --no-banner                          Skip the completion banner (dotfiles-setup prints it after its own steps)
   --no-header                          Skip the start-up header and dry-run notice (dotfiles-setup prints them first)
   --banner-only                        Print the completion banner and exit
+  --keep-rollback-log                  Leave the rollback log in place on success (dotfiles-setup removes it after its own steps)
   --only <step[,step...]>              Run only these steps (see --list-steps); a run without the first step keeps the earlier rollback log, one without the last keeps it afterwards
   --list-steps                         Print the step names in run order and exit
   --dry-run                   Show what would be done without executing commands
@@ -136,14 +132,6 @@ main() {
                 PACKAGE_FILE_OVERRIDE="$2"
                 shift 2
                 ;;
-            --claude-profile-dir)
-                if [[ $# -lt 2 ]]; then
-                    log_error "--claude-profile-dir requires a path."
-                    exit 1
-                fi
-                CLAUDE_PROFILE_DIR_OVERRIDE="$2"
-                shift 2
-                ;;
             --private-root)
                 if [[ $# -lt 2 ]]; then
                     log_error "--private-root requires a path."
@@ -162,6 +150,10 @@ main() {
                 ;;
             --banner-only)
                 BANNER_ONLY=true
+                shift
+                ;;
+            --keep-rollback-log)
+                KEEP_ROLLBACK_LOG=true
                 shift
                 ;;
             --list-steps)
@@ -235,7 +227,6 @@ main() {
         exit 1
     fi
     [[ -z "${PACKAGE_FILE_OVERRIDE:-}" ]] || PACKAGE_FILE_OVERRIDE=$(realpath -m -- "$PACKAGE_FILE_OVERRIDE")
-    [[ -z "${CLAUDE_PROFILE_DIR_OVERRIDE:-}" ]] || CLAUDE_PROFILE_DIR_OVERRIDE=$(realpath -m -- "$CLAUDE_PROFILE_DIR_OVERRIDE")
     [[ -z "${PRIVATE_ROOT:-}" ]] || PRIVATE_ROOT=$(realpath -m -- "$PRIVATE_ROOT")
     cd "$DOTFILES_DIR"
 

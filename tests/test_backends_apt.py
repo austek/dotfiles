@@ -6,7 +6,6 @@ import pytest
 from dotfiles_setup.backends.apt import (
     AFTER_APT_PACKAGES,
     AFTER_APT_SOURCES,
-    AFTER_CLAUDE_PROFILE,
     AFTER_DOCKER_GROUP,
     SETUP_STEPS,
     AptBackend,
@@ -20,7 +19,7 @@ def test_setup_steps_match_the_steps_setup_sh_lists_in_order():
 
 
 def test_every_hook_key_is_a_setup_step():
-    assert {AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_DOCKER_GROUP, AFTER_CLAUDE_PROFILE} <= set(SETUP_STEPS)
+    assert {AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_DOCKER_GROUP} <= set(SETUP_STEPS)
 
 
 def run_with_hooks(tmp_path, hooks):
@@ -32,14 +31,14 @@ def run_with_hooks(tmp_path, hooks):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tmp_path / "w.txt", preset_name="work", dry_run=False,
         step_hooks={step: (lambda name=step: events.append(f"hook:{name}") or True) for step in hooks}, run=fake_run,
     )
     return result, events
 
 
 def test_each_hook_runs_right_after_the_step_it_is_keyed_on(tmp_path):
-    hooks = [AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_DOCKER_GROUP, AFTER_CLAUDE_PROFILE]
+    hooks = [AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_DOCKER_GROUP]
     result, events = run_with_hooks(tmp_path, hooks)
     assert result.succeeded
     assert events == [
@@ -49,9 +48,6 @@ def test_each_hook_runs_right_after_the_step_it_is_keyed_on(tmp_path):
         "hook:install_packages",
         ["enable_gpaste_extension", "install_github_bins", "configure_docker_group"],
         "hook:configure_docker_group",
-        ["configure_claude_profile"],
-        "hook:configure_claude_profile",
-        ["change_shell", "set_default_terminal"],
     ]
 
 
@@ -69,7 +65,7 @@ def test_a_failed_hook_skips_the_remaining_steps(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tmp_path / "w.txt", preset_name="work", dry_run=False,
         step_hooks={AFTER_APT_SOURCES: lambda: True, AFTER_APT_PACKAGES: lambda: False}, run=fake_run,
     )
     assert (result.succeeded, len(runs)) == (False, 2)
@@ -84,7 +80,7 @@ def test_install_skips_the_second_segment_when_the_first_fails(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tmp_path / "w.txt", preset_name="work", dry_run=False,
         step_hooks={AFTER_APT_SOURCES: lambda: pytest.fail("tools must not run")}, run=fake_run,
     )
     assert (result.succeeded, result.returncode, len(runs)) == (False, 3, 1)
@@ -99,7 +95,7 @@ def test_install_fails_without_the_second_segment_when_a_tool_fails(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tmp_path / "w.txt", preset_name="work", dry_run=False,
         step_hooks={AFTER_APT_SOURCES: lambda: False}, run=fake_run,
     )
     assert (result.succeeded, len(runs)) == (False, 1)
@@ -148,19 +144,15 @@ def test_install_invokes_setup_sh_with_expected_argv(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     package_file = tmp_path / "work.txt"
-    claude_dir = tmp_path / "claude-profiles"
-    result = backend.install(
-        package_file, preset_name="work", claude_profile_dir=claude_dir,
-        dry_run=False, run=fake_run,
-    )
+    result = backend.install(package_file, preset_name="work", dry_run=False, run=fake_run)
     assert calls == [[
         "bash", "/repo/bin/setup.sh",
         "--preset", "work",
         "--package-file", str(package_file),
-        "--claude-profile-dir", str(claude_dir),
         "--verbosity", "0",
         "--no-banner",
         "--no-header",
+        "--keep-rollback-log",
     ]]
     assert result.succeeded is True
     assert result.returncode == 0
@@ -181,7 +173,7 @@ def test_install_appends_dry_run_flag(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        tmp_path / "w.txt", preset_name="work",
         dry_run=True, run=fake_run,
     )
     assert calls[0][-1] == "--dry-run"
@@ -202,7 +194,7 @@ def test_install_omits_private_root_flag_when_not_given(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        tmp_path / "w.txt", preset_name="work",
         dry_run=False, run=fake_run,
     )
     assert "--private-root" not in calls[0]
@@ -224,7 +216,7 @@ def test_install_appends_private_root_flag_when_given(tmp_path):
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     private_root = tmp_path / "dotfiles-private"
     backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        tmp_path / "w.txt", preset_name="work",
         dry_run=False, private_root=private_root, run=fake_run,
     )
     assert calls[0][-2:] == ["--private-root", str(private_root)]
@@ -248,7 +240,7 @@ def test_install_does_not_capture_subprocess_output(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        tmp_path / "w.txt", preset_name="work",
         dry_run=False, run=recording_run,
     )
     assert calls == [{}]
@@ -269,7 +261,7 @@ def test_install_defaults_verbosity_to_zero(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        tmp_path / "w.txt", preset_name="work",
         dry_run=False, run=fake_run,
     )
     assert "--verbosity" in calls[0]
@@ -291,7 +283,7 @@ def test_install_forwards_verbosity(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        tmp_path / "w.txt", preset_name="work",
         dry_run=False, verbosity=3, run=fake_run,
     )
     assert calls[0][calls[0].index("--verbosity") + 1] == "3"
@@ -308,7 +300,7 @@ def test_install_reports_failure(tmp_path):
 
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     result = backend.install(
-        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
+        tmp_path / "w.txt", preset_name="work",
         dry_run=False, run=fake_run,
     )
     assert result.succeeded is False
@@ -332,7 +324,7 @@ def test_setup_argv_adds_optional_flags_in_order():
     from dotfiles_setup.backends.apt import setup_argv
 
     argv = setup_argv(
-        Path("/r"), Path("/p.txt"), preset_name="work", claude_profile_dir=Path("/c"),
+        Path("/r"), Path("/p.txt"), preset_name="work",
         dry_run=True, private_root=Path("/priv"), verbosity=2, only_steps=("a", "b"),
     )
     assert argv[-5:] == ["--private-root", "/priv", "--only", "a,b", "--dry-run"]

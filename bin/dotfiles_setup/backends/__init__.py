@@ -29,7 +29,6 @@ class Backend(Protocol):
         package_file: Path,
         *,
         preset_name: str,
-        claude_profile_dir: Path,
         dry_run: bool,
         private_root: Path | None = None,
         verbosity: int = 0,

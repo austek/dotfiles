@@ -30,6 +30,9 @@ class RollbackLog:
             return []
         return [line for line in self.path.read_text().splitlines() if line]
 
+    def discard(self) -> None:
+        self.path.unlink(missing_ok=True)
+
     def has_entries(self) -> bool:
         return self.path.is_file() and self.path.stat().st_size > 0
 
@@ -101,7 +104,7 @@ def perform_rollback(ctx: RollbackContext) -> None:
         _undo(ctx, entry)
     logger.success("Rollback completed.")
     logger.info("Removing rollback log...")
-    ctx.log.path.unlink(missing_ok=True)
+    ctx.log.discard()
     logger.warn("Note: Installed packages (apt, snap) were NOT removed during rollback.")
     logger.warn("You may want to remove them manually if needed.")
 

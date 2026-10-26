@@ -16,7 +16,9 @@ from typing import Any
 
 from dotfiles_setup import (
     claude_plugins,
+    claude_profile,
     claude_tools,
+    desktop_defaults,
     foothold,
     identity,
     overlay,
@@ -379,7 +381,9 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
     return rollback.RollbackContext(t, rollback.RollbackLog.for_home(t.home), plan.dotfiles_dir, plan.overlay_root)
 
 
-def _step_hooks(logger: Logger, env: Env, plan: _Install, force: bool) -> dict[str, Callable[[], bool]]:
+def _step_hooks(
+    logger: Logger, env: Env, plan: _Install, force: bool, claude_dir: Path
+) -> dict[str, Callable[[], bool]]:
     t = _tooling(logger, env)
     stow_plan = stow.StowPlan(
         t, plan.dotfiles_dir, plan.overlay_root, force, t.home / ".local/state/dotfiles/stow-backups",
@@ -389,15 +393,19 @@ def _step_hooks(logger: Logger, env: Env, plan: _Install, force: bool) -> dict[s
     def names() -> set[str]:
         return presets.package_names(plan.package_file.read_text())
 
-    def run_claude_tools() -> bool:
+    def run_session_steps() -> bool:
+        if not stow.configure_dotfiles(stow_plan):
+            return False
+        claude_profile.configure_claude_profile(t, plan.preset.name, claude_dir)
         claude_tools.configure_claude_tools(t, plan.preset.name)
+        desktop_defaults.change_shell(t)
+        desktop_defaults.set_default_terminal(t)
         return True
 
     return {
         apt_backend.AFTER_APT_SOURCES: lambda: tools.install_tools(t, names()),
         apt_backend.AFTER_APT_PACKAGES: lambda: tools.install_post_apt_tools(t, names()),
-        apt_backend.AFTER_DOCKER_GROUP: lambda: stow.configure_dotfiles(stow_plan),
-        apt_backend.AFTER_CLAUDE_PROFILE: run_claude_tools,
+        apt_backend.AFTER_DOCKER_GROUP: run_session_steps,
     }
 
 
@@ -407,15 +415,16 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root)
     _write_claude_settings(logger, claude_settings, env)
     result = plan.backend.install(
-        plan.package_file, preset_name=plan.preset.name, claude_profile_dir=claude_dir,
+        plan.package_file, preset_name=plan.preset.name,
         dry_run=args.dry_run, private_root=plan.overlay_root, verbosity=args.verbosity,
-        step_hooks=_step_hooks(logger, env, plan, args.force), run=env.run,
+        step_hooks=_step_hooks(logger, env, plan, args.force, claude_dir), run=env.run,
     )
     if not result.succeeded:
         _log_install_failure(logger, result)
         if result.rollback_pending:
             rollback.offer_rollback(_rollback_context(logger, env, plan), interactive=sys.stdin.isatty())
         return result.returncode
+    _rollback_context(logger, env, plan).log.discard()
     _finish_install(args, logger, env, plan, claude_settings)
     return 0
 

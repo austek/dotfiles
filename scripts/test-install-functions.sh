@@ -215,7 +215,7 @@ ONLY_STEPS=()
 check "steps: every step is selected without --only" step_selected install_packages
 ONLY_STEPS=(install_packages)
 check "steps: --only selects a listed step" step_selected install_packages
-if step_selected configure_claude_profile; then
+if step_selected configure_docker_group; then
     FAIL_COUNT=$((FAIL_COUNT + 1))
     FAILURES+=("steps: --only selected an unlisted step")
 else

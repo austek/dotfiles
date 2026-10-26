@@ -17,16 +17,14 @@ from dotfiles_setup.backends import InstallResult
 SETUP_STEPS = (
     "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
     "install_packages", "enable_gpaste_extension", "install_github_bins", "configure_docker_group",
-    "configure_claude_profile", "change_shell", "set_default_terminal",
 )
 AFTER_APT_SOURCES = "configure_apt_sources"
 AFTER_APT_PACKAGES = "install_packages"
 AFTER_DOCKER_GROUP = "configure_docker_group"
-AFTER_CLAUDE_PROFILE = "configure_claude_profile"
 
 
 def setup_argv(
-    dotfiles_dir: Path, package_file: Path, *, preset_name: str, claude_profile_dir: Path,
+    dotfiles_dir: Path, package_file: Path, *, preset_name: str,
     dry_run: bool, private_root: Path | None, verbosity: int,
     only_steps: tuple[str, ...] = (),
 ) -> list[str]:
@@ -34,10 +32,10 @@ def setup_argv(
         "bash", str(dotfiles_dir / "bin" / "setup.sh"),
         "--preset", preset_name,
         "--package-file", str(package_file),
-        "--claude-profile-dir", str(claude_profile_dir),
         "--verbosity", str(verbosity),
         "--no-banner",
         "--no-header",
+        "--keep-rollback-log",
     ]
     argv += ["--private-root", str(private_root)] if private_root is not None else []
     argv += ["--only", ",".join(only_steps)] if only_steps else []
@@ -90,7 +88,6 @@ class AptBackend:
         package_file: Path,
         *,
         preset_name: str,
-        claude_profile_dir: Path,
         dry_run: bool,
         private_root: Path | None = None,
         verbosity: int = 0,
@@ -99,7 +96,7 @@ class AptBackend:
     ) -> InstallResult:
         def segment(steps: tuple[str, ...]) -> InstallResult:
             argv = setup_argv(
-                self.dotfiles_dir, package_file, preset_name=preset_name, claude_profile_dir=claude_profile_dir,
+                self.dotfiles_dir, package_file, preset_name=preset_name,
                 dry_run=dry_run, private_root=private_root, verbosity=verbosity,
                 only_steps=steps,
             )

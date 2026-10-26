@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -247,8 +248,7 @@ def test_install_runs_setup_sh_in_segments_around_the_tool_installers(isolated_d
     assert main(["install", "--preset", "homelab"]) == 0
     only = [call[call.index("--only") + 1].split(",") for call in calls if "--only" in call]
     assert [steps[0] for steps in only] == [
-        "install_core_deps", "install_packages", "enable_gpaste_extension", "configure_claude_profile",
-        "change_shell",
+        "install_core_deps", "install_packages", "enable_gpaste_extension",
     ]
 
 
@@ -616,6 +616,23 @@ def test_install_force_flag_reaches_the_stow_step(isolated_dotfiles, monkeypatch
     stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab", "--force"]) == 0
     assert seen == [True]
+
+
+def test_a_successful_install_removes_the_rollback_log(isolated_dotfiles, monkeypatch):
+    log = Path.home() / ".dotfiles-setup-rollback.log"
+    log.write_text("STOW_HOME:a\n")
+    stub_subprocess(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert not log.exists()
+
+
+def test_a_failed_install_keeps_the_rollback_log(isolated_dotfiles, monkeypatch):
+    log = Path.home() / ".dotfiles-setup-rollback.log"
+    log.write_text("STOW_HOME:a\n")
+    monkeypatch.setattr("dotfiles_setup.cli.rollback.offer_rollback", lambda ctx, interactive: None)
+    stub_subprocess(monkeypatch, returncode=1)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert log.exists()
 
 
 def test_a_failed_stow_offers_a_rollback(isolated_dotfiles, monkeypatch):
