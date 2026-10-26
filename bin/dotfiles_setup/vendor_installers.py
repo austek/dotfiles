@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotfiles_setup.tooling import Tooling, dry_run_all
+from dotfiles_setup.tooling import Installer, Tooling, dry_run_all
 
 
 def run_vendor_script(t: Tooling, url: str, shell: str, *args: str) -> bool:
@@ -33,13 +33,13 @@ class VendorSpec:
     success: Callable[[Tooling], str]
 
 
-def install_vendor(t: Tooling, spec: VendorSpec) -> bool:
+def install_vendor(t: Tooling, spec: VendorSpec) -> None:
     t.logger.info(f"Installing {spec.name}...")
     if spec.is_installed(t):
         t.logger.info(f"{spec.name} is already installed. Skipping.")
-        return True
+        return
     if dry_run_all(t, spec.dry_run_message):
-        return True
+        return
     if run_vendor_script(t, spec.url, spec.shell):
         t.logger.success(spec.success(t))
     else:
@@ -47,7 +47,6 @@ def install_vendor(t: Tooling, spec: VendorSpec) -> bool:
             f"Failed to install {spec.name}. Install it manually: "
             f"curl -fsSL -o install.sh {spec.url} && {spec.shell} install.sh"
         )
-    return True
 
 
 def _on_path_or_at(binary: str, fallback: Callable[[Path], Path]) -> Callable[[Tooling], bool]:
@@ -59,7 +58,10 @@ def _on_path_or_at(binary: str, fallback: Callable[[Path], Path]) -> Callable[[T
 
 
 def _coderabbit_success(t: Tooling) -> str:
-    result = t.run(["coderabbit", "--version"], capture_output=True, text=True)
+    binary = shutil.which("coderabbit")
+    if binary is None:
+        return "CodeRabbit CLI installed (restart your shell to put it on PATH)."
+    result = t.run([binary, "--version"], capture_output=True, text=True)
     return f"CodeRabbit CLI installed ({(result.stdout or '').strip()})."
 
 
@@ -83,13 +85,13 @@ UV = VendorSpec(
 )
 
 
-def install_ruff(t: Tooling) -> bool:
+def install_ruff(t: Tooling) -> None:
     t.logger.info("Installing ruff...")
     if shutil.which("ruff") is not None:
         t.logger.info("ruff is already installed. Skipping.")
-        return True
+        return
     if dry_run_all(t, "Would install ruff via pipx."):
-        return True
+        return
     if shutil.which("pipx") is None:
         t.logger.error(
             "pipx not found; can't install ruff. Add 'pipx' to packages/apt_common.txt and re-run, "
@@ -99,10 +101,9 @@ def install_ruff(t: Tooling) -> bool:
         t.logger.success("ruff installed successfully.")
     else:
         t.logger.error("Failed to install ruff via pipx. Install it manually: pipx install ruff")
-    return True
 
 
-VENDOR_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = (
+VENDOR_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("ruff", install_ruff),
     ("coderabbit", lambda t: install_vendor(t, CODERABBIT)),
     ("sonarqube-cli", lambda t: install_vendor(t, SONARQUBE_CLI)),

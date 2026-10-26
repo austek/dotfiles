@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 from pathlib import Path
 
 from dotfiles_setup import release_installers, vendor_installers
-from dotfiles_setup.tooling import Tooling, dry_run_all, fetch_https
+from dotfiles_setup.tooling import Installer, Tooling, dry_run_all, fetch_https
 
 __all__ = ["TOOL_INSTALLERS", "Tooling", "fetch_https", "install_tools"]
 
@@ -89,26 +89,25 @@ def _install_node_lts(t: Tooling, nvm_dir: Path) -> None:
     t.logger.warn(MSG_CONTINUING_SETUP)
 
 
-def install_nvm(t: Tooling) -> bool:
+def install_nvm(t: Tooling) -> None:
     t.logger.info("Installing nvm (Node Version Manager)...")
     nvm_dir = t.home / ".nvm"
     if nvm_dir.is_dir():
         t.logger.info("NVM directory already exists. Skipping.")
-        return True
+        return
     if dry_run_all(t, "Would fetch NVM latest release from GitHub API",
                    "Would download and run NVM install script",
                    "Would install latest LTS version of Node.js"):
-        return True
+        return
     if not _run_script(t, "NVM", _nvm_script_url(t), ["bash"]):
         t.logger.error(f"NVM install script failed. Visit: {NVM_HELP_URL}")
         t.logger.warn(MSG_CONTINUING_SETUP)
-        return True
+        return
     _install_node_lts(t, nvm_dir)
-    return True
 
 
-# Order matters only for failure: a False return stops the sequence.
-TOOL_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = (
+# An installer returns False to abort the run; None or True lets it continue.
+TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("oh-my-zsh", install_omz),
     ("sdkman", install_sdkman),
     ("nvm", install_nvm),
@@ -119,6 +118,6 @@ TOOL_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = (
 
 def install_tools(t: Tooling, package_names: Collection[str]) -> bool:
     for name, installer in TOOL_INSTALLERS:
-        if name in package_names and not installer(t):
+        if name in package_names and installer(t) is False:
             return False
     return True

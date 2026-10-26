@@ -25,7 +25,8 @@ def test_sdkman_pipes_the_download_into_bash_without_rc_update(tmp_path):
     assert tools.install_sdkman(tooling(tmp_path, run, fetch=lambda url: urls.append(url) or "#sdk"))
     assert urls == [tools.SDKMAN_URL]
     assert "rcupdate=false" in urls[0]
-    assert run.calls[0][0] == ["bash"] and run.calls[0][1]["input"] == "#sdk"
+    assert run.calls[0][0] == ["bash"]
+    assert run.calls[0][1]["input"] == "#sdk"
 
 
 def test_omz_keeps_zshrc_and_skips_shell_switch(tmp_path):
@@ -80,9 +81,10 @@ def test_nvm_uses_the_latest_release_script_then_installs_node_lts(tmp_path):
         return SimpleNamespace(returncode=0)
 
     calls = []
-    assert tools.install_nvm(tooling(tmp_path, run, fetch=nvm_fetch))
+    assert tools.install_nvm(tooling(tmp_path, run, fetch=nvm_fetch)) is None
     assert calls[0] == ["bash"]
-    assert calls[1][:2] == ["bash", "-c"] and "nvm install --lts" in calls[1][2]
+    assert calls[1][:2] == ["bash", "-c"]
+    assert "nvm install --lts" in calls[1][2]
 
 
 def test_nvm_falls_back_to_pinned_script_when_release_lookup_fails(tmp_path):
@@ -94,13 +96,13 @@ def test_nvm_falls_back_to_pinned_script_when_release_lookup_fails(tmp_path):
             raise OSError("rate limited")
         return "#nvm"
 
-    assert tools.install_nvm(tooling(tmp_path, Recorder(), fetch=fetch))
+    assert tools.install_nvm(tooling(tmp_path, Recorder(), fetch=fetch)) is None
     assert urls[-1] == tools.NVM_FALLBACK_URL
 
 
 def test_nvm_script_failure_warns_and_continues(tmp_path):
     run = Recorder([1])
-    assert tools.install_nvm(tooling(tmp_path, run, fetch=nvm_fetch))
+    assert tools.install_nvm(tooling(tmp_path, run, fetch=nvm_fetch)) is None
     assert len(run.calls) == 1
 
 
@@ -112,7 +114,7 @@ def test_node_lts_failure_warns_and_continues(tmp_path):
             return SimpleNamespace(returncode=0)
         return SimpleNamespace(returncode=1)
 
-    assert tools.install_nvm(tooling(tmp_path, run, fetch=nvm_fetch))
+    assert tools.install_nvm(tooling(tmp_path, run, fetch=nvm_fetch)) is None
 
 
 def test_install_tools_runs_selected_tools_in_shell_order(tmp_path):

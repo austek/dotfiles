@@ -227,7 +227,7 @@ def _zoom_resolve(t: Tooling) -> Resolved:
 
 
 def _slack_resolve(t: Tooling) -> Resolved | None:
-    match = re.search(r"Version ([0-9]+\.[0-9]+\.[0-9]+)", _fetch_or_none(t, SLACK_PAGE) or "")
+    match = re.search(r"Version (\d+\.\d+\.\d+)", _fetch_or_none(t, SLACK_PAGE) or "")
     if not match:
         return None
     version = match.group(1)
@@ -272,7 +272,7 @@ LAZYDOCKER = ReleaseSpec(
     "lazydocker", lambda t: shutil.which("lazydocker") is not None, _lazydocker_resolve, "targz", _lazydocker_install,
 )
 ZOOM = ReleaseSpec(
-    "Zoom", lambda t: re.search(r"^ii  zoom ", _dpkg_listing(t), re.MULTILINE) is not None,
+    "Zoom", lambda t: re.search(r"^ii {2}zoom ", _dpkg_listing(t), re.MULTILINE) is not None,
     _zoom_resolve, "deb", lambda t, _dir, artifact, _resolved: _install_deb_or_fix_broken(t, artifact, "zoom"),
 )
 ISTIOCTL = ReleaseSpec(
@@ -284,7 +284,7 @@ AWSCLI = ReleaseSpec(
 ZIZMOR = _github_binary_spec("zizmor", "zizmorcore/zizmor", "zizmor-x86_64-unknown-linux-gnu.tar.gz", "zizmor")
 MCP_GRAFANA = _github_binary_spec("mcp-grafana", "grafana/mcp-grafana", "mcp-grafana_Linux_x86_64.tar.gz", "mcp-grafana")
 SLACK = ReleaseSpec(
-    "Slack", lambda t: re.search(r"^ii  slack-desktop ", _dpkg_listing(t), re.MULTILINE) is not None,
+    "Slack", lambda t: re.search(r"^ii {2}slack-desktop ", _dpkg_listing(t), re.MULTILINE) is not None,
     _slack_resolve, "deb", _slack_install,
 )
 JETBRAINS_TOOLBOX = ReleaseSpec(

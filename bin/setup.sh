@@ -53,8 +53,9 @@ SETUP_STEPS=(
 ONLY_STEPS=()
 
 step_selected() {
+    local step="$1"
     (( ${#ONLY_STEPS[@]} == 0 )) && return 0
-    array_contains "$1" "${ONLY_STEPS[@]}"
+    array_contains "$step" "${ONLY_STEPS[@]}"
 }
 
 validate_only_steps() {
@@ -183,7 +184,8 @@ main() {
                     log_error "--only requires a comma-separated list of step names."
                     exit 1
                 fi
-                IFS=',' read -r -a ONLY_STEPS <<< "$2"
+                local only_arg="$2"
+                IFS=',' read -r -a ONLY_STEPS <<< "$only_arg"
                 shift 2
                 ;;
             --verbosity)

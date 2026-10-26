@@ -21,15 +21,24 @@ def _require_https(url: str) -> None:
         raise ValueError(f"Refusing non-https URL: {url}")
 
 
+class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
+        _require_https(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_HttpsOnlyRedirect)
+
+
 def fetch_https(url: str) -> str:
     _require_https(url)
-    with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT_SECONDS) as response:
+    with _OPENER.open(url, timeout=FETCH_TIMEOUT_SECONDS) as response:
         return response.read().decode()
 
 
 def download_https(url: str, dest: Path) -> None:
     _require_https(url)
-    with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT_SECONDS) as response, dest.open("wb") as handle:
+    with _OPENER.open(url, timeout=FETCH_TIMEOUT_SECONDS) as response, dest.open("wb") as handle:
         shutil.copyfileobj(response, handle)
 
 
@@ -58,6 +67,9 @@ class Tooling:
     redirect: Callable[[str], str | None] = redirect_location
 
 
+Installer = Callable[[Tooling], bool | None]
+
+
 def dry_run_all(t: Tooling, *messages: str) -> bool:
-    shown = [t.logger.dry_run_notice(message) for message in messages]
+    shown = list(map(t.logger.dry_run_notice, messages))
     return all(shown)

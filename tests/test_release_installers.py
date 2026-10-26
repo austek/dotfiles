@@ -102,7 +102,8 @@ def test_lazydocker_installs_the_extracted_binary(tmp_path):
     assert ri.install_release(t, ri.LAZYDOCKER)
     assert downloads == ["https://github.com/jesseduffield/lazydocker/releases/latest/download/lazydocker_1.2.3_Linux_x86_64.tar.gz"]
     install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
-    assert install[2].endswith("/lazydocker") and install[3] == "/usr/local/bin"
+    assert install[2].endswith("/lazydocker")
+    assert install[3] == "/usr/local/bin"
 
 
 def test_lazydocker_install_failure_continues(tmp_path):
@@ -116,7 +117,8 @@ def test_second_run_uses_the_cached_download(tmp_path):
     ri.install_release(first, ri.LAZYDOCKER)
     second, more = make(tmp_path, Machine(), fetch=lambda url: LAZYDOCKER_TAG, payload=None)
     ri.install_release(second, ri.LAZYDOCKER)
-    assert len(downloads) == 1 and more == []
+    assert len(downloads) == 1
+    assert more == []
 
 
 def test_cache_drops_entries_for_other_versions(tmp_path):
@@ -188,7 +190,8 @@ def test_jetbrains_installs_the_binary_with_exec_permission(tmp_path):
     assert ri.install_release(t, ri.JETBRAINS_TOOLBOX)
     binary = ri._jetbrains_binary(tmp_path)
     assert downloads == ["https://example.com/jb/toolbox-2.5.tar.gz"]
-    assert binary.is_file() and binary.stat().st_mode & 0o111
+    assert binary.is_file()
+    assert binary.stat().st_mode & 0o111
 
 
 def test_jetbrains_archive_without_the_binary_installs_nothing(tmp_path):
