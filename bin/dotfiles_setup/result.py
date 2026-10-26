@@ -20,10 +20,10 @@ class Ok[T]:
 class Err:
     error: str
 
-    def map(self, fn: Callable[..., object]) -> Err:
+    def map(self, _fn: Callable[..., object]) -> Err:
         return self
 
-    def and_then(self, fn: Callable[..., object]) -> Err:
+    def and_then(self, _fn: Callable[..., object]) -> Err:
         return self
 
 
