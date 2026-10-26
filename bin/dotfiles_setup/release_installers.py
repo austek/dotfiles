@@ -8,6 +8,7 @@ import re
 import shutil
 import tarfile
 import tempfile
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,8 +36,8 @@ class ReleaseSpec:
     name: str
     is_installed: Callable[[Tooling], bool]
     resolve: Callable[[Tooling], Resolved | None]
-    kind: Literal["targz", "deb"]
-    install: Callable[[Tooling, Path, Path], bool]
+    kind: Literal["targz", "zip", "deb"]
+    install: Callable[[Tooling, Path, Path, Resolved], bool]
 
 
 def _cache_dir(t: Tooling, tool: str) -> Path:
@@ -77,14 +78,29 @@ def _skip(t: Tooling, error: str) -> bool:
     return True
 
 
+def _extract_zip(artifact: Path, temp_dir: Path) -> None:
+    with zipfile.ZipFile(artifact) as archive:
+        archive.extractall(temp_dir)
+        for info in archive.infolist():
+            mode = info.external_attr >> 16
+            if mode:
+                (temp_dir / info.filename).chmod(mode & 0o777)
+
+
+def _extract_targz(artifact: Path, temp_dir: Path) -> None:
+    with tarfile.open(artifact) as archive:
+        archive.extractall(temp_dir, filter="data")
+
+
 def _unpack(t: Tooling, spec: ReleaseSpec, artifact: Path, temp_dir: Path) -> bool:
-    if spec.kind != "targz":
+    extractors = {"targz": (_extract_targz, "from tarball"), "zip": (_extract_zip, "installer")}
+    if spec.kind not in extractors:
         return True
+    extract, phrase = extractors[spec.kind]
     try:
-        with tarfile.open(artifact) as archive:
-            archive.extractall(temp_dir, filter="data")
-    except (tarfile.TarError, OSError):
-        _skip(t, f"Failed to extract {spec.name} from tarball.")
+        extract(artifact, temp_dir)
+    except (tarfile.TarError, zipfile.BadZipFile, OSError):
+        _skip(t, f"Failed to extract {spec.name} {phrase}.")
         return False
     return True
 
@@ -102,7 +118,7 @@ def _fetch_and_install(t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_d
         t.logger.info("(using cached download)")
     if not _unpack(t, spec, artifact, temp_dir):
         return
-    if not spec.install(t, temp_dir, artifact):
+    if not spec.install(t, temp_dir, artifact, resolved):
         _skip(t, f"Failed to install {spec.name}.")
         return
     t.logger.success(f"{spec.name} installed successfully{suffix}.")
@@ -156,8 +172,51 @@ def _lazydocker_resolve(t: Tooling) -> Resolved | None:
     return Resolved(version, f"{base}/lazydocker_{version}_Linux_x86_64.tar.gz", f"{version}.tar.gz")
 
 
-def _lazydocker_install(t: Tooling, temp_dir: Path, _artifact: Path) -> bool:
-    return t.run(["sudo", "install", str(temp_dir / "lazydocker"), "/usr/local/bin"]).returncode == 0
+def _sudo_install(t: Tooling, binary: Path) -> bool:
+    return t.run(["sudo", "install", str(binary), "/usr/local/bin"]).returncode == 0
+
+
+def _github_tag(t: Tooling, repo: str) -> str | None:
+    match = re.search(r'"tag_name":\s*"([^"]*)"', _fetch_or_none(t, f"https://api.github.com/repos/{repo}/releases/latest") or "")
+    return match.group(1) if match else None
+
+
+def _istioctl_resolve(t: Tooling) -> Resolved | None:
+    tag = _github_tag(t, "istio/istio")
+    if not tag:
+        return None
+    url = f"https://github.com/istio/istio/releases/download/{tag}/istio-{tag}-linux-amd64.tar.gz"
+    return Resolved(tag, url, f"istio-{tag}-linux-amd64.tar.gz")
+
+
+def _istioctl_install(t: Tooling, temp_dir: Path, _artifact: Path, resolved: Resolved) -> bool:
+    return _sudo_install(t, temp_dir / f"istio-{resolved.version}" / "bin" / "istioctl")
+
+
+def _awscli_resolve(_t: Tooling) -> Resolved:
+    # AWS exposes no version endpoint; the fixed cache key is safe because this only runs while `aws` is absent.
+    return Resolved("", "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip", "awscliv2.zip")
+
+
+def _awscli_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
+    return t.run(["sudo", str(temp_dir / "aws" / "install")]).returncode == 0
+
+
+def _github_binary_spec(name: str, repo: str, asset: str, binary: str) -> ReleaseSpec:
+    def resolve(t: Tooling) -> Resolved | None:
+        tag = _github_tag(t, repo)
+        if not tag:
+            return None
+        return Resolved(tag, f"https://github.com/{repo}/releases/download/{tag}/{asset}", f"{name}-{tag}.tar.gz")
+
+    return ReleaseSpec(
+        name, lambda t: shutil.which(binary) is not None, resolve, "targz",
+        lambda t, temp_dir, _artifact, _resolved: _sudo_install(t, temp_dir / binary),
+    )
+
+
+def _lazydocker_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
+    return _sudo_install(t, temp_dir / "lazydocker")
 
 
 def _zoom_resolve(t: Tooling) -> Resolved:
@@ -176,7 +235,7 @@ def _slack_resolve(t: Tooling) -> Resolved | None:
     return Resolved(version, url, f"slack-desktop-{version}-amd64.deb")
 
 
-def _slack_install(t: Tooling, _temp_dir: Path, artifact: Path) -> bool:
+def _slack_install(t: Tooling, _temp_dir: Path, artifact: Path, _resolved: Resolved) -> bool:
     installed = _install_deb_or_fix_broken(t, artifact, "slack-desktop")
     # The postinst apt repo file has no Signed-By key and trips apt's warning; updates come from the .deb.
     t.run(["sudo", "rm", "-f", *SLACK_APT_SOURCES])
@@ -194,7 +253,7 @@ def _jetbrains_resolve(t: Tooling) -> Resolved | None:
     return Resolved("", match.group(1), match.group(1).rsplit("/", 1)[-1])
 
 
-def _jetbrains_install(t: Tooling, temp_dir: Path, _artifact: Path) -> bool:
+def _jetbrains_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
     binary = next((p for p in sorted(temp_dir.rglob("jetbrains-toolbox")) if p.is_file()), None)
     if binary is None:
         t.logger.error("Could not find jetbrains-toolbox binary in archive.")
@@ -214,8 +273,16 @@ LAZYDOCKER = ReleaseSpec(
 )
 ZOOM = ReleaseSpec(
     "Zoom", lambda t: re.search(r"^ii  zoom ", _dpkg_listing(t), re.MULTILINE) is not None,
-    _zoom_resolve, "deb", lambda t, _dir, artifact: _install_deb_or_fix_broken(t, artifact, "zoom"),
+    _zoom_resolve, "deb", lambda t, _dir, artifact, _resolved: _install_deb_or_fix_broken(t, artifact, "zoom"),
 )
+ISTIOCTL = ReleaseSpec(
+    "istioctl", lambda t: shutil.which("istioctl") is not None, _istioctl_resolve, "targz", _istioctl_install,
+)
+AWSCLI = ReleaseSpec(
+    "AWS CLI", lambda t: shutil.which("aws") is not None, _awscli_resolve, "zip", _awscli_install,
+)
+ZIZMOR = _github_binary_spec("zizmor", "zizmorcore/zizmor", "zizmor-x86_64-unknown-linux-gnu.tar.gz", "zizmor")
+MCP_GRAFANA = _github_binary_spec("mcp-grafana", "grafana/mcp-grafana", "mcp-grafana_Linux_x86_64.tar.gz", "mcp-grafana")
 SLACK = ReleaseSpec(
     "Slack", lambda t: re.search(r"^ii  slack-desktop ", _dpkg_listing(t), re.MULTILINE) is not None,
     _slack_resolve, "deb", _slack_install,
@@ -232,5 +299,9 @@ RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = tuple(
         ("zoom", ZOOM),
         ("slack-desktop", SLACK),
         ("jetbrains-toolbox", JETBRAINS_TOOLBOX),
+        ("istioctl", ISTIOCTL),
+        ("awscli", AWSCLI),
+        ("zizmor", ZIZMOR),
+        ("mcp-grafana", MCP_GRAFANA),
     )
 )

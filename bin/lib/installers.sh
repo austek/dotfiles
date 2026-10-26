@@ -208,7 +208,7 @@ install_antigravity_ide() {
     register_temp_dir "$temp_dir"
     # Self-clearing: a RETURN trap set here also re-fires once in the
     # immediate caller's frame (install_packages()), where $temp_dir is
-    # unbound under `set -u` — same gotcha as install_from_url in helpers.sh.
+    # unbound under `set -u`.
     trap 'rm -rf -- "$temp_dir"; trap - RETURN' RETURN
 
     local extracted_dir
@@ -240,115 +240,6 @@ install_antigravity_ide_icon() {
     sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 }
 
-istioctl_is_installed() { command -v istioctl &> /dev/null; }
-
-resolve_istioctl() {
-    local version
-    version=$(curl -s "https://api.github.com/repos/istio/istio/releases/latest" | grep -Po '"tag_name": "\K[^"]*' || true)
-    if [[ -z "$version" ]]; then
-        return 1
-    fi
-    print_resolved "$version" \
-        "https://github.com/istio/istio/releases/download/${version}/istio-${version}-linux-amd64.tar.gz" \
-        "istio-$version-linux-amd64.tar.gz"
-}
-
-install_istioctl_step() {
-    local temp_dir="$1" version="$2"
-    sudo install "$temp_dir/istio-${version}/bin/istioctl" /usr/local/bin
-}
-
-install_istioctl() {
-    install_from_url "istioctl" istioctl_is_installed resolve_istioctl targz install_istioctl_step
-}
-
-awscli_is_installed() { command -v aws &> /dev/null; }
-
-# AWS exposes no version endpoint, so the cache key is fixed. Safe: this
-# only runs while `aws` is absent from PATH, so a stale cache can only
-# affect retries of a not-yet-successful install, never mask an upgrade.
-resolve_awscli() {
-    print_resolved "" "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" "awscliv2.zip"
-}
-
-install_awscli_step() {
-    local temp_dir="$1"
-    sudo "$temp_dir/aws/install"
-}
-
-install_awscli() {
-    install_from_url "AWS CLI" awscli_is_installed resolve_awscli zip install_awscli_step
-}
-
-zizmor_is_installed() { command -v zizmor &> /dev/null; }
-
-resolve_zizmor() {
-    local version
-    version=$(curl -s "https://api.github.com/repos/zizmorcore/zizmor/releases/latest" | grep -Po '"tag_name": "\K[^"]*' || true)
-    if [[ -z "$version" ]]; then
-        return 1
-    fi
-    print_resolved "$version" \
-        "https://github.com/zizmorcore/zizmor/releases/download/${version}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
-        "zizmor-$version.tar.gz"
-}
-
-install_zizmor_step() {
-    local temp_dir="$1"
-    sudo install "$temp_dir/zizmor" /usr/local/bin
-}
-
-install_zizmor() {
-    install_from_url "zizmor" zizmor_is_installed resolve_zizmor targz install_zizmor_step
-}
-
-mcp_grafana_is_installed() { command -v mcp-grafana &> /dev/null; }
-
-resolve_mcp_grafana() {
-    local version
-    version=$(curl -s "https://api.github.com/repos/grafana/mcp-grafana/releases/latest" | grep -Po '"tag_name": "\K[^"]*' || true)
-    if [[ -z "$version" ]]; then
-        return 1
-    fi
-    print_resolved "$version" \
-        "https://github.com/grafana/mcp-grafana/releases/download/${version}/mcp-grafana_Linux_x86_64.tar.gz" \
-        "mcp-grafana-$version.tar.gz"
-}
-
-install_mcp_grafana_step() {
-    local temp_dir="$1"
-    sudo install "$temp_dir/mcp-grafana" /usr/local/bin
-}
-
-install_mcp_grafana() {
-    install_from_url "mcp-grafana" mcp_grafana_is_installed resolve_mcp_grafana targz install_mcp_grafana_step
-}
-
-coderabbit_is_installed() { command -v coderabbit &> /dev/null; }
-
-# No apt candidate and no plain-binary GitHub release asset (installer script
-# also drops the `cr` symlink coderabbitFullAudit depends on), so this goes
-# through the vendor's own install script like configure_rtk_cli.
-install_coderabbit() {
-    log_info "Installing CodeRabbit CLI..."
-
-    if coderabbit_is_installed; then
-        log_info "CodeRabbit CLI is already installed. Skipping."
-        return 0
-    fi
-
-    if [[ "$DRY_RUN" = true ]]; then
-        log_dry_run "Would install the CodeRabbit CLI via https://cli.coderabbit.ai's install script."
-        return 0
-    fi
-
-    if run_vendor_script "https://cli.coderabbit.ai/install.sh" sh; then
-        log_success "CodeRabbit CLI installed ($(coderabbit_is_installed && coderabbit --version 2>/dev/null))."
-    else
-        log_error "Failed to install CodeRabbit CLI. Install it manually: curl -fsSL -o install.sh https://cli.coderabbit.ai/install.sh && sh install.sh"
-    fi
-}
-
 # Downloads in full before executing so a truncated transfer never runs. Extra args go to the script.
 run_vendor_script() {
     local url="$1" shell="$2" script status=0
@@ -357,53 +248,6 @@ run_vendor_script() {
     curl_https -fsSL -o "$script" "$url" && "$shell" "$script" "$@" || status=$?
     rm -f "$script"
     return "$status"
-}
-
-sonarqube_cli_is_installed() { command -v sonar &> /dev/null || [[ -x "$HOME/.local/share/sonarqube-cli/bin/sonar" ]]; }
-
-# No apt candidate. The vendor script's bin dir is already on PATH via zsh/.zshrc.
-install_sonarqube_cli() {
-    log_info "Installing SonarQube CLI..."
-
-    if sonarqube_cli_is_installed; then
-        log_info "SonarQube CLI is already installed. Skipping."
-        return 0
-    fi
-
-    if [[ "$DRY_RUN" = true ]]; then
-        log_dry_run "Would install the SonarQube CLI via SonarSource's install script."
-        return 0
-    fi
-
-    local url="https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh"
-    if run_vendor_script "$url" bash; then
-        log_success "SonarQube CLI installed."
-    else
-        log_error "Failed to install SonarQube CLI. Install it manually: curl -fsSL -o install.sh $url && bash install.sh"
-    fi
-}
-
-uv_is_installed() { command -v uv &> /dev/null || [[ -x "$HOME/.local/bin/uv" ]]; }
-
-# Claude plugin MCP servers (cozempic) launch via uv/uvx.
-install_uv() {
-    log_info "Installing uv..."
-
-    if uv_is_installed; then
-        log_info "uv is already installed. Skipping."
-        return 0
-    fi
-
-    if [[ "$DRY_RUN" = true ]]; then
-        log_dry_run "Would install uv via https://astral.sh/uv/install.sh."
-        return 0
-    fi
-
-    if run_vendor_script "https://astral.sh/uv/install.sh" sh; then
-        log_success "uv installed."
-    else
-        log_error "Failed to install uv. Install it manually: curl -fsSL -o install.sh https://astral.sh/uv/install.sh && sh install.sh"
-    fi
 }
 
 CARGO_MIN_MINOR=88
@@ -487,36 +331,6 @@ install_cargo_crate() {
 
 install_cargo_deny() { install_cargo_crate cargo-deny; }
 install_cargo_audit() { install_cargo_crate cargo-audit; }
-
-ruff_is_installed() { command -v ruff &> /dev/null; }
-
-# No apt candidate and no standalone GitHub-release binary (only Python
-# wheels), so this goes through pipx like configure_cozempic_cli rather than
-# install_from_url.
-install_ruff() {
-    log_info "Installing ruff..."
-
-    if ruff_is_installed; then
-        log_info "ruff is already installed. Skipping."
-        return 0
-    fi
-
-    if [[ "$DRY_RUN" = true ]]; then
-        log_dry_run "Would install ruff via pipx."
-        return 0
-    fi
-
-    if ! command -v pipx &> /dev/null; then
-        log_error "pipx not found; can't install ruff. Add 'pipx' to packages/apt_common.txt and re-run, or install manually: pipx install ruff"
-        return 0
-    fi
-
-    if pipx install --quiet ruff; then
-        log_success "ruff installed successfully."
-    else
-        log_error "Failed to install ruff via pipx. Install it manually: pipx install ruff"
-    fi
-}
 
 AUDITR_VERSION="0.10.5"
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # shellcheck disable=SC2329,SC2034,SC2317
-# Regression harness for setup.sh's install_from_url-based installers.
+# Regression harness for the shell functions setup.sh still owns.
 # Sourcing setup.sh here does not run main() — see the sourceability guard
 # at the bottom of setup.sh.
 
@@ -16,15 +16,6 @@ source "$DOTFILES_DIR/bin/setup.sh"
 # Assertions below check log_info/log_success output, which setup.sh gates behind
 # VERBOSITY>=1 (default 0) since it added -v/-vv/-vvv flags.
 VERBOSITY=1
-
-TAG_ISTIOCTL='"tag_name": "1.20.0"'
-MARK_CURL="curl_called"
-MARK_DOWNLOAD="download_called"
-MARK_INSTALL="install_called"
-LABEL_DOWNLOAD="download_with_cache"
-LABEL_INSTALL="install"
-MSG_ALREADY_INSTALLED="already installed. Skipping."
-MSG_DRY_RUN="[DRY-RUN]"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -56,239 +47,17 @@ assert_exit_code() {
     fi
 }
 
-assert_called() {
-    local marker="$1" scenario="$2" what="$3"
-    if [[ -f "$STUB_DIR/$marker" ]]; then
-        PASS_COUNT=$((PASS_COUNT + 1))
-    else
-        FAIL_COUNT=$((FAIL_COUNT + 1))
-        FAILURES+=("$scenario: expected $what to be called, but it wasn't")
-    fi
-}
-
-assert_not_called() {
-    local marker="$1" scenario="$2" what="$3"
-    if [[ ! -f "$STUB_DIR/$marker" ]]; then
-        PASS_COUNT=$((PASS_COUNT + 1))
-    else
-        FAIL_COUNT=$((FAIL_COUNT + 1))
-        FAILURES+=("$scenario: expected $what NOT to be called, but it was")
-    fi
-}
-
-
-curl() {
-    touch "$STUB_DIR/curl_called"
-    if [[ "${STUB_CURL_FAIL:-false}" = true ]]; then
-        return 1
-    fi
-    printf '%s' "${STUB_CURL_OUTPUT:-}"
-}
-
-download_with_cache() {
-    touch "$STUB_DIR/download_called"
-    DOWNLOAD_CACHE_HIT=false
-    if [[ "${STUB_DOWNLOAD_FAIL:-false}" = true ]]; then
-        return 1
-    fi
-    local dest="$4"
-    : > "$dest"
-    return 0
-}
-
-sudo() {
-    touch "$STUB_DIR/sudo_called"
-    "$@"
-}
-
-tar() {
-    touch "$STUB_DIR/tar_called"
-    if [[ "${STUB_EXTRACT_FAIL:-false}" = true ]]; then
-        return 1
-    fi
-    return 0
-}
-
-unzip() {
-    touch "$STUB_DIR/unzip_called"
-    if [[ "${STUB_EXTRACT_FAIL:-false}" = true ]]; then
-        return 1
-    fi
-    # install_awscli_step runs "$temp_dir/aws/install" directly, with no stubbed
-    # command in between, so this unzip stub must materialize whatever the
-    # scenario staged under $STUB_DIR/aws into the real dest dir (-d DEST).
-    local dest_dir="${*: -1}"
-    [[ -d "$STUB_DIR/aws" ]] && cp -r "$STUB_DIR/aws" "$dest_dir/"
-    return 0
-}
-
-install() {
-    touch "$STUB_DIR/install_called"
-    if [[ "${STUB_INSTALL_FAIL:-false}" = true ]]; then
-        return 1
-    fi
-    return 0
-}
-
 reset_stubs() {
     rm -rf -- "$STUB_DIR"
     STUB_DIR=$(mktemp -d)
     HOME="$STUB_DIR/fake_home"
     mkdir -p "$HOME"
     ROLLBACK_LOG="$HOME/.dotfiles-setup-rollback.log"
-    unset STUB_CURL_FAIL STUB_CURL_OUTPUT STUB_DOWNLOAD_FAIL STUB_EXTRACT_FAIL \
-          STUB_INSTALL_FAIL STUB_ALREADY_INSTALLED
     DRY_RUN=false
-
-    # Stubs replace each tool's real already-installed check (`command -v`,
-    # `dpkg -l`, etc.) so "not installed" scenarios aren't flaky on a machine
-    # that has the tool for real. check_fn's own logic isn't exercised here.
-    istioctl_is_installed() { [[ "${STUB_ALREADY_INSTALLED:-false}" = true ]]; }
-    awscli_is_installed() { [[ "${STUB_ALREADY_INSTALLED:-false}" = true ]]; }
 }
 
 SCENARIOS=()
 register_scenario() { SCENARIOS+=("$1"); }
-
-test_istioctl_already_installed() {
-    STUB_ALREADY_INSTALLED=true
-    local output exit_code
-    capture install_istioctl
-    assert_contains "$output" "$MSG_ALREADY_INSTALLED" "istioctl already-installed"
-    assert_exit_code "$exit_code" 0 "istioctl already-installed"
-    assert_not_called "$MARK_CURL" "istioctl already-installed" "curl"
-}
-register_scenario test_istioctl_already_installed
-
-test_istioctl_dry_run() {
-    DRY_RUN=true
-    local output exit_code
-    capture install_istioctl
-    assert_contains "$output" "$MSG_DRY_RUN" "istioctl dry-run"
-    assert_exit_code "$exit_code" 0 "istioctl dry-run"
-    assert_not_called "$MARK_CURL" "istioctl dry-run" "curl"
-}
-register_scenario test_istioctl_dry_run
-
-test_istioctl_resolve_fail() {
-    STUB_CURL_OUTPUT=""
-    local output exit_code
-    capture install_istioctl
-    assert_contains "$output" "Failed to resolve istioctl download URL." "istioctl resolve-fail"
-    assert_exit_code "$exit_code" 0 "istioctl resolve-fail"
-    assert_not_called "$MARK_DOWNLOAD" "istioctl resolve-fail" "$LABEL_DOWNLOAD"
-}
-register_scenario test_istioctl_resolve_fail
-
-test_istioctl_download_fail() {
-    STUB_CURL_OUTPUT="$TAG_ISTIOCTL"
-    STUB_DOWNLOAD_FAIL=true
-    local output exit_code
-    capture install_istioctl
-    assert_contains "$output" "Failed to download istioctl" "istioctl download-fail"
-    assert_exit_code "$exit_code" 0 "istioctl download-fail"
-    assert_not_called "tar_called" "istioctl download-fail" "tar"
-}
-register_scenario test_istioctl_download_fail
-
-test_istioctl_extract_fail() {
-    STUB_CURL_OUTPUT="$TAG_ISTIOCTL"
-    STUB_EXTRACT_FAIL=true
-    local output exit_code
-    capture install_istioctl
-    assert_contains "$output" "Failed to extract istioctl from tarball." "istioctl extract-fail"
-    assert_exit_code "$exit_code" 0 "istioctl extract-fail"
-    assert_not_called "$MARK_INSTALL" "istioctl extract-fail" "$LABEL_INSTALL"
-}
-register_scenario test_istioctl_extract_fail
-
-test_istioctl_install_fail() {
-    STUB_CURL_OUTPUT="$TAG_ISTIOCTL"
-    STUB_INSTALL_FAIL=true
-    local output exit_code
-    capture install_istioctl
-    assert_contains "$output" "Failed to install istioctl." "istioctl install-fail"
-    assert_exit_code "$exit_code" 0 "istioctl install-fail"
-}
-register_scenario test_istioctl_install_fail
-
-test_istioctl_success() {
-    STUB_CURL_OUTPUT="$TAG_ISTIOCTL"
-    local output exit_code
-    capture install_istioctl
-    assert_contains "$output" "istioctl installed successfully v1.20.0." "istioctl success"
-    assert_exit_code "$exit_code" 0 "istioctl success"
-    assert_called "$MARK_INSTALL" "istioctl success" "$LABEL_INSTALL"
-}
-register_scenario test_istioctl_success
-
-test_awscli_already_installed() {
-    STUB_ALREADY_INSTALLED=true
-    local output exit_code
-    capture install_awscli
-    assert_contains "$output" "$MSG_ALREADY_INSTALLED" "awscli already-installed"
-    assert_exit_code "$exit_code" 0 "awscli already-installed"
-    assert_not_called "$MARK_DOWNLOAD" "awscli already-installed" "$LABEL_DOWNLOAD"
-}
-register_scenario test_awscli_already_installed
-
-test_awscli_dry_run() {
-    DRY_RUN=true
-    local output exit_code
-    capture install_awscli
-    assert_contains "$output" "$MSG_DRY_RUN" "awscli dry-run"
-    assert_exit_code "$exit_code" 0 "awscli dry-run"
-    assert_not_called "$MARK_DOWNLOAD" "awscli dry-run" "$LABEL_DOWNLOAD"
-}
-register_scenario test_awscli_dry_run
-
-test_awscli_download_fail() {
-    STUB_DOWNLOAD_FAIL=true
-    local output exit_code
-    capture install_awscli
-    assert_contains "$output" "Failed to download AWS CLI" "awscli download-fail"
-    assert_exit_code "$exit_code" 0 "awscli download-fail"
-    assert_not_called "unzip_called" "awscli download-fail" "unzip"
-}
-register_scenario test_awscli_download_fail
-
-test_awscli_extract_fail() {
-    STUB_EXTRACT_FAIL=true
-    local output exit_code
-    capture install_awscli
-    assert_contains "$output" "Failed to extract AWS CLI installer." "awscli extract-fail"
-    assert_exit_code "$exit_code" 0 "awscli extract-fail"
-    assert_not_called "sudo_called" "awscli extract-fail" "sudo"
-}
-register_scenario test_awscli_extract_fail
-
-test_awscli_install_fail() {
-    mkdir -p "$STUB_DIR/aws"
-    cat > "$STUB_DIR/aws/install" <<'EOF'
-#!/bin/bash
-exit 1
-EOF
-    chmod +x "$STUB_DIR/aws/install"
-    local output exit_code
-    capture install_awscli
-    assert_contains "$output" "Failed to install AWS CLI." "awscli install-fail"
-    assert_exit_code "$exit_code" 0 "awscli install-fail"
-}
-register_scenario test_awscli_install_fail
-
-test_awscli_success() {
-    mkdir -p "$STUB_DIR/aws"
-    cat > "$STUB_DIR/aws/install" <<'EOF'
-#!/bin/bash
-exit 0
-EOF
-    chmod +x "$STUB_DIR/aws/install"
-    local output exit_code
-    capture install_awscli
-    assert_contains "$output" "AWS CLI installed successfully." "awscli success"
-    assert_exit_code "$exit_code" 0 "awscli success"
-}
-register_scenario test_awscli_success
 
 test_detect_ubuntu_codename_reads_os_release() {
     local fake_os_release="$STUB_DIR/os-release"

@@ -400,30 +400,6 @@ install_packages() {
 
     local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit" "auditr" "sonarqube-cli" "uv" "cargo-deny" "cargo-audit")
 
-    if array_contains "istioctl" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_istioctl
-    fi
-    if array_contains "awscli" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_awscli
-    fi
-    if array_contains "zizmor" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_zizmor
-    fi
-    if array_contains "mcp-grafana" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_mcp_grafana
-    fi
-    if array_contains "ruff" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_ruff
-    fi
-    if array_contains "coderabbit" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_coderabbit
-    fi
-    if array_contains "sonarqube-cli" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_sonarqube_cli
-    fi
-    if array_contains "uv" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_uv
-    fi
     if array_contains "antigravity-ide" "${PACKAGES_TO_INSTALL[@]}"; then
         install_antigravity_ide
     fi

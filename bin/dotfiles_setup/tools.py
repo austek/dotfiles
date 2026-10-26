@@ -1,6 +1,7 @@
 """Third-party installers that run between the shell apt-source and package
-steps: the script-based tool managers (sdkman, oh-my-zsh, nvm) and the
-release-artifact installers in release_installers.py."""
+steps: the script-based tool managers (sdkman, oh-my-zsh, nvm), the
+release-artifact installers in release_installers.py and the vendor-script and
+pipx installers in vendor_installers.py."""
 from __future__ import annotations
 
 import json
@@ -8,7 +9,7 @@ import os
 from collections.abc import Callable, Collection
 from pathlib import Path
 
-from dotfiles_setup import release_installers
+from dotfiles_setup import release_installers, vendor_installers
 from dotfiles_setup.tooling import Tooling, dry_run_all, fetch_https
 
 __all__ = ["TOOL_INSTALLERS", "Tooling", "fetch_https", "install_tools"]
@@ -112,6 +113,7 @@ TOOL_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = (
     ("sdkman", install_sdkman),
     ("nvm", install_nvm),
     *release_installers.RELEASE_INSTALLERS,
+    *vendor_installers.VENDOR_INSTALLERS,
 )
 
 

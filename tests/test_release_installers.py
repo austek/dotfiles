@@ -1,5 +1,6 @@
 import io
 import tarfile
+import zipfile
 from types import SimpleNamespace
 
 import pytest
@@ -205,6 +206,60 @@ def test_jetbrains_with_an_existing_binary_is_skipped(tmp_path):
     assert downloads == []
 
 
+def zipball(member, mode):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        info = zipfile.ZipInfo(member)
+        info.external_attr = (0o100000 | mode) << 16
+        archive.writestr(info, "#!/bin/sh\n")
+    return buffer.getvalue()
+
+
+def test_istioctl_installs_the_binary_from_the_versioned_directory(tmp_path):
+    machine = Machine()
+    t, downloads = make(
+        tmp_path, machine, fetch=lambda url: '{"tag_name": "1.20.0"}', payload=tarball("istio-1.20.0/bin/istioctl"),
+    )
+    assert ri.install_release(t, ri.ISTIOCTL)
+    assert downloads == ["https://github.com/istio/istio/releases/download/1.20.0/istio-1.20.0-linux-amd64.tar.gz"]
+    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
+    assert install[2].endswith("istio-1.20.0/bin/istioctl")
+
+
+def test_zizmor_and_mcp_grafana_use_the_unprefixed_release_tag(tmp_path):
+    for spec, asset in ((ri.ZIZMOR, "zizmor-x86_64-unknown-linux-gnu.tar.gz"), (ri.MCP_GRAFANA, "mcp-grafana_Linux_x86_64.tar.gz")):
+        binary = spec.name
+        t, downloads = make(tmp_path, Machine(), fetch=lambda url: '{"tag_name": "v0.5.1"}', payload=tarball(binary))
+        assert ri.install_release(t, spec)
+        assert downloads[0].endswith(f"/download/v0.5.1/{asset}")
+
+
+def test_awscli_runs_the_extracted_installer_with_its_exec_bit(tmp_path):
+    machine = Machine()
+    t, downloads = make(tmp_path, machine, payload=zipball("aws/install", 0o755))
+    assert ri.install_release(t, ri.AWSCLI)
+    assert downloads == ["https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"]
+    installer = next(c for c in machine.commands if c[0] == "sudo" and c[1].endswith("aws/install"))
+    assert installer
+
+
+def test_awscli_extraction_keeps_the_installer_executable(tmp_path):
+    artifact = tmp_path / "aws.zip"
+    artifact.write_bytes(zipball("aws/install", 0o755))
+    ri._extract_zip(artifact, tmp_path)
+    assert (tmp_path / "aws/install").stat().st_mode & 0o111
+
+
+def test_awscli_bad_zip_is_reported_and_skipped(tmp_path):
+    machine = Machine()
+    t, _ = make(tmp_path, machine, payload=b"not a zip")
+    assert ri.install_release(t, ri.AWSCLI)
+    assert not any(c[0] == "sudo" for c in machine.commands)
+
+
 def test_release_installers_run_after_the_script_installers(tmp_path):
     names = [name for name, _ in tools.TOOL_INSTALLERS]
-    assert names == ["oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "slack-desktop", "jetbrains-toolbox"]
+    assert names == [
+        "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "slack-desktop", "jetbrains-toolbox",
+        "istioctl", "awscli", "zizmor", "mcp-grafana", "ruff", "coderabbit", "sonarqube-cli", "uv",
+    ]
