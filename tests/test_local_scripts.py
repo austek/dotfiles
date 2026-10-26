@@ -143,6 +143,17 @@ def test_kdev_up_generates_ingress_ready_loopback_config(sandbox):
     assert all('listenAddress: "127.0.0.1"' in line for line in mappings)
 
 
+def test_kdev_up_replaces_dangling_config_symlink(sandbox):
+    tmp, stubs, home, env = sandbox
+    _kdev_stubs(stubs)
+    link = home / ".config" / "kdev" / "kind-config.yaml"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(tmp / "removed" / "kind-config.yaml")
+    assert _run("kdev", ["up"], env).returncode == 0
+    assert not link.is_symlink()
+    assert 'node-labels: "ingress-ready=true"' in link.read_text()
+
+
 def test_kdev_repos_adds_each_repo_including_unterminated_last_line(sandbox):
     _, stubs, home, env = sandbox
     _kdev_stubs(stubs)
