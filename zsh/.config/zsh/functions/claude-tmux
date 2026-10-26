@@ -20,7 +20,8 @@ claude-tmux() {
   for name in $watched; do setup+=(\; set-option -ga update-environment $name); done
   local loop=$HOME/.dotfiles/bin/claude-pane-loop
   [[ -x $loop ]] || loop=
-  local base="claude-${label//[.:]/_}-${${PWD:t}//[.:]/_}-${dir_hash}" session=$base
+  local base="claude-${label//[.:]/_}-${${PWD:t}//[.:]/_}-${dir_hash}"
+  local session=$base
   local -i n=1
   while [[ $(tmux display-message -p -t "=$session:" '#{session_attached}' 2>/dev/null) == [1-9]* ]]; do
     session=$base-$((++n))

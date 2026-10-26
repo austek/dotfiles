@@ -27,4 +27,8 @@ if [ -r "$secrets" ] && case $(stat -L -c %a "$secrets") in *00) true ;; *) fals
     done < "$secrets"
 fi
 
+# Hooks run `node`, which nvm installs under a versioned directory the unit's PATH cannot name.
+nvm_node=$(find "$HOME/.nvm/versions/node" -mindepth 2 -maxdepth 2 -name bin -type d 2>/dev/null | sort -V | tail -n 1)
+[ -z "$nvm_node" ] || export PATH="$nvm_node:$PATH"
+
 exec "$(dirname -- "$0")/claude-pane-loop" claude --remote-control "$1" --settings "$2"
