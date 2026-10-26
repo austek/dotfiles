@@ -833,19 +833,6 @@ unset -f sudo
 unset APT_SOURCES_DIR
 stow_teardown
 
-# --- Oh My Zsh and SDKMAN leave ~/.zshrc alone ---
-stow_sandbox
-DRY_RUN=false
-curl_https() { printf '%s\n' "$*" >> "$STOW_TMP/curl_args"; echo "true"; }
-bash() { cat > /dev/null; }
-sh() { printf '%s %s %s\n' "${KEEP_ZSHRC:-}" "${RUNZSH:-}" "${CHSH:-}" > "$STOW_TMP/omz_env"; }
-install_sdkman >/dev/null 2>&1
-install_omz >/dev/null 2>&1
-check "sdkman: installer URL disables rc update" grep -q 'get.sdkman.io?rcupdate=false' "$STOW_TMP/curl_args"
-check "omz: keeps zshrc and skips shell switch" test "$(cat "$STOW_TMP/omz_env")" = "yes no no"
-unset -f curl_https bash sh
-stow_teardown
-
 # --- --only / --list-steps step selection ---
 ONLY_STEPS=()
 check "steps: every step is selected without --only" step_selected install_packages

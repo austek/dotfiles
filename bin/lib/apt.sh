@@ -400,15 +400,6 @@ install_packages() {
 
     local custom_install_packages=("oh-my-zsh" "sdkman" "nvm" "lazydocker" "zoom" "istioctl" "awscli" "slack-desktop" "jetbrains-toolbox" "antigravity-ide" "zizmor" "mcp-grafana" "ruff" "coderabbit" "auditr" "sonarqube-cli" "uv" "cargo-deny" "cargo-audit")
 
-    if array_contains "oh-my-zsh" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_omz
-    fi
-    if array_contains "sdkman" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_sdkman
-    fi
-    if array_contains "nvm" "${PACKAGES_TO_INSTALL[@]}"; then
-        install_nvm
-    fi
     if array_contains "lazydocker" "${PACKAGES_TO_INSTALL[@]}"; then
         install_lazydocker
     fi

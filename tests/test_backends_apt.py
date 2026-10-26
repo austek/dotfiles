@@ -1,6 +1,63 @@
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 from dotfiles_setup.backends.apt import AptBackend
+
+
+def test_tool_segments_cover_the_setup_sh_steps_in_order():
+    from dotfiles_setup.backends.apt import STEPS_AFTER_TOOLS, STEPS_BEFORE_TOOLS
+
+    script = Path(__file__).resolve().parent.parent / "bin" / "setup.sh"
+    listed = subprocess.run(["bash", str(script), "--list-steps"], capture_output=True, text=True, check=True)
+    assert listed.stdout.split() == [*STEPS_BEFORE_TOOLS, *STEPS_AFTER_TOOLS]
+
+
+def test_install_runs_the_tool_hook_between_two_setup_segments(tmp_path):
+    events = []
+
+    def fake_run(argv, **kwargs):
+        events.append(argv[argv.index("--only") + 1].split(",")[0])
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    result = backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tools_hook=lambda: events.append("tools") or True, run=fake_run,
+    )
+    assert result.succeeded
+    assert events == ["install_core_deps", "tools", "install_packages"]
+
+
+def test_install_skips_the_second_segment_when_the_first_fails(tmp_path):
+    runs = []
+
+    def fake_run(argv, **kwargs):
+        runs.append(argv)
+        return SimpleNamespace(returncode=3, stdout="", stderr="")
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    result = backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tools_hook=lambda: pytest.fail("tools must not run"), run=fake_run,
+    )
+    assert (result.succeeded, result.returncode, len(runs)) == (False, 3, 1)
+
+
+def test_install_fails_without_the_second_segment_when_a_tool_fails(tmp_path):
+    runs = []
+
+    def fake_run(argv, **kwargs):
+        runs.append(argv)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
+    result = backend.install(
+        tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path, dry_run=False,
+        tools_hook=lambda: False, run=fake_run,
+    )
+    assert (result.succeeded, len(runs)) == (False, 1)
 
 
 def test_resolve_name_returns_override_when_present():

@@ -24,6 +24,7 @@ from dotfiles_setup import (
     reconcile,
     settings_drift,
     state,
+    tools,
     update,
 )
 from dotfiles_setup.backends import Backend, InstallResult
@@ -361,6 +362,11 @@ class _Install:
     prior: state.MachineState | None
 
 
+def _tools_hook(logger: Logger, env: Env, plan: _Install) -> Callable[[], bool]:
+    tooling = tools.Tooling(logger, Path.home(), run=env.run, fetch=tools.fetch_https)
+    return lambda: tools.install_tools(tooling, presets.package_names(plan.package_file.read_text()))
+
+
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
     claude_dir = env.state_dir / "claude-profiles"
     _write_claude_profile(logger, plan.preset, plan.dotfiles_dir, claude_dir, plan.overlay_root, plan.preset.name)
@@ -369,7 +375,7 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     result = plan.backend.install(
         plan.package_file, preset_name=plan.preset.name, claude_profile_dir=claude_dir,
         dry_run=args.dry_run, private_root=plan.overlay_root, verbosity=args.verbosity,
-        force_stow=args.force, run=env.run,
+        force_stow=args.force, tools_hook=_tools_hook(logger, env, plan), run=env.run,
     )
     if not result.succeeded:
         _log_install_failure(logger, result)
