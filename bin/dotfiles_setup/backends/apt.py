@@ -14,10 +14,20 @@ from typing import Any
 
 from dotfiles_setup.backends import InstallResult
 
+STEPS_BEFORE_TOOLS = (
+    "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
+)
+STEPS_AFTER_TOOLS = (
+    "install_packages", "enable_gpaste_extension", "install_github_bins", "configure_docker_group",
+    "configure_dotfiles", "configure_claude_profile", "configure_rtk_cli", "configure_cozempic_cli",
+    "configure_serena", "configure_caveman_proxy", "change_shell", "set_default_terminal",
+)
+
 
 def setup_argv(
     dotfiles_dir: Path, package_file: Path, *, preset_name: str, claude_profile_dir: Path,
     dry_run: bool, private_root: Path | None, verbosity: int, force_stow: bool,
+    only_steps: tuple[str, ...] = (),
 ) -> list[str]:
     argv = [
         "bash", str(dotfiles_dir / "bin" / "setup.sh"),
@@ -30,6 +40,7 @@ def setup_argv(
     ]
     argv += ["--private-root", str(private_root)] if private_root is not None else []
     argv += ["--force-stow"] if force_stow else []
+    argv += ["--only", ",".join(only_steps)] if only_steps else []
     argv += ["--dry-run"] if dry_run else []
     return argv
 
@@ -56,19 +67,31 @@ class AptBackend:
         private_root: Path | None = None,
         verbosity: int = 0,
         force_stow: bool = False,
+        tools_hook: Callable[[], bool] | None = None,
         run: Callable[..., Any] = subprocess.run,
     ) -> InstallResult:
-        argv = setup_argv(
-            self.dotfiles_dir, package_file, preset_name=preset_name, claude_profile_dir=claude_profile_dir,
-            dry_run=dry_run, private_root=private_root, verbosity=verbosity, force_stow=force_stow,
-        )
-        # Output is deliberately uncaptured so a long install streams live.
-        result = run(argv)
-        return InstallResult(
-            succeeded=result.returncode == 0,
-            returncode=result.returncode,
-            stdout=(result.stdout or "") + (result.stderr or ""),
-        )
+        def segment(steps: tuple[str, ...]) -> InstallResult:
+            argv = setup_argv(
+                self.dotfiles_dir, package_file, preset_name=preset_name, claude_profile_dir=claude_profile_dir,
+                dry_run=dry_run, private_root=private_root, verbosity=verbosity, force_stow=force_stow,
+                only_steps=steps,
+            )
+            # Output is deliberately uncaptured so a long install streams live.
+            result = run(argv)
+            return InstallResult(
+                succeeded=result.returncode == 0,
+                returncode=result.returncode,
+                stdout=(result.stdout or "") + (result.stderr or ""),
+            )
+
+        if tools_hook is None:
+            return segment(())
+        before = segment(STEPS_BEFORE_TOOLS)
+        if not before.succeeded:
+            return before
+        if not tools_hook():
+            return InstallResult(succeeded=False, returncode=1, stdout="A tool installer failed. See output above.")
+        return segment(STEPS_AFTER_TOOLS)
 
     def print_completion(self, *, dry_run: bool, run: Callable[..., Any] = subprocess.run) -> None:
         sys.stdout.flush()

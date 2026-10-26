@@ -22,6 +22,7 @@ STOW_BACKUP_STAMP="$(date +%Y%m%d%H%M%S)"
 BANNER_ONLY=false
 ROLLBACK_LOG="$HOME/.dotfiles-setup-rollback.log"
 SETUP_IN_PROGRESS=false
+KEEP_ROLLBACK_LOG=false
 TEMP_DIRS_TO_CLEAN=()
 
 COLOR_RESET='\033[0m'
@@ -42,6 +43,31 @@ source "$SCRIPT_DIR/lib/apt.sh"
 source "$SCRIPT_DIR/lib/installers.sh"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/dotfiles.sh"
+
+SETUP_STEPS=(
+    install_core_deps disable_snapd strip_snap_from_system_path configure_apt_sources
+    install_packages enable_gpaste_extension install_github_bins configure_docker_group
+    configure_dotfiles configure_claude_profile configure_rtk_cli configure_cozempic_cli
+    configure_serena configure_caveman_proxy change_shell set_default_terminal
+)
+ONLY_STEPS=()
+
+step_selected() {
+    local step="$1"
+    (( ${#ONLY_STEPS[@]} == 0 )) && return 0
+    array_contains "$step" "${ONLY_STEPS[@]}"
+}
+
+validate_only_steps() {
+    local name
+    for name in "${ONLY_STEPS[@]:-}"; do
+        [[ -z "$name" ]] && continue
+        if ! array_contains "$name" "${SETUP_STEPS[@]}"; then
+            log_error "Unknown step in --only: '$name'. See --list-steps."
+            exit 1
+        fi
+    done
+}
 
 print_completion_banner() {
     echo
@@ -72,6 +98,8 @@ Options:
   --no-banner                          Skip the completion banner (dotfiles-setup prints it after its own steps)
   --no-header                          Skip the start-up header and dry-run notice (dotfiles-setup prints them first)
   --banner-only                        Print the completion banner and exit
+  --only <step[,step...]>              Run only these steps (see --list-steps); a run without the first step keeps the earlier rollback log, one without the last keeps it afterwards
+  --list-steps                         Print the step names in run order and exit
   --dry-run                   Show what would be done without executing commands
   -v, --verbose               Show step-by-step progress (INFO/SUCCESS messages)
   -vv                         Also show raw output from apt/stow/dpkg/etc.
@@ -147,6 +175,19 @@ main() {
                 BANNER_ONLY=true
                 shift
                 ;;
+            --list-steps)
+                printf '%s\n' "${SETUP_STEPS[@]}"
+                exit 0
+                ;;
+            --only)
+                if [[ $# -lt 2 ]]; then
+                    log_error "--only requires a comma-separated list of step names."
+                    exit 1
+                fi
+                local only_arg="$2"
+                IFS=',' read -r -a ONLY_STEPS <<< "$only_arg"
+                shift 2
+                ;;
             --verbosity)
                 # Sets VERBOSITY directly rather than accumulating like -v/-vv/-vvv —
                 # used by dotfiles-setup to forward its own already-summed -v/-vv/-vvv
@@ -182,6 +223,7 @@ main() {
     fi
 
     validate_machine_preset
+    validate_only_steps
 
     if [[ "$VERBOSITY" -ge 3 ]]; then
         set -x
@@ -210,29 +252,20 @@ main() {
 
     if [[ "$DRY_RUN" = false ]]; then
         SETUP_IN_PROGRESS=true
-        : > "$ROLLBACK_LOG"
+        step_selected "${SETUP_STEPS[0]}" && : > "$ROLLBACK_LOG"
+        step_selected "${SETUP_STEPS[-1]}" || KEEP_ROLLBACK_LOG=true
         log_info "Rollback tracking enabled. Log: $ROLLBACK_LOG"
     fi
 
     prompt_sudo
     determine_packages_to_install
 
-    install_core_deps
-    disable_snapd
-    strip_snap_from_system_path
-    configure_apt_sources
-    install_packages
-    enable_gpaste_extension
-    install_github_bins
-    configure_docker_group
-    configure_dotfiles
-    configure_claude_profile
-    configure_rtk_cli
-    configure_cozempic_cli
-    configure_serena
-    configure_caveman_proxy
-    change_shell
-    set_default_terminal
+    local step
+    for step in "${SETUP_STEPS[@]}"; do
+        if step_selected "$step"; then
+            "$step"
+        fi
+    done
 
     SETUP_IN_PROGRESS=false
 
