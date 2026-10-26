@@ -12,7 +12,7 @@ from pathlib import Path
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
-CORE_PACKAGES = ("curl", "gpg", "stow", "zsh", "wget", "sed", "build-essential")
+CORE_PACKAGES = ("curl", "gpg", "stow", "zsh", "wget", "sed", "build-essential", "unzip", "zip")
 GPASTE_ID = "GPaste@gnome-shell-extensions.gnome.org"
 SUDO_REFRESH_SECONDS = 60
 
