@@ -1,4 +1,4 @@
-"""Logging/output primitives. Port of bin/lib/log.sh."""
+"""Logging/output primitives."""
 from __future__ import annotations
 
 import subprocess
@@ -47,15 +47,16 @@ class Logger:
         return False
 
     def quiet_run(
-        self, argv: list[str], run=subprocess.run
+        self, argv: list[str], run=subprocess.run, cwd=None
     ) -> subprocess.CompletedProcess:
         """Runs argv, suppressing output unless verbosity>=2; failures always
         surface captured output first. Combines stdout+stderr after the fact
         (unlike bash's `2>&1`, this doesn't preserve true interleaving order —
         acceptable since only failure output needs to be seen, not ordered)."""
+        where = {} if cwd is None else {"cwd": cwd}
         if self.verbosity >= 2:
-            return run(argv)
-        result = run(argv, capture_output=True, text=True)
+            return run(argv, **where)
+        result = run(argv, capture_output=True, text=True, **where)
         if result.returncode != 0:
             combined = (result.stdout or "") + (result.stderr or "")
             print(combined, file=sys.stderr, end="")

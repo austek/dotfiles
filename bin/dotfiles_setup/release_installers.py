@@ -1,6 +1,4 @@
-"""Installers for tools shipped as a release artifact: resolve the latest
-version, download it into a per-tool cache, unpack, install. A failure in any
-of those steps warns and lets setup continue."""
+"""Installs tools shipped as release artifacts; a failure at any stage warns and continues."""
 from __future__ import annotations
 
 import os
@@ -58,7 +56,7 @@ def _store_in_cache(cache_dir: Path, cache_key: str, artifact: Path) -> None:
         pass
 
 
-def _download_with_cache(t: Tooling, tool: str, resolved: Resolved, dest: Path) -> bool:
+def download_with_cache(t: Tooling, tool: str, resolved: Resolved, dest: Path) -> bool:
     cache_dir = _cache_dir(t, tool)
     cached = cache_dir / resolved.cache_key
     try:
@@ -72,7 +70,7 @@ def _download_with_cache(t: Tooling, tool: str, resolved: Resolved, dest: Path) 
     return False
 
 
-def _skip(t: Tooling, error: str) -> bool:
+def skip(t: Tooling, error: str) -> bool:
     t.logger.error(error)
     t.logger.warn(MSG_CONTINUING_SETUP)
     return True
@@ -100,7 +98,7 @@ def _unpack(t: Tooling, spec: ReleaseSpec, artifact: Path, temp_dir: Path) -> bo
     try:
         extract(artifact, temp_dir)
     except (tarfile.TarError, zipfile.BadZipFile, OSError):
-        _skip(t, f"Failed to extract {spec.name} {phrase}.")
+        skip(t, f"Failed to extract {spec.name} {phrase}.")
         return False
     return True
 
@@ -110,16 +108,16 @@ def _fetch_and_install(t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_d
     suffix = f" v{resolved.version}" if resolved.version else ""
     t.logger.info(f"Fetching {spec.name}{suffix}...")
     try:
-        cache_hit = _download_with_cache(t, spec.name, resolved, artifact)
+        cache_hit = download_with_cache(t, spec.name, resolved, artifact)
     except (OSError, ValueError):
-        _skip(t, f"Failed to download {spec.name} from {resolved.url}")
+        skip(t, f"Failed to download {spec.name} from {resolved.url}")
         return
     if cache_hit:
         t.logger.info("(using cached download)")
     if not _unpack(t, spec, artifact, temp_dir):
         return
     if not spec.install(t, temp_dir, artifact, resolved):
-        _skip(t, f"Failed to install {spec.name}.")
+        skip(t, f"Failed to install {spec.name}.")
         return
     t.logger.success(f"{spec.name} installed successfully{suffix}.")
 
@@ -133,7 +131,7 @@ def install_release(t: Tooling, spec: ReleaseSpec) -> bool:
         return True
     resolved = spec.resolve(t)
     if resolved is None:
-        return _skip(t, f"Failed to resolve {spec.name} download URL.")
+        return skip(t, f"Failed to resolve {spec.name} download URL.")
     with tempfile.TemporaryDirectory() as temp_dir:
         _fetch_and_install(t, spec, resolved, Path(temp_dir))
     return True

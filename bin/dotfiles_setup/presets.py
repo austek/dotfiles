@@ -1,6 +1,4 @@
-"""Preset manifests: what a machine installs, keyed by name. Replaces the
---preset-conditional package-file selection previously hardcoded in
-bin/lib/apt.sh's determine_packages_to_install."""
+"""Preset manifests: what a machine installs, keyed by name."""
 from __future__ import annotations
 
 import json

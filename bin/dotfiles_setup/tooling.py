@@ -30,10 +30,14 @@ class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_HttpsOnlyRedirect)
 
 
-def fetch_https(url: str) -> str:
+def fetch_bytes_https(url: str) -> bytes:
     _require_https(url)
     with _OPENER.open(url, timeout=FETCH_TIMEOUT_SECONDS) as response:
-        return response.read().decode()
+        return response.read()
+
+
+def fetch_https(url: str) -> str:
+    return fetch_bytes_https(url).decode()
 
 
 def download_https(url: str, dest: Path) -> None:
@@ -63,10 +67,12 @@ class Tooling:
     home: Path
     run: Callable[..., Any] = subprocess.run
     fetch: Callable[[str], str] = fetch_https
+    fetch_bytes: Callable[[str], bytes] = fetch_bytes_https
     download: Callable[[str, Path], None] = download_https
     redirect: Callable[[str], str | None] = redirect_location
 
 
+# Returning False aborts the run; None or True continues.
 Installer = Callable[[Tooling], bool | None]
 
 

@@ -1,7 +1,4 @@
-"""Third-party installers that run between the shell apt-source and package
-steps: the script-based tool managers (sdkman, oh-my-zsh, nvm), the
-release-artifact installers in release_installers.py and the vendor-script and
-pipx installers in vendor_installers.py."""
+"""Registry and runner for the third-party installers that run before the apt package install."""
 from __future__ import annotations
 
 import json
@@ -9,7 +6,12 @@ import os
 from collections.abc import Collection
 from pathlib import Path
 
-from dotfiles_setup import release_installers, vendor_installers
+from dotfiles_setup import (
+    antigravity,
+    post_apt_installers,
+    release_installers,
+    vendor_installers,
+)
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all, fetch_https
 
 __all__ = ["TOOL_INSTALLERS", "Tooling", "fetch_https", "install_tools"]
@@ -106,18 +108,26 @@ def install_nvm(t: Tooling) -> None:
     _install_node_lts(t, nvm_dir)
 
 
-# An installer returns False to abort the run; None or True lets it continue.
 TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("oh-my-zsh", install_omz),
     ("sdkman", install_sdkman),
     ("nvm", install_nvm),
     *release_installers.RELEASE_INSTALLERS,
     *vendor_installers.VENDOR_INSTALLERS,
+    ("antigravity-ide", antigravity.install_antigravity_ide),
 )
 
 
-def install_tools(t: Tooling, package_names: Collection[str]) -> bool:
-    for name, installer in TOOL_INSTALLERS:
+def _run_installers(t: Tooling, table: tuple[tuple[str, Installer], ...], package_names: Collection[str]) -> bool:
+    for name, installer in table:
         if name in package_names and installer(t) is False:
             return False
     return True
+
+
+def install_tools(t: Tooling, package_names: Collection[str]) -> bool:
+    return _run_installers(t, TOOL_INSTALLERS, package_names)
+
+
+def install_post_apt_tools(t: Tooling, package_names: Collection[str]) -> bool:
+    return _run_installers(t, post_apt_installers.POST_APT_INSTALLERS, package_names)
