@@ -6,7 +6,7 @@ import re
 import shutil
 
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all
-from dotfiles_setup.vendor_installers import run_vendor_script
+from dotfiles_setup.vendor_installers import install_ruff, run_vendor_script
 
 AUDITR_VERSION = "0.10.5"
 CARGO_MIN_MINOR = 88
@@ -124,6 +124,7 @@ def install_cargo_crate(t: Tooling, crate: str) -> None:
 
 
 POST_APT_INSTALLERS: tuple[tuple[str, Installer], ...] = (
+    ("ruff", install_ruff),
     ("auditr", install_auditr),
     ("cargo-deny", lambda t: install_cargo_crate(t, "cargo-deny")),
     ("cargo-audit", lambda t: install_cargo_crate(t, "cargo-audit")),

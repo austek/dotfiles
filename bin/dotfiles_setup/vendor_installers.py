@@ -18,7 +18,8 @@ def run_vendor_script(t: Tooling, url: str, shell: str, *args: str) -> bool:
         script = Path(temp_dir) / "install"
         try:
             t.download(url, script)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as error:
+            t.logger.error(f"Could not download {url}: {error}")
             return False
         return t.run([shell, str(script), *args]).returncode == 0
 
@@ -104,7 +105,6 @@ def install_ruff(t: Tooling) -> None:
 
 
 VENDOR_INSTALLERS: tuple[tuple[str, Installer], ...] = (
-    ("ruff", install_ruff),
     ("coderabbit", lambda t: install_vendor(t, CODERABBIT)),
     ("sonarqube-cli", lambda t: install_vendor(t, SONARQUBE_CLI)),
     ("uv", lambda t: install_vendor(t, UV)),
