@@ -51,7 +51,8 @@ assert_idempotent_second_run() {
 }
 
 file_identity() {
-    stat -c '%i %y' "$1"
+    local file=$1
+    stat -c '%i %y' "$file"
 }
 
 take_snapshot() {

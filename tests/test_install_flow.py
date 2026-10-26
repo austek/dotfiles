@@ -120,8 +120,9 @@ def test_the_path_is_restored_when_a_step_raises(tmp_path, no_sudo, monkeypatch)
         raise RuntimeError("step blew up")
 
     monkeypatch.setattr(flow, "build_steps", lambda *a: [("boom", boom)])
+    flow_inputs = inputs(tmp_path)
     with pytest.raises(RuntimeError):
-        flow.run_install(inputs(tmp_path))
+        flow.run_install(flow_inputs)
     assert os.environ["PATH"] == "/usr/bin"
 
 
