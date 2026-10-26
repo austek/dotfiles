@@ -31,73 +31,25 @@ validate_machine_preset() {
         echo "Use --help for usage information"
         exit 1
     fi
-    if [[ -n "$PACKAGE_FILE_OVERRIDE" ]]; then
-        log_success "Machine preset set to '$MACHINE_PRESET' (packages resolved externally)."
-        return 0
+    if [[ -z "$PACKAGE_FILE_OVERRIDE" ]]; then
+        log_error "Missing required --package-file argument; run via 'dotfiles-setup install', which resolves it from the preset."
+        echo "Use --help for usage information"
+        exit 1
     fi
-    case "$MACHINE_PRESET" in
-        work|personal|homelab)
-            log_success "Machine preset set to '$MACHINE_PRESET'."
-            ;;
-        *)
-            log_error "Invalid --preset value: '$MACHINE_PRESET'. Must be 'work', 'personal', or 'homelab' unless --package-file is also given."
-            echo "Use --help for usage information"
-            exit 1
-            ;;
-    esac
+    log_success "Machine preset set to '$MACHINE_PRESET' (packages resolved externally)."
 }
 
 determine_packages_to_install() {
-    if [[ -n "$PACKAGE_FILE_OVERRIDE" ]]; then
-        log_info "Reading resolved package list from $PACKAGE_FILE_OVERRIDE..."
-        if [[ ! -f "$PACKAGE_FILE_OVERRIDE" ]]; then
-            log_error "--package-file '$PACKAGE_FILE_OVERRIDE' does not exist."
-            exit 1
-        fi
-        mapfile -t PACKAGES_TO_INSTALL < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$PACKAGE_FILE_OVERRIDE" | sort -u)
-        log_info "Found ${#PACKAGES_TO_INSTALL[@]} unique packages to install."
-        return 0
+    log_info "Reading resolved package list from $PACKAGE_FILE_OVERRIDE..."
+    if [[ ! -f "$PACKAGE_FILE_OVERRIDE" ]]; then
+        log_error "--package-file '$PACKAGE_FILE_OVERRIDE' does not exist."
+        exit 1
     fi
-
-    log_info "Determining which packages to install..."
-    local all_packages=()
-
-    if [[ -f "$APT_PACKAGE_DIR/apt_common.txt" ]]; then
-        mapfile -t common_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_common.txt")
-        all_packages+=( "${common_packages[@]}" )
+    if [[ ! -r "$PACKAGE_FILE_OVERRIDE" ]]; then
+        log_error "--package-file '$PACKAGE_FILE_OVERRIDE' is not readable."
+        exit 1
     fi
-
-    if [[ "$MACHINE_PRESET" == "work" || "$MACHINE_PRESET" == "personal" ]] && [[ -f "$APT_PACKAGE_DIR/apt_desktop.txt" ]]; then
-        mapfile -t desktop_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_desktop.txt")
-        all_packages+=( "${desktop_packages[@]}" )
-    fi
-
-    if [[ "$MACHINE_PRESET" == "work" ]] && [[ -f "$APT_PACKAGE_DIR/apt_work.txt" ]]; then
-        mapfile -t work_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_work.txt")
-        all_packages+=( "${work_packages[@]}" )
-    fi
-
-    if [[ "$MACHINE_PRESET" == "personal" || "$MACHINE_PRESET" == "homelab" ]] && [[ -f "$APT_PACKAGE_DIR/apt_rust.txt" ]]; then
-        mapfile -t rust_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_rust.txt")
-        all_packages+=( "${rust_packages[@]}" )
-    fi
-
-    if [[ "$MACHINE_PRESET" == "personal" ]] && [[ -f "$APT_PACKAGE_DIR/apt_personal.txt" ]]; then
-        mapfile -t personal_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_personal.txt")
-        all_packages+=( "${personal_packages[@]}" )
-    fi
-
-    if [[ "$MACHINE_PRESET" == "homelab" ]] && [[ -f "$APT_PACKAGE_DIR/apt_homelab.txt" ]]; then
-        mapfile -t homelab_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_homelab.txt")
-        all_packages+=( "${homelab_packages[@]}" )
-    fi
-
-    if (( ${#all_packages[@]} > 0 )); then
-        while IFS= read -r -d '' package; do
-            PACKAGES_TO_INSTALL+=("$package")
-        done < <(printf "%s\0" "${all_packages[@]}" | sort -uz)
-    fi
-
+    mapfile -t PACKAGES_TO_INSTALL < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$PACKAGE_FILE_OVERRIDE" | sort -u)
     log_info "Found ${#PACKAGES_TO_INSTALL[@]} unique packages to install."
 }
 

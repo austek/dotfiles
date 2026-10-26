@@ -60,11 +60,11 @@ print_completion_banner() {
 
 usage() {
     cat <<EOF
-Usage: $0 --preset <work|personal|homelab> [OPTIONS]
+Usage: $0 --preset <name> --package-file <path> [OPTIONS]
 
 Options:
-  --preset <work|personal|homelab>   Machine profile to set up (required)
-  --package-file <path>               Use this pre-resolved package list instead of deriving one from --preset
+  --preset <name>                    Machine profile to set up (required)
+  --package-file <path>               Pre-resolved package list (required; dotfiles-setup resolves it from the preset)
   --claude-profile-dir <path>          Read claude-profiles/*.json from this directory instead of the repo's own
   --private-root <path>                Also stow packages listed in this dir's .stow-packages (the private overlay)
   --verbosity <0-6>                    Set VERBOSITY directly (what dotfiles-setup passes for -v/-vv/-vvv); prefer -v/-vv/-vvv by hand

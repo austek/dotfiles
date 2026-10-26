@@ -668,6 +668,19 @@ fi
 rm -f "$TMP_PKG_FILE"
 PACKAGE_FILE_OVERRIDE=""
 
+# --- determine_packages_to_install rejects an unreadable --package-file ---
+TMP_PKG_FILE=$(mktemp)
+chmod 000 "$TMP_PKG_FILE"
+PACKAGE_FILE_OVERRIDE="$TMP_PKG_FILE"
+if [[ "$EUID" -ne 0 ]] && (determine_packages_to_install >/dev/null 2>&1); then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("package-file override: unreadable file was accepted")
+else
+    PASS_COUNT=$((PASS_COUNT + 1))
+fi
+rm -f "$TMP_PKG_FILE"
+PACKAGE_FILE_OVERRIDE=""
+
 # --- validate_machine_preset accepts a non-standard name only with --package-file ---
 MACHINE_PRESET="laptop-minimal"
 PACKAGE_FILE_OVERRIDE="/tmp/does-not-need-to-exist-for-this-check"
@@ -678,6 +691,17 @@ else
     FAILURES+=("validate_machine_preset: custom preset name rejected despite --package-file")
 fi
 PACKAGE_FILE_OVERRIDE=""
+MACHINE_PRESET=""
+
+# --- validate_machine_preset rejects a missing --package-file ---
+MACHINE_PRESET="work"
+PACKAGE_FILE_OVERRIDE=""
+if (validate_machine_preset >/dev/null 2>&1); then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("validate_machine_preset: accepted a preset without --package-file")
+else
+    PASS_COUNT=$((PASS_COUNT + 1))
+fi
 MACHINE_PRESET=""
 
 # --- stow backup helpers (--force-stow) ---
