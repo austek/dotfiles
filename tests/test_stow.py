@@ -303,6 +303,7 @@ def test_a_failed_common_stow_stops_the_dotfiles_step(world):
 
 def test_git_hooks_path_is_set_after_a_successful_stow(world):
     make_repo(world)
+    (world.repo / ".git").mkdir()
     write_packages(world.repo / ".stow-packages", "pkgA")
     plan, runner = plan_for(world, force=False)
     assert stow.configure_dotfiles(plan)
@@ -310,5 +311,19 @@ def test_git_hooks_path_is_set_after_a_successful_stow(world):
 
 
 def test_a_failed_git_config_fails_the_step(world):
+    (world.repo / ".git").mkdir()
     plan, _ = plan_for(world, Stower(git_rc=1), force=False)
     assert not stow.configure_git_hooks(plan)
+
+
+def test_a_directory_that_is_not_a_git_checkout_skips_the_hooks_path(world):
+    plan, runner = plan_for(world, Stower(git_rc=1), force=False)
+    assert stow.configure_git_hooks(plan)
+    assert runner.calls == []
+
+
+def test_a_worktree_with_a_git_file_still_gets_the_hooks_path(world):
+    (world.repo / ".git").write_text("gitdir: /elsewhere\n")
+    plan, runner = plan_for(world, force=False)
+    assert stow.configure_git_hooks(plan)
+    assert len(runner.calls) == 1
