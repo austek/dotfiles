@@ -24,7 +24,7 @@ install_preset() {
 main() {
     copy_repo
     cd "$dest"
-    # setup.sh assumes the package lists already exist, as they do on a real machine.
+    # The install's first apt-get install assumes the package lists already exist, as they do on a real machine.
     sudo apt-get update -qq
 
     echo "=== e2e[$preset]: first install ==="

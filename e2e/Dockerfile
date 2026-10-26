@@ -9,7 +9,7 @@ RUN apt-get update \
     && printf '%s\n' 'Defaults:ubuntu !authenticate' 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/e2e \
     && chmod 0440 /etc/sudoers.d/e2e
 
-# setup.sh refuses to run as root, so the install runs as the image's stock non-root user.
+# dotfiles-setup refuses to run as root, so the install runs as the image's stock non-root user.
 USER ubuntu
 ENV USER=ubuntu
 WORKDIR /e2e
