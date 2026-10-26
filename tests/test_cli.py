@@ -117,7 +117,7 @@ def stub_subprocess(monkeypatch, returncode=0, stdout="installed", stderr="", ca
         calls.append(argv)
         return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
 
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", run)
+    monkeypatch.setattr("dotfiles_setup.tooling.subprocess.run", run)
     return calls
 
 
@@ -605,7 +605,7 @@ def test_main_private_clone_dry_run_does_not_clone(tmp_path, monkeypatch, capsys
     def unexpected_run(argv, **kwargs):
         raise AssertionError("git clone should not run in dry-run mode")
 
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", unexpected_run)
+    monkeypatch.setattr("dotfiles_setup.tooling.subprocess.run", unexpected_run)
 
     dest = tmp_path / "dotfiles-private"
     assert main(["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest), "--dry-run"]) == 0

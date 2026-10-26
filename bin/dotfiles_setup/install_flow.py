@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -87,6 +88,17 @@ def _start_log(inputs: FlowInputs, logger: Logger) -> RollbackLog:
     return log
 
 
+@contextmanager
+def _user_bin_on_path(home: Path) -> Iterator[None]:
+    """pipx and cargo install into ~/.local/bin, which a later step must be able to run."""
+    original = os.environ.get("PATH", "")
+    os.environ["PATH"] = f"{home / '.local/bin'}:{original}"
+    try:
+        yield
+    finally:
+        os.environ["PATH"] = original
+
+
 def run_install(inputs: FlowInputs) -> InstallResult:
     logger = inputs.t.logger
     if inputs.euid == 0:
@@ -99,7 +111,8 @@ def run_install(inputs: FlowInputs) -> InstallResult:
     try:
         if not session.start():
             return InstallResult(False, 1, "Could not obtain sudo credentials.")
-        return _run_steps(build_steps(inputs, packages, log), logger, log)
+        with _user_bin_on_path(inputs.t.home):
+            return _run_steps(build_steps(inputs, packages, log), logger, log)
     except KeyboardInterrupt:
         return InstallResult(False, INTERRUPTED_EXIT_CODE, "Interrupted.", rollback_pending=not logger.dry_run)
     finally:

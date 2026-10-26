@@ -264,6 +264,6 @@ def test_release_installers_run_after_the_script_installers(tmp_path):
     names = [name for name, _ in tools.TOOL_INSTALLERS]
     assert names == [
         "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "slack-desktop", "jetbrains-toolbox",
-        "istioctl", "awscli", "zizmor", "mcp-grafana", "ruff", "coderabbit", "sonarqube-cli", "uv",
+        "istioctl", "awscli", "zizmor", "mcp-grafana", "coderabbit", "sonarqube-cli", "uv",
         "antigravity-ide",
     ]

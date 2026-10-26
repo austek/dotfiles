@@ -204,12 +204,32 @@ def has_globbed_path(words: list[str]) -> bool:
     return False
 
 
+GRADLE_TASK = re.compile(r"^(:[\w.-]+)*:?(spotlessApply|spotlessCheck|test|integrationTest|check|compileJava|compileTestJava)$")
+GRADLE_FLAG = re.compile(r"^(-D[\w.]+=[\w.,:/-]+|--no-daemon|--offline|--continue|--rerun-tasks|--console=plain|-q|-i|--info|--stacktrace)$")
+
+
+def gradle_allowed(words: list[str]) -> bool:
+    args, tasks = iter(words[1:]), 0
+    for arg in args:
+        if arg == "--tests":
+            value = next(args, "-")
+            if value.startswith("-") or expands(value):
+                return False
+        elif GRADLE_TASK.match(arg):
+            tasks += 1
+        elif not GRADLE_FLAG.match(arg):
+            return False
+    return tasks > 0
+
+
 def command_allowed(words: list[str], rules: dict) -> bool:
     text = join_words(words)
     if SENSITIVE.search(text) or words[0].startswith("$"):
         return False
     if matches(text, rules["deny"]) or matches(text, rules["ask"]):
         return False
+    if words[0] in ("./gradlew", "gradlew"):
+        return gradle_allowed(words)
     if words[0] in SAFE_COMMANDS:
         return not has_unsafe_flag(words) and not any("$" in w for w in words[1:]) and not has_globbed_path(words)
     return not runs_inner_command(words) and matches(text, rules["allow"])

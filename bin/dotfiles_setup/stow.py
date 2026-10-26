@@ -235,6 +235,9 @@ def stow_private_to_home(plan: StowPlan) -> bool:
 
 def configure_git_hooks(plan: StowPlan) -> bool:
     plan.t.logger.info("Configuring pre-commit git hooks...")
+    if not (plan.dotfiles_dir / ".git").exists():
+        plan.t.logger.info("The dotfiles directory is not a git checkout. Skipping the hooks path.")
+        return True
     if dry_run_all(plan.t, "Would set core.hooksPath to .githooks"):
         return True
     result = plan.t.run(["git", "config", "--local", "core.hooksPath", ".githooks"], cwd=plan.dotfiles_dir)

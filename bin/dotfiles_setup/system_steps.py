@@ -12,7 +12,7 @@ from pathlib import Path
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
-CORE_PACKAGES = ("curl", "gpg", "stow", "zsh", "wget", "sed", "build-essential")
+CORE_PACKAGES = ("curl", "gpg", "stow", "zsh", "wget", "sed", "build-essential", "unzip", "zip")
 GPASTE_ID = "GPaste@gnome-shell-extensions.gnome.org"
 SUDO_REFRESH_SECONDS = 60
 
@@ -48,7 +48,8 @@ class SudoSession:
         t.logger.info("This script requires sudo access to install packages and configure the system.")
         if dry_run_all(t, "Would verify sudo credentials and start refresh loop"):
             return True
-        if t.run(["sudo", "-v"]).returncode != 0:
+        # Passwordless sudo (CI, containers) is already valid; `sudo -v` can still demand a terminal there.
+        if t.run(["sudo", "-n", "true"], capture_output=True).returncode != 0 and t.run(["sudo", "-v"]).returncode != 0:
             t.logger.error("Sudo password entry failed or was cancelled.")
             return False
         self._thread.start()
