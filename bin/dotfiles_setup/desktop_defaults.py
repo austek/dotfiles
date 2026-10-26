@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import getpass
 import os
+import re
 import shutil
 from pathlib import Path
 
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
 GHOSTTY_ENTRY_ID = "com.mitchellh.ghostty.desktop"
+LIST_LINE = re.compile(r"[\w.@+-]+\.desktop|#.*")
 TERMINAL_SCHEMA = "org.gnome.desktop.default-applications.terminal"
 
 
@@ -44,8 +46,15 @@ def _set_alternative(t: Tooling, ghostty: str) -> None:
         t.logger.error("Failed to set default terminal. Please run 'sudo update-alternatives --config x-terminal-emulator' manually.")
 
 
+def _kept_entries(listing: Path) -> list[str]:
+    if not listing.is_file():
+        return []
+    lines = listing.read_text().splitlines()
+    return [line for line in lines if line != GHOSTTY_ENTRY_ID and LIST_LINE.fullmatch(line)]
+
+
 def _prefer_ghostty(listing: Path) -> bool:
-    others = [line for line in listing.read_text().splitlines() if line != GHOSTTY_ENTRY_ID] if listing.is_file() else []
+    others = _kept_entries(listing)
     try:
         listing.write_text("".join(f"{line}\n" for line in [GHOSTTY_ENTRY_ID, *others]))
     except OSError:

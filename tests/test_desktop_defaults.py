@@ -107,6 +107,16 @@ def test_existing_terminal_entries_follow_ghostty_without_duplicates(tmp_path, o
     assert (config / "ubuntu-xdg-terminals.list").read_text() == f"{dd.GHOSTTY_ENTRY_ID}\ngnome-terminal.desktop\n"
 
 
+def test_comments_survive_and_lines_that_are_not_desktop_entries_are_dropped(tmp_path, on_path):
+    on_path["ghostty"] = "/usr/bin/ghostty"
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "xdg-terminals.list").write_text("# my terminals\nfoot.desktop\n../../etc/passwd\n\nkitty.desktop\n")
+    dd.set_default_terminal(make(tmp_path, Machine()))
+    expected = f"{dd.GHOSTTY_ENTRY_ID}\n# my terminals\nfoot.desktop\nkitty.desktop\n"
+    assert (config / "xdg-terminals.list").read_text() == expected
+
+
 def test_gsettings_is_skipped_when_unavailable(tmp_path, on_path):
     on_path["ghostty"] = "/usr/bin/ghostty"
     machine = Machine()
