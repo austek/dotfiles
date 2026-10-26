@@ -1,3 +1,4 @@
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -101,6 +102,27 @@ def test_an_interrupt_offers_a_rollback_with_the_conventional_exit_code(tmp_path
     monkeypatch.setattr(flow, "build_steps", lambda *a: [("slow", interrupt)])
     result = flow.run_install(inputs(tmp_path))
     assert (result.returncode, result.rollback_pending) == (130, True)
+
+
+def test_the_user_bin_dir_is_on_path_during_the_steps_and_restored_after(tmp_path, no_sudo, monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+    seen = {}
+    monkeypatch.setattr(flow, "build_steps", lambda *a: [("peek", lambda: seen.update(path=os.environ["PATH"]))])
+    flow.run_install(inputs(tmp_path))
+    assert seen["path"] == f"{tmp_path / 'home/.local/bin'}:/usr/bin"
+    assert os.environ["PATH"] == "/usr/bin"
+
+
+def test_the_path_is_restored_when_a_step_raises(tmp_path, no_sudo, monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    def boom():
+        raise RuntimeError("step blew up")
+
+    monkeypatch.setattr(flow, "build_steps", lambda *a: [("boom", boom)])
+    with pytest.raises(RuntimeError):
+        flow.run_install(inputs(tmp_path))
+    assert os.environ["PATH"] == "/usr/bin"
 
 
 def test_the_sudo_refresh_loop_always_stops(tmp_path, monkeypatch):

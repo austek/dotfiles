@@ -61,11 +61,22 @@ def redirect_location(url: str) -> str | None:
     return None
 
 
+COMMAND_NOT_FOUND = 127
+
+
+def run_command(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+    """Runs a command like a shell does: a missing executable is exit status 127, not an exception."""
+    try:
+        return subprocess.run(argv, check=False, **kwargs)
+    except FileNotFoundError as error:
+        return subprocess.CompletedProcess(argv, COMMAND_NOT_FOUND, stdout=None, stderr=str(error))
+
+
 @dataclass(frozen=True)
 class Tooling:
     logger: Logger
     home: Path
-    run: Callable[..., Any] = subprocess.run
+    run: Callable[..., Any] = run_command
     fetch: Callable[[str], str] = fetch_https
     fetch_bytes: Callable[[str], bytes] = fetch_bytes_https
     download: Callable[[str, Path], None] = download_https

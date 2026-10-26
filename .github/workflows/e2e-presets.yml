@@ -12,6 +12,8 @@ on:
       - 'system/**'
       - 'claude/**'
       - 'claude-profiles/**'
+      - 'git/**'
+      - 'zsh/**'
       - 'e2e/**'
       - '.stow-packages'
       - '.github/workflows/e2e-presets.yml'

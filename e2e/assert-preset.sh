@@ -18,6 +18,7 @@ fail() {
 assert_symlink_into_repo() {
     local link=$1
     [[ -L "$link" ]] || fail "$link is not a symlink"
+    [[ -e "$link" ]] || fail "$link is a dangling symlink"
     [[ $(readlink -f "$link") == "$HOME/.dotfiles/"* ]] || fail "$link does not resolve into ~/.dotfiles"
 }
 
@@ -40,6 +41,8 @@ assert_installed_state() {
 assert_idempotent_second_run() {
     [[ -d "$snapshot_dir" ]] || fail "no snapshot to compare against"
     cmp -s "$snapshot_dir/settings.json" "$settings" || fail "second run rewrote $settings"
+    [[ $(file_identity "$settings") == "$(cat "$snapshot_dir/settings.identity")" ]] \
+        || fail "second run replaced $settings with identical content"
     cmp -s "$snapshot_dir/forked.txt" "$forked" || fail "second run changed the forked package list"
     [[ -n "$removed_package" ]] || fail "second phase needs the removed package name"
     ! grep -qx "$removed_package" "$forked" || fail "second run re-added '$removed_package' to the forked list"
@@ -47,9 +50,14 @@ assert_idempotent_second_run() {
     return 0
 }
 
+file_identity() {
+    stat -c '%i %y' "$1"
+}
+
 take_snapshot() {
     mkdir -p "$snapshot_dir"
     cp "$settings" "$snapshot_dir/settings.json"
+    file_identity "$settings" > "$snapshot_dir/settings.identity"
     cp "$forked" "$snapshot_dir/forked.txt"
 }
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
@@ -164,7 +163,7 @@ def _apt_backend(dotfiles_dir: Path, overrides: dict[str, str]) -> Backend:
 class Env:
     """Collaborators and locations main() uses; defaults resolve when Env() is built, so tests can inject."""
 
-    run: RunFn = field(default_factory=lambda: subprocess.run)
+    run: RunFn = field(default_factory=lambda: tooling.run_command)
     clock: Callable[[], datetime] = field(default_factory=lambda: lambda: datetime.now(UTC))
     claude_home: Path = field(default_factory=lambda: _claude_home())
     state_dir: Path = field(default_factory=lambda: state.state_dir())
