@@ -40,7 +40,7 @@ cmd=$1
 case "$cmd" in
     up)
         echo "🚀 Initializing Local Dev Cluster..."
-        _kdev_gen_config
+        _kdev_gen_config || { echo "❌ Failed to generate $CONFIG_PATH" >&2; exit 1; }
 
         if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
             echo "⚠️  Cluster '${CLUSTER_NAME}' already exists."
