@@ -330,8 +330,9 @@ def _plan(
     combined = combine_package_names(backend, logical_names, overlay_names)
     package_file = state.package_dir(env.state_dir) / f"{preset.name}.txt"
     previous_names = prior.applied_package_names if prior and prior.preset_name == preset.name else None
+    packages = reconcile.effective_names(package_file, combined, previous_names)
     _reconcile_packages(logger, package_file, combined, previous_names)
-    return _Install(preset, backend, combined, package_file, overlay_root, env.dotfiles_dir, prior)
+    return _Install(preset, backend, combined, package_file, packages, overlay_root, env.dotfiles_dir, prior)
 
 
 def combine_package_names(
@@ -343,6 +344,8 @@ def combine_package_names(
 def _reconcile_packages(
     logger: Logger, package_file: Path, combined: tuple[str, ...], previous_names: tuple[str, ...] | None
 ) -> None:
+    if logger.dry_run_notice(f"Would reconcile {package_file}."):
+        return
     added, _ = reconcile.reconcile_package_file(package_file, combined, previous_names)
     if added:
         logger.info(f"Added {len(added)} new package(s) to {package_file}")
@@ -354,6 +357,7 @@ class _Install:
     backend: Backend
     combined: tuple[str, ...]
     package_file: Path
+    packages: frozenset[str]
     overlay_root: Path | None
     dotfiles_dir: Path
     prior: state.MachineState | None
@@ -374,7 +378,7 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
 
 def _flow_inputs(logger: Logger, env: Env, plan: _Install, force: bool, claude_dir: Path) -> install_flow.FlowInputs:
     return install_flow.FlowInputs(
-        _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.package_file, plan.overlay_root,
+        _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.packages, plan.overlay_root,
         force, claude_dir, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(),
     )
 

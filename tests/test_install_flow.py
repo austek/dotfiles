@@ -11,10 +11,8 @@ from dotfiles_setup.rollback import RollbackLog
 def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n"):
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
-    package_file = tmp_path / "packages.txt"
-    package_file.write_text(packages)
-    t = tools.Tooling(Logger(dry_run=dry_run, verbosity=1), home, run=lambda *a, **k: SimpleNamespace(returncode=0))
-    return flow.FlowInputs(t, tmp_path / "repo", "work", package_file, None, False, tmp_path / "profiles", "T1", euid=euid)
+    t =tools.Tooling(Logger(dry_run=dry_run, verbosity=1), home, run=lambda *a, **k: SimpleNamespace(returncode=0))
+    return flow.FlowInputs(t, tmp_path / "repo", "work", frozenset(packages.split()), None, False, tmp_path / "profiles", "T1", euid=euid)
 
 
 @pytest.fixture
@@ -135,7 +133,7 @@ def test_the_sudo_refresh_loop_always_stops(tmp_path, monkeypatch):
     assert stops == [1]
 
 
-def test_the_package_names_come_from_the_resolved_file(tmp_path, no_sudo, monkeypatch):
+def test_the_steps_receive_the_resolved_package_names(tmp_path, no_sudo, monkeypatch):
     seen = {}
 
     def build(inputs_, packages, log):
@@ -143,7 +141,7 @@ def test_the_package_names_come_from_the_resolved_file(tmp_path, no_sudo, monkey
         return []
 
     monkeypatch.setattr(flow, "build_steps", build)
-    flow.run_install(inputs(tmp_path, packages="# c\nvim\n\ngit\n"))
+    flow.run_install(inputs(tmp_path, packages="vim\ngit\n"))
     assert seen["packages"] == frozenset({"vim", "git"})
 
 

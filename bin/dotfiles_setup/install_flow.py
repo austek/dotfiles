@@ -13,7 +13,6 @@ from dotfiles_setup import (
     claude_profile,
     claude_tools,
     desktop_defaults,
-    presets,
     stow,
     system_steps,
     tools,
@@ -33,7 +32,7 @@ class FlowInputs:
     t: Tooling
     dotfiles_dir: Path
     preset_name: str
-    package_file: Path
+    packages: frozenset[str]
     overlay_root: Path | None
     force: bool
     claude_dir: Path
@@ -104,7 +103,7 @@ def run_install(inputs: FlowInputs) -> InstallResult:
     if inputs.euid == 0:
         logger.error("This script must not be run as root. Use 'sudo' when prompted.")
         return InstallResult(False, 1, "Refusing to run as root.")
-    packages = frozenset(presets.package_names(inputs.package_file.read_text()))
+    packages = inputs.packages
     logger.info(f"Found {len(packages)} unique packages to install.")
     log = _start_log(inputs, logger)
     session = SudoSession(SystemContext(inputs.t, inputs.dotfiles_dir, packages, log))

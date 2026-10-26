@@ -17,6 +17,15 @@ def names_to_append(
     return sorted(set(resolved_names) - set(previous_names or ()) - existing)
 
 
+def effective_names(
+    package_file: Path, resolved_names: Sequence[str], previous_names: Sequence[str] | None
+) -> frozenset[str]:
+    if not package_file.is_file():
+        return frozenset(resolved_names)
+    existing = package_names(package_file.read_text())
+    return frozenset(existing | set(names_to_append(resolved_names, previous_names, existing)))
+
+
 def _append(package_file: Path, names: list[str]) -> None:
     with package_file.open("a") as handle:
         handle.write("\n# --- added by reconcile ---\n")
