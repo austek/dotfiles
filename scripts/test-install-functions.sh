@@ -45,6 +45,11 @@ assert_contains() {
     fi
 }
 
+capture() {
+    exit_code=0
+    output=$("$@" 2>&1) || exit_code=$?
+}
+
 assert_exit_code() {
     local actual="$1" expected="$2" scenario="$3"
     if [[ "$actual" -eq "$expected" ]]; then
@@ -188,7 +193,7 @@ register_scenario() { SCENARIOS+=("$1"); }
 test_lazydocker_already_installed() {
     STUB_ALREADY_INSTALLED=true
     local output exit_code
-    output=$(install_lazydocker 2>&1); exit_code=$?
+    capture install_lazydocker
     assert_contains "$output" "$MSG_ALREADY_INSTALLED" "lazydocker already-installed"
     assert_exit_code "$exit_code" 0 "lazydocker already-installed"
     assert_not_called "$MARK_CURL" "lazydocker already-installed" "curl"
@@ -198,7 +203,7 @@ register_scenario test_lazydocker_already_installed
 test_lazydocker_dry_run() {
     DRY_RUN=true
     local output exit_code
-    output=$(install_lazydocker 2>&1); exit_code=$?
+    capture install_lazydocker
     assert_contains "$output" "$MSG_DRY_RUN" "lazydocker dry-run"
     assert_exit_code "$exit_code" 0 "lazydocker dry-run"
     assert_not_called "$MARK_CURL" "lazydocker dry-run" "curl"
@@ -208,7 +213,7 @@ register_scenario test_lazydocker_dry_run
 test_lazydocker_resolve_fail() {
     STUB_CURL_OUTPUT=""
     local output exit_code
-    output=$(install_lazydocker 2>&1); exit_code=$?
+    capture install_lazydocker
     assert_contains "$output" "Failed to resolve lazydocker download URL." "lazydocker resolve-fail"
     assert_exit_code "$exit_code" 0 "lazydocker resolve-fail"
     assert_not_called "$MARK_DOWNLOAD" "lazydocker resolve-fail" "$LABEL_DOWNLOAD"
@@ -219,7 +224,7 @@ test_lazydocker_download_fail() {
     STUB_CURL_OUTPUT="$TAG_LAZYDOCKER"
     STUB_DOWNLOAD_FAIL=true
     local output exit_code
-    output=$(install_lazydocker 2>&1); exit_code=$?
+    capture install_lazydocker
     assert_contains "$output" "Failed to download lazydocker" "lazydocker download-fail"
     assert_exit_code "$exit_code" 0 "lazydocker download-fail"
     assert_not_called "tar_called" "lazydocker download-fail" "tar"
@@ -230,7 +235,7 @@ test_lazydocker_extract_fail() {
     STUB_CURL_OUTPUT="$TAG_LAZYDOCKER"
     STUB_EXTRACT_FAIL=true
     local output exit_code
-    output=$(install_lazydocker 2>&1); exit_code=$?
+    capture install_lazydocker
     assert_contains "$output" "Failed to extract lazydocker from tarball." "lazydocker extract-fail"
     assert_exit_code "$exit_code" 0 "lazydocker extract-fail"
     assert_not_called "$MARK_INSTALL" "lazydocker extract-fail" "$LABEL_INSTALL"
@@ -241,7 +246,7 @@ test_lazydocker_install_fail() {
     STUB_CURL_OUTPUT="$TAG_LAZYDOCKER"
     STUB_INSTALL_FAIL=true
     local output exit_code
-    output=$(install_lazydocker 2>&1); exit_code=$?
+    capture install_lazydocker
     assert_contains "$output" "Failed to install lazydocker." "lazydocker install-fail"
     assert_exit_code "$exit_code" 0 "lazydocker install-fail"
 }
@@ -250,7 +255,7 @@ register_scenario test_lazydocker_install_fail
 test_lazydocker_success() {
     STUB_CURL_OUTPUT="$TAG_LAZYDOCKER"
     local output exit_code
-    output=$(install_lazydocker 2>&1); exit_code=$?
+    capture install_lazydocker
     assert_contains "$output" "lazydocker installed successfully v1.2.3." "lazydocker success"
     assert_exit_code "$exit_code" 0 "lazydocker success"
     assert_called "$MARK_INSTALL" "lazydocker success" "$LABEL_INSTALL"
@@ -260,7 +265,7 @@ register_scenario test_lazydocker_success
 test_istioctl_already_installed() {
     STUB_ALREADY_INSTALLED=true
     local output exit_code
-    output=$(install_istioctl 2>&1); exit_code=$?
+    capture install_istioctl
     assert_contains "$output" "$MSG_ALREADY_INSTALLED" "istioctl already-installed"
     assert_exit_code "$exit_code" 0 "istioctl already-installed"
     assert_not_called "$MARK_CURL" "istioctl already-installed" "curl"
@@ -270,7 +275,7 @@ register_scenario test_istioctl_already_installed
 test_istioctl_dry_run() {
     DRY_RUN=true
     local output exit_code
-    output=$(install_istioctl 2>&1); exit_code=$?
+    capture install_istioctl
     assert_contains "$output" "$MSG_DRY_RUN" "istioctl dry-run"
     assert_exit_code "$exit_code" 0 "istioctl dry-run"
     assert_not_called "$MARK_CURL" "istioctl dry-run" "curl"
@@ -280,7 +285,7 @@ register_scenario test_istioctl_dry_run
 test_istioctl_resolve_fail() {
     STUB_CURL_OUTPUT=""
     local output exit_code
-    output=$(install_istioctl 2>&1); exit_code=$?
+    capture install_istioctl
     assert_contains "$output" "Failed to resolve istioctl download URL." "istioctl resolve-fail"
     assert_exit_code "$exit_code" 0 "istioctl resolve-fail"
     assert_not_called "$MARK_DOWNLOAD" "istioctl resolve-fail" "$LABEL_DOWNLOAD"
@@ -291,7 +296,7 @@ test_istioctl_download_fail() {
     STUB_CURL_OUTPUT="$TAG_ISTIOCTL"
     STUB_DOWNLOAD_FAIL=true
     local output exit_code
-    output=$(install_istioctl 2>&1); exit_code=$?
+    capture install_istioctl
     assert_contains "$output" "Failed to download istioctl" "istioctl download-fail"
     assert_exit_code "$exit_code" 0 "istioctl download-fail"
     assert_not_called "tar_called" "istioctl download-fail" "tar"
@@ -302,7 +307,7 @@ test_istioctl_extract_fail() {
     STUB_CURL_OUTPUT="$TAG_ISTIOCTL"
     STUB_EXTRACT_FAIL=true
     local output exit_code
-    output=$(install_istioctl 2>&1); exit_code=$?
+    capture install_istioctl
     assert_contains "$output" "Failed to extract istioctl from tarball." "istioctl extract-fail"
     assert_exit_code "$exit_code" 0 "istioctl extract-fail"
     assert_not_called "$MARK_INSTALL" "istioctl extract-fail" "$LABEL_INSTALL"
@@ -313,7 +318,7 @@ test_istioctl_install_fail() {
     STUB_CURL_OUTPUT="$TAG_ISTIOCTL"
     STUB_INSTALL_FAIL=true
     local output exit_code
-    output=$(install_istioctl 2>&1); exit_code=$?
+    capture install_istioctl
     assert_contains "$output" "Failed to install istioctl." "istioctl install-fail"
     assert_exit_code "$exit_code" 0 "istioctl install-fail"
 }
@@ -322,7 +327,7 @@ register_scenario test_istioctl_install_fail
 test_istioctl_success() {
     STUB_CURL_OUTPUT="$TAG_ISTIOCTL"
     local output exit_code
-    output=$(install_istioctl 2>&1); exit_code=$?
+    capture install_istioctl
     assert_contains "$output" "istioctl installed successfully v1.20.0." "istioctl success"
     assert_exit_code "$exit_code" 0 "istioctl success"
     assert_called "$MARK_INSTALL" "istioctl success" "$LABEL_INSTALL"
@@ -332,7 +337,7 @@ register_scenario test_istioctl_success
 test_zoom_already_installed() {
     STUB_ALREADY_INSTALLED=true
     local output exit_code
-    output=$(install_zoom 2>&1); exit_code=$?
+    capture install_zoom
     assert_contains "$output" "$MSG_ALREADY_INSTALLED" "zoom already-installed"
     assert_exit_code "$exit_code" 0 "zoom already-installed"
     assert_not_called "$MARK_CURL" "zoom already-installed" "curl"
@@ -342,7 +347,7 @@ register_scenario test_zoom_already_installed
 test_zoom_dry_run() {
     DRY_RUN=true
     local output exit_code
-    output=$(install_zoom 2>&1); exit_code=$?
+    capture install_zoom
     assert_contains "$output" "$MSG_DRY_RUN" "zoom dry-run"
     assert_exit_code "$exit_code" 0 "zoom dry-run"
     assert_not_called "$MARK_CURL" "zoom dry-run" "curl"
@@ -352,7 +357,7 @@ register_scenario test_zoom_dry_run
 test_zoom_download_fail() {
     STUB_DOWNLOAD_FAIL=true
     local output exit_code
-    output=$(install_zoom 2>&1); exit_code=$?
+    capture install_zoom
     assert_contains "$output" "Failed to download Zoom" "zoom download-fail"
     assert_exit_code "$exit_code" 0 "zoom download-fail"
     assert_not_called "$MARK_DPKG" "zoom download-fail" "dpkg"
@@ -364,7 +369,7 @@ test_zoom_install_fail_then_fixed() {
     STUB_DPKG_INSTALLED=true
     STUB_DPKG_LIST_NAME="zoom"
     local output exit_code
-    output=$(install_zoom 2>&1); exit_code=$?
+    capture install_zoom
     assert_contains "$output" "Zoom installed successfully vlatest." "zoom install-fail-then-fixed"
     assert_exit_code "$exit_code" 0 "zoom install-fail-then-fixed"
     assert_called "apt_get_called" "zoom install-fail-then-fixed" "apt-get --fix-broken"
@@ -375,7 +380,7 @@ test_zoom_install_permanently_broken() {
     STUB_DPKG_INSTALL_FAIL=true
     STUB_DPKG_INSTALLED=false
     local output exit_code
-    output=$(install_zoom 2>&1); exit_code=$?
+    capture install_zoom
     assert_contains "$output" "Failed to install Zoom." "zoom install-permanently-broken"
     assert_exit_code "$exit_code" 0 "zoom install-permanently-broken"
 }
@@ -383,7 +388,7 @@ register_scenario test_zoom_install_permanently_broken
 
 test_zoom_success() {
     local output exit_code
-    output=$(install_zoom 2>&1); exit_code=$?
+    capture install_zoom
     assert_contains "$output" "Zoom installed successfully vlatest." "zoom success"
     assert_exit_code "$exit_code" 0 "zoom success"
     assert_called "$MARK_DPKG" "zoom success" "dpkg -i"
@@ -393,7 +398,7 @@ register_scenario test_zoom_success
 test_slack_already_installed() {
     STUB_ALREADY_INSTALLED=true
     local output exit_code
-    output=$(install_slack 2>&1); exit_code=$?
+    capture install_slack
     assert_contains "$output" "$MSG_ALREADY_INSTALLED" "slack already-installed"
     assert_exit_code "$exit_code" 0 "slack already-installed"
     assert_not_called "$MARK_CURL" "slack already-installed" "curl"
@@ -403,7 +408,7 @@ register_scenario test_slack_already_installed
 test_slack_dry_run() {
     DRY_RUN=true
     local output exit_code
-    output=$(install_slack 2>&1); exit_code=$?
+    capture install_slack
     assert_contains "$output" "$MSG_DRY_RUN" "slack dry-run"
     assert_exit_code "$exit_code" 0 "slack dry-run"
     assert_not_called "$MARK_CURL" "slack dry-run" "curl"
@@ -413,7 +418,7 @@ register_scenario test_slack_dry_run
 test_slack_resolve_fail() {
     STUB_CURL_OUTPUT=""
     local output exit_code
-    output=$(install_slack 2>&1); exit_code=$?
+    capture install_slack
     assert_contains "$output" "Failed to resolve Slack download URL." "slack resolve-fail"
     assert_exit_code "$exit_code" 0 "slack resolve-fail"
     assert_not_called "$MARK_DOWNLOAD" "slack resolve-fail" "$LABEL_DOWNLOAD"
@@ -424,7 +429,7 @@ test_slack_download_fail() {
     STUB_CURL_OUTPUT="$SLACK_VERSION_OUTPUT"
     STUB_DOWNLOAD_FAIL=true
     local output exit_code
-    output=$(install_slack 2>&1); exit_code=$?
+    capture install_slack
     assert_contains "$output" "Failed to download Slack" "slack download-fail"
     assert_exit_code "$exit_code" 0 "slack download-fail"
     assert_not_called "$MARK_DPKG" "slack download-fail" "dpkg"
@@ -437,7 +442,7 @@ test_slack_install_fail_then_fixed() {
     STUB_DPKG_INSTALLED=true
     STUB_DPKG_LIST_NAME="slack-desktop"
     local output exit_code
-    output=$(install_slack 2>&1); exit_code=$?
+    capture install_slack
     assert_contains "$output" "Slack installed successfully v4.35.0." "slack install-fail-then-fixed"
     assert_exit_code "$exit_code" 0 "slack install-fail-then-fixed"
     assert_called "apt_get_called" "slack install-fail-then-fixed" "apt-get --fix-broken"
@@ -449,7 +454,7 @@ test_slack_install_permanently_broken() {
     STUB_DPKG_INSTALL_FAIL=true
     STUB_DPKG_INSTALLED=false
     local output exit_code
-    output=$(install_slack 2>&1); exit_code=$?
+    capture install_slack
     assert_contains "$output" "Failed to install Slack." "slack install-permanently-broken"
     assert_exit_code "$exit_code" 0 "slack install-permanently-broken"
 }
@@ -458,7 +463,7 @@ register_scenario test_slack_install_permanently_broken
 test_slack_success() {
     STUB_CURL_OUTPUT="$SLACK_VERSION_OUTPUT"
     local output exit_code
-    output=$(install_slack 2>&1); exit_code=$?
+    capture install_slack
     assert_contains "$output" "Slack installed successfully v4.35.0." "slack success"
     assert_exit_code "$exit_code" 0 "slack success"
     assert_called "$MARK_DPKG" "slack success" "dpkg -i"
@@ -468,7 +473,7 @@ register_scenario test_slack_success
 test_jetbrains_already_installed() {
     STUB_ALREADY_INSTALLED=true
     local output exit_code
-    output=$(install_jetbrains_toolbox 2>&1); exit_code=$?
+    capture install_jetbrains_toolbox
     assert_contains "$output" "$MSG_ALREADY_INSTALLED" "jetbrains already-installed"
     assert_exit_code "$exit_code" 0 "jetbrains already-installed"
     assert_not_called "$MARK_CURL" "jetbrains already-installed" "curl"
@@ -478,7 +483,7 @@ register_scenario test_jetbrains_already_installed
 test_jetbrains_dry_run() {
     DRY_RUN=true
     local output exit_code
-    output=$(install_jetbrains_toolbox 2>&1); exit_code=$?
+    capture install_jetbrains_toolbox
     assert_contains "$output" "$MSG_DRY_RUN" "jetbrains dry-run"
     assert_exit_code "$exit_code" 0 "jetbrains dry-run"
     assert_not_called "$MARK_CURL" "jetbrains dry-run" "curl"
@@ -488,7 +493,7 @@ register_scenario test_jetbrains_dry_run
 test_jetbrains_resolve_fail() {
     STUB_CURL_OUTPUT=""
     local output exit_code
-    output=$(install_jetbrains_toolbox 2>&1); exit_code=$?
+    capture install_jetbrains_toolbox
     assert_contains "$output" "Failed to resolve JetBrains Toolbox download URL." "jetbrains resolve-fail"
     assert_exit_code "$exit_code" 0 "jetbrains resolve-fail"
     assert_not_called "$MARK_DOWNLOAD" "jetbrains resolve-fail" "$LABEL_DOWNLOAD"
@@ -499,7 +504,7 @@ test_jetbrains_download_fail() {
     STUB_CURL_OUTPUT="$JETBRAINS_RELEASE_JSON"
     STUB_DOWNLOAD_FAIL=true
     local output exit_code
-    output=$(install_jetbrains_toolbox 2>&1); exit_code=$?
+    capture install_jetbrains_toolbox
     assert_contains "$output" "Failed to download JetBrains Toolbox" "jetbrains download-fail"
     assert_exit_code "$exit_code" 0 "jetbrains download-fail"
     assert_not_called "tar_called" "jetbrains download-fail" "tar"
@@ -510,7 +515,7 @@ test_jetbrains_extract_fail() {
     STUB_CURL_OUTPUT="$JETBRAINS_RELEASE_JSON"
     STUB_EXTRACT_FAIL=true
     local output exit_code
-    output=$(install_jetbrains_toolbox 2>&1); exit_code=$?
+    capture install_jetbrains_toolbox
     assert_contains "$output" "Failed to extract JetBrains Toolbox from tarball." "jetbrains extract-fail"
     assert_exit_code "$exit_code" 0 "jetbrains extract-fail"
     assert_not_called "find_called" "jetbrains extract-fail" "find"
@@ -521,7 +526,7 @@ test_jetbrains_find_empty() {
     STUB_CURL_OUTPUT="$JETBRAINS_RELEASE_JSON"
     STUB_FIND_EMPTY=true
     local output exit_code
-    output=$(install_jetbrains_toolbox 2>&1); exit_code=$?
+    capture install_jetbrains_toolbox
     assert_contains "$output" "Could not find jetbrains-toolbox binary in archive." "jetbrains find-empty"
     assert_exit_code "$exit_code" 0 "jetbrains find-empty"
 }
@@ -532,7 +537,7 @@ test_jetbrains_success() {
     mkdir -p "$STUB_DIR/jetbrains-toolbox"
     touch "$STUB_DIR/jetbrains-toolbox/jetbrains-toolbox"
     local output exit_code
-    output=$(install_jetbrains_toolbox 2>&1); exit_code=$?
+    capture install_jetbrains_toolbox
     assert_contains "$output" "JetBrains Toolbox installed successfully." "jetbrains success"
     assert_exit_code "$exit_code" 0 "jetbrains success"
 }
@@ -541,7 +546,7 @@ register_scenario test_jetbrains_success
 test_awscli_already_installed() {
     STUB_ALREADY_INSTALLED=true
     local output exit_code
-    output=$(install_awscli 2>&1); exit_code=$?
+    capture install_awscli
     assert_contains "$output" "$MSG_ALREADY_INSTALLED" "awscli already-installed"
     assert_exit_code "$exit_code" 0 "awscli already-installed"
     assert_not_called "$MARK_DOWNLOAD" "awscli already-installed" "$LABEL_DOWNLOAD"
@@ -551,7 +556,7 @@ register_scenario test_awscli_already_installed
 test_awscli_dry_run() {
     DRY_RUN=true
     local output exit_code
-    output=$(install_awscli 2>&1); exit_code=$?
+    capture install_awscli
     assert_contains "$output" "$MSG_DRY_RUN" "awscli dry-run"
     assert_exit_code "$exit_code" 0 "awscli dry-run"
     assert_not_called "$MARK_DOWNLOAD" "awscli dry-run" "$LABEL_DOWNLOAD"
@@ -561,7 +566,7 @@ register_scenario test_awscli_dry_run
 test_awscli_download_fail() {
     STUB_DOWNLOAD_FAIL=true
     local output exit_code
-    output=$(install_awscli 2>&1); exit_code=$?
+    capture install_awscli
     assert_contains "$output" "Failed to download AWS CLI" "awscli download-fail"
     assert_exit_code "$exit_code" 0 "awscli download-fail"
     assert_not_called "unzip_called" "awscli download-fail" "unzip"
@@ -571,7 +576,7 @@ register_scenario test_awscli_download_fail
 test_awscli_extract_fail() {
     STUB_EXTRACT_FAIL=true
     local output exit_code
-    output=$(install_awscli 2>&1); exit_code=$?
+    capture install_awscli
     assert_contains "$output" "Failed to extract AWS CLI installer." "awscli extract-fail"
     assert_exit_code "$exit_code" 0 "awscli extract-fail"
     assert_not_called "sudo_called" "awscli extract-fail" "sudo"
@@ -586,7 +591,7 @@ exit 1
 EOF
     chmod +x "$STUB_DIR/aws/install"
     local output exit_code
-    output=$(install_awscli 2>&1); exit_code=$?
+    capture install_awscli
     assert_contains "$output" "Failed to install AWS CLI." "awscli install-fail"
     assert_exit_code "$exit_code" 0 "awscli install-fail"
 }
@@ -600,7 +605,7 @@ exit 0
 EOF
     chmod +x "$STUB_DIR/aws/install"
     local output exit_code
-    output=$(install_awscli 2>&1); exit_code=$?
+    capture install_awscli
     assert_contains "$output" "AWS CLI installed successfully." "awscli success"
     assert_exit_code "$exit_code" 0 "awscli success"
 }
@@ -754,6 +759,67 @@ ln -s "$STOW_TMP/external" "$HOME/link"
 STUB_STOW_CONFLICT=link/f
 stow_with_backup --target="$HOME" pkg >/dev/null 2>&1
 check "force-stow: never moves a file reached through a symlink outside HOME" test "$(cat "$STOW_TMP/external/f")" = external
+stow_teardown
+
+# --- rollback tracks only packages newly stowed in this run ---
+stow_sandbox
+mkdir -p "$STOW_TMP/repo/pkgA" "$STOW_TMP/repo/pkgB" "$STOW_TMP/repo/pkgC/.cfg" "$HOME"
+echo a > "$STOW_TMP/repo/pkgA/.rca"
+echo b > "$STOW_TMP/repo/pkgB/.rcb"
+echo c > "$STOW_TMP/repo/pkgC/.cfg/f"
+ln -s "$STOW_TMP/repo/pkgA/.rca" "$HOME/.rca"
+ln -s "$STOW_TMP/repo/pkgC/.cfg" "$HOME/.cfg"
+echo other > "$HOME/.rcb"
+unlinked=$(pkgs_not_yet_linked "$STOW_TMP/repo" "$HOME" pkgA pkgB pkgC | tr '\n' ' ')
+check "track: already-linked and folded packages are not reported" test "$unlinked" = "pkgB "
+stow_teardown
+
+# --- apt sources: unneeded files are ignored, never moved out of the repo ---
+stow_sandbox
+mkdir -p "$STOW_TMP/repo/apt/etc/apt/sources.list.d"
+for f in 1password.sources google-chrome.sources vscode.sources github-cli.sources; do
+    : > "$STOW_TMP/repo/apt/etc/apt/sources.list.d/$f"
+done
+stow_calls="$STOW_TMP/stow_calls"
+sudo() { printf '%s\n' "$*" >> "$stow_calls"; }
+(
+    DOTFILES_DIR="$STOW_TMP/repo"
+    PACKAGES_TO_INSTALL=(gh)
+    stow_apt_source_files
+) >/dev/null 2>&1 || true
+check "apt stow: unneeded sources are passed to stow --ignore" grep -q -- '--ignore=1password\\.sources\$' "$stow_calls"
+check "apt stow: needed source is not ignored" test -z "$(grep -- 'github-cli' "$stow_calls" || true)"
+check "apt stow: repo checkout keeps every tracked source" test "$(command find "$STOW_TMP/repo/apt" -name '*.sources' | wc -l)" -eq 4
+unset -f sudo
+stow_teardown
+
+# --- deselected rendered apt sources are removed; hand-made ones are not ---
+stow_sandbox
+APT_SOURCES_DIR="$STOW_TMP/sources.list.d"
+mkdir -p "$APT_SOURCES_DIR"
+printf '%s\nTypes: deb\n' "$APT_RENDERED_MARKER" > "$APT_SOURCES_DIR/pgadmin4.sources"
+printf '%s\nTypes: deb\n' "$APT_RENDERED_MARKER" > "$APT_SOURCES_DIR/docker.sources"
+printf 'Types: deb\n' > "$APT_SOURCES_DIR/postgresql.sources"
+sudo() { "$@"; }
+remove_deselected_rendered_sources 1 0 0 1 >/dev/null 2>&1
+check "apt sources: deselected rendered source is removed" test ! -e "$APT_SOURCES_DIR/pgadmin4.sources"
+check "apt sources: selected rendered source is kept" test -e "$APT_SOURCES_DIR/docker.sources"
+check "apt sources: hand-made source without the marker is kept" test -e "$APT_SOURCES_DIR/postgresql.sources"
+unset -f sudo
+unset APT_SOURCES_DIR
+stow_teardown
+
+# --- Oh My Zsh and SDKMAN leave ~/.zshrc alone ---
+stow_sandbox
+DRY_RUN=false
+curl_https() { printf '%s\n' "$*" >> "$STOW_TMP/curl_args"; echo "true"; }
+bash() { cat > /dev/null; }
+sh() { printf '%s %s %s\n' "${KEEP_ZSHRC:-}" "${RUNZSH:-}" "${CHSH:-}" > "$STOW_TMP/omz_env"; }
+install_sdkman >/dev/null 2>&1
+install_omz >/dev/null 2>&1
+check "sdkman: installer URL disables rc update" grep -q 'get.sdkman.io?rcupdate=false' "$STOW_TMP/curl_args"
+check "omz: keeps zshrc and skips shell switch" test "$(cat "$STOW_TMP/omz_env")" = "yes no no"
+unset -f curl_https bash sh
 stow_teardown
 
 echo

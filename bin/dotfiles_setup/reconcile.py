@@ -7,13 +7,20 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from dotfiles_setup.presets import package_names
 
-def _existing_names(package_file: Path) -> set[str]:
-    return {
-        line.strip()
-        for line in package_file.read_text().splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    }
+
+def names_to_append(
+    resolved_names: Sequence[str], previous_names: Sequence[str] | None, existing: set[str]
+) -> list[str]:
+    # A name the preset already carried that the user deleted must never come back.
+    return sorted(set(resolved_names) - set(previous_names or ()) - existing)
+
+
+def _append(package_file: Path, names: list[str]) -> None:
+    with package_file.open("a") as handle:
+        handle.write("\n# --- added by reconcile ---\n")
+        handle.writelines(f"{name}\n" for name in names)
 
 
 def reconcile_package_file(
@@ -24,20 +31,8 @@ def reconcile_package_file(
         sorted_names = sorted(set(resolved_names))
         package_file.write_text("\n".join(sorted_names) + "\n")
         return (sorted_names, True)
-
-    if previous_names is not None and set(resolved_names) == set(previous_names):
-        return ([], False)
-
-    # Only a name absent from the *previous* resolved set is genuinely new to
-    # the preset — a name the preset already carried, that the user deleted
-    # from the file, must never come back just because something else changed.
-    newly_from_preset = set(resolved_names) - set(previous_names or ())
-    newly_added = sorted(newly_from_preset - _existing_names(package_file))
+    newly_added = names_to_append(resolved_names, previous_names, package_names(package_file.read_text()))
     if not newly_added:
         return ([], False)
-
-    with package_file.open("a") as handle:
-        handle.write("\n# --- added by reconcile ---\n")
-        for name in newly_added:
-            handle.write(f"{name}\n")
+    _append(package_file, newly_added)
     return (newly_added, True)

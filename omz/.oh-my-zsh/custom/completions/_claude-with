@@ -2,8 +2,8 @@
 
 function _claude-with {
     # Keep in sync with restore_commands keys in
-    # zsh/.config/zsh/functions/claude-with
-    local -a names=(develocity develocity-analytics idea sonarqube coralogix)
+    # zsh/.config/zsh/functions/claude-with; develocity* come from the private overlay.
+    local -a names=(develocity develocity-analytics idea sonarqube grafana coralogix)
 
     if (( ${words[(I)--]} )); then
         _files

@@ -53,23 +53,22 @@ claude-with() {
   done
 
   local -a added=() already=()
-  local name line add_output
+  local name line add_output missing secret
   for name in "${names[@]}"; do
     line="${restore_commands[$name]}"
     if [[ -z "$line" ]]; then
       echo "claude-with: no restore entry for '$name'" >&2
       continue
     fi
-    if [[ "$line" == *'DEVELOCITY_MCP_TOKEN'* && -z "$DEVELOCITY_MCP_TOKEN" ]]; then
-      echo "claude-with: \$DEVELOCITY_MCP_TOKEN is not set (check ~/.config/dotfiles/secrets.env)" >&2
-      continue
-    fi
-    if [[ "$line" == *'GRAFANA_SERVICE_ACCOUNT_TOKEN'* && -z "$GRAFANA_SERVICE_ACCOUNT_TOKEN" ]]; then
-      echo "claude-with: \$GRAFANA_SERVICE_ACCOUNT_TOKEN is not set (check ~/.config/dotfiles/secrets.env)" >&2
-      continue
-    fi
-    if [[ "$line" == *'CORALOGIX_API_KEY'* && -z "$CORALOGIX_API_KEY" ]]; then
-      echo "claude-with: \$CORALOGIX_API_KEY is not set (check ~/.config/dotfiles/secrets.env)" >&2
+    missing=""
+    for secret in DEVELOCITY_MCP_TOKEN GRAFANA_SERVICE_ACCOUNT_TOKEN CORALOGIX_API_KEY; do
+      if [[ "$line" == *"$secret"* && -z "${(P)secret}" ]]; then
+        missing=$secret
+        break
+      fi
+    done
+    if [[ -n "$missing" ]]; then
+      echo "claude-with: \$$missing is not set (check ~/.config/dotfiles/secrets.env)" >&2
       continue
     fi
     echo "claude-with: enabling $name (local scope)..."
@@ -91,13 +90,20 @@ claude-with() {
     return 1
   fi
 
+  local n
+  _claude_with_revert() {
+    for n in "${added[@]}"; do
+      eval "${revert_commands[$n]}" >/dev/null 2>&1
+    done
+    added=()
+  }
+  setopt localtraps
+  trap '_claude_with_revert; return 143' HUP TERM
+
   command claude "${claude_args[@]}"
   local exit_status=$?
 
-  local n
-  for n in "${added[@]}"; do
-    eval "${revert_commands[$n]}" >/dev/null 2>&1
-  done
+  _claude_with_revert
 
   return $exit_status
 }

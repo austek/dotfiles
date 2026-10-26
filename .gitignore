@@ -34,7 +34,17 @@ gradle/.gradle/*
 
 .pytest_cache/
 .coverage
+coverage.xml
 /.venv/
 
 # Claude app-synced skills (managed by the app, never stowed)
 claude/.claude/skills/synced/
+
+# Claude runtime state that would land here if stow folds ~/.claude into this directory
+claude/.claude/.credentials.json
+claude/.claude/history.jsonl
+claude/.claude/projects/
+claude/.claude/plugins/
+claude/.claude/todos/
+claude/.claude/shell-snapshots/
+claude/.claude/settings.local.json

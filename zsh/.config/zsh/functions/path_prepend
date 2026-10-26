@@ -6,4 +6,5 @@ path_prepend() {
         [[ -d $dir ]] && add+=( $dir )
     done
     path=( $add $path )
+    return 0
 }

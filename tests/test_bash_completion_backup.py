@@ -1,25 +1,8 @@
-import subprocess
-from pathlib import Path
-
-COMPLETION_SCRIPT = (
-    Path(__file__).resolve().parent.parent
-    / "bash" / ".local" / "share" / "bash-completion" / "completions" / "dotfiles-backup"
-)
+from _completion import complete
 
 
 def _complete(words: list[str], cword: int) -> list[str]:
-    comp_words = " ".join(f'"{w}"' for w in words)
-    script = f'''
-source "{COMPLETION_SCRIPT}"
-COMP_WORDS=({comp_words})
-COMP_CWORD={cword}
-_dotfiles_backup_completions
-printf '%s\\n' "${{COMPREPLY[@]}}"
-'''
-    result = subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True, check=True
-    )
-    return [line for line in result.stdout.splitlines() if line]
+    return complete("dotfiles-backup", "_dotfiles_backup_completions", words, cword)
 
 
 def test_completes_save_subcommand_by_prefix():

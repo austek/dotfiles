@@ -1,4 +1,3 @@
-# Function to find where PATH is modified
 # Usage:
 #   find_path_mod           (searches for all 'PATH=' lines)
 #   find_path_mod "/my/path"  (searches for the string "/my/path")
@@ -25,10 +24,9 @@ find_path_mod() {
 
   if [[ $# -eq 0 ]]; then
     echo "Searching for all 'PATH=' modifications..."
-    # Use noglob to prevent zsh from expanding paths with *
-    noglob grep -H --color=auto 'PATH=' $files
+    grep -sH --color=auto 'PATH=' $files
   else
     echo "Searching for '$1' in config files..."
-    noglob grep -H --color=auto "$1" $files
+    grep -sH --color=auto "$1" $files
   fi
 }

@@ -17,6 +17,7 @@ jobs:
   shellcheck:
     name: Validate Shell Scripts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -45,6 +46,7 @@ jobs:
   python:
     name: Validate Python CLI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -64,18 +66,18 @@ jobs:
       - name: Lint with ruff
         run: uv run --locked --no-build ruff check .
 
+      - name: Install zsh and shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh shellcheck
+
       - name: Run pytest with coverage
-        run: uv run --locked --no-build pytest --cov --cov-report=term-missing --cov-fail-under=75 -v
+        run: uv run --locked --no-build pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=75 -v
 
       - name: Smoke-test the CLI entry points
         run: |
           ./bin/dotfiles-setup install --preset work --dry-run
           ./bin/dotfiles-backup --help
-
-      - name: Install zsh and shellcheck for completion checks
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y zsh shellcheck
 
       - name: Syntax-check zsh completions
         run: |

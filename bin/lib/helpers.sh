@@ -45,7 +45,7 @@ download_with_cache() {
     fi
 
     DOWNLOAD_CACHE_HIT=false
-    if ! curl_https -sL -o "$dest" "$url"; then
+    if ! curl_https -fsSL -o "$dest" "$url"; then
         return 1
     fi
 
@@ -149,6 +149,6 @@ install_deb_or_fix_broken() {
     fi
     log_warn "dpkg reported errors. Running 'apt --fix-broken install'..."
     quiet_run sudo apt-get -y --fix-broken install
-    dpkg -l | grep -q "^ii.*$dpkg_grep_pattern"
+    grep -q "^ii.*$dpkg_grep_pattern" < <(dpkg -l)
 }
 

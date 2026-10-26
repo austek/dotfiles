@@ -1,8 +1,23 @@
 import json
+import os
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from dotfiles_setup import overlay, state
-from dotfiles_setup.cli import build_arg_parser, main
+from dotfiles_setup.backends.apt import AptBackend
+from dotfiles_setup.cli import (
+    Env,
+    _replace_settings_target,
+    build_arg_parser,
+    combine_package_names,
+    main,
+)
+
+
+def test_combine_package_names_resolves_overrides_and_merges_overlay(tmp_path):
+    backend = AptBackend(dotfiles_dir=tmp_path, backend_overrides={"bat": "batcat"})
+    assert combine_package_names(backend, ("bat", "git"), ("zsh", "git")) == ("batcat", "git", "zsh")
 
 
 def test_preset_is_optional_at_parse_time():
@@ -25,40 +40,19 @@ def test_preset_accepts_valid_values(preset):
     assert args.preset == preset
 
 
-def test_dry_run_defaults_false():
-    parser = build_arg_parser()
-    args = parser.parse_args(["install", "--preset", "work"])
-    assert args.dry_run is False
+@pytest.mark.parametrize(("flags", "expected"), [([], False), (["--dry-run"], True)])
+def test_dry_run_flag(flags, expected):
+    args = build_arg_parser().parse_args(["install", "--preset", "work", *flags])
+    assert args.dry_run is expected
 
 
-def test_dry_run_flag_sets_true():
-    parser = build_arg_parser()
-    args = parser.parse_args(["install", "--preset", "work", "--dry-run"])
-    assert args.dry_run is True
-
-
-def test_verbosity_defaults_zero():
-    parser = build_arg_parser()
-    args = parser.parse_args(["install", "--preset", "work"])
-    assert args.verbosity == 0
-
-
-def test_verbose_flag_adds_one():
-    parser = build_arg_parser()
-    args = parser.parse_args(["install", "--preset", "work", "-v"])
-    assert args.verbosity == 1
-
-
-def test_vv_flag_adds_two():
-    parser = build_arg_parser()
-    args = parser.parse_args(["install", "--preset", "work", "-vv"])
-    assert args.verbosity == 2
-
-
-def test_vvv_flag_adds_three():
-    parser = build_arg_parser()
-    args = parser.parse_args(["install", "--preset", "work", "-vvv"])
-    assert args.verbosity == 3
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [([], 0), (["-v"], 1), (["-vv"], 2), (["-vvv"], 3)],
+)
+def test_verbosity_flag(flags, expected):
+    args = build_arg_parser().parse_args(["install", "--preset", "work", *flags])
+    assert args.verbosity == expected
 
 
 def test_verbosity_accumulates_across_distinct_flags():
@@ -67,7 +61,7 @@ def test_verbosity_accumulates_across_distinct_flags():
     assert args.verbosity == 3
 
 
-def test_main_returns_zero_for_valid_preset(isolated_dotfiles, capsys):
+def test_main_returns_zero_for_valid_preset(isolated_dotfiles):
     assert main(["install", "--preset", "homelab"]) == 0
 
 
@@ -115,6 +109,17 @@ def foothold_installs(monkeypatch):
     return calls
 
 
+def stub_subprocess(monkeypatch, returncode=0, stdout="installed", stderr="", calls=None):
+    calls = [] if calls is None else calls
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", run)
+    return calls
+
+
 @pytest.fixture
 def foothold_retirements(monkeypatch):
     calls = []
@@ -144,28 +149,16 @@ def isolated_dotfiles(tmp_path, monkeypatch, plugin_updates, foothold_installs, 
     (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps({"model": "base"}))
 
     monkeypatch.setattr("dotfiles_setup.cli._dotfiles_dir", lambda: dotfiles_dir)
-    monkeypatch.setattr("dotfiles_setup.cli.CLAUDE_HOME", tmp_path / "claude-home")
-    monkeypatch.setattr(state, "STATE_DIR", tmp_path / "state")
-    monkeypatch.setattr(state, "STATE_FILE", tmp_path / "state" / "state.json")
-    monkeypatch.setattr(state, "PACKAGE_DIR", tmp_path / "state" / "packages")
-    monkeypatch.setattr("dotfiles_setup.cli.state.STATE_FILE", tmp_path / "state" / "state.json")
-    monkeypatch.setattr("dotfiles_setup.cli.state.PACKAGE_DIR", tmp_path / "state" / "packages")
+    monkeypatch.setattr("dotfiles_setup.cli._claude_home", lambda: tmp_path / "claude-home")
+    monkeypatch.setattr(state, "state_dir", lambda: tmp_path / "state")
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: None)
     monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda *a, **kw: False)
     monkeypatch.setattr("dotfiles_setup.cli.identity.ensure_git_identity", lambda **kw: tmp_path / "gitconfig.local")
-
-    def fake_run(argv, **kwargs):
-        class _Result:
-            returncode = 0
-            stdout = "installed"
-            stderr = ""
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", fake_run)
+    stub_subprocess(monkeypatch)
     return dotfiles_dir, tmp_path
 
 
-def test_install_creates_package_file_on_first_run(isolated_dotfiles, capsys):
+def test_install_creates_package_file_on_first_run(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     assert main(["install", "--preset", "homelab"]) == 0
     package_file = tmp_path / "state" / "packages" / "homelab.txt"
@@ -184,35 +177,19 @@ def test_install_is_idempotent_on_rerun(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     main(["install", "--preset", "homelab"])
     package_file = tmp_path / "state" / "packages" / "homelab.txt"
-    package_file.write_text(package_file.read_text() + "ripgrep\n")  # user hand-edit
+    package_file.write_text(package_file.read_text() + "ripgrep\n")
     main(["install", "--preset", "homelab"])
     assert "ripgrep" in package_file.read_text()
 
 
 def test_install_reports_backend_failure(isolated_dotfiles, monkeypatch):
-    def failing_run(argv, **kwargs):
-        class _Result:
-            returncode = 1
-            stdout = "apt-get exploded"
-            stderr = ""
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
+    stub_subprocess(monkeypatch, returncode=1, stdout="apt-get exploded")
     assert main(["install", "--preset", "homelab"]) == 1
 
 
 def test_install_reports_backend_failure_with_no_captured_output(isolated_dotfiles, capsys, monkeypatch):
-    """The real run() no longer captures setup.sh's output (it streams live
-    instead), so a real failure has nothing in result.stdout to print back —
-    cli.py falls back to a message naming the exit code instead of a blank line."""
-    def failing_run(argv, **kwargs):
-        class _Result:
-            returncode = 3
-            stdout = None
-            stderr = None
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
+    """Names the exit code when the streamed backend run left no output to print."""
+    stub_subprocess(monkeypatch, returncode=3, stdout=None, stderr=None)
     assert main(["install", "--preset", "homelab"]) == 3
     assert "exited with code 3" in capsys.readouterr().err
 
@@ -233,79 +210,38 @@ def test_dry_run_skips_claude_profile_write(isolated_dotfiles):
     assert not (tmp_path / "state" / "claude-profiles" / "claude_homelab.json").exists()
 
 
+def test_dry_run_still_forks_the_package_file_setup_sh_reads(isolated_dotfiles):
+    main(["install", "--preset", "homelab", "--dry-run"])
+    assert (state.package_dir() / "homelab.txt").exists()
+
+
 def test_dry_run_skips_state_persistence(isolated_dotfiles):
     main(["install", "--preset", "homelab", "--dry-run"])
     assert state.load_state() is None
 
 
 def test_install_does_not_persist_state_on_failure(isolated_dotfiles, monkeypatch):
-    def failing_run(argv, **kwargs):
-        class _Result:
-            returncode = 1
-            stdout = "apt-get exploded"
-            stderr = ""
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
+    stub_subprocess(monkeypatch, returncode=1, stdout="apt-get exploded")
     main(["install", "--preset", "homelab"])
     assert state.load_state() is None
 
 
 def test_install_forwards_verbosity_to_backend(isolated_dotfiles, monkeypatch):
-    """The exact bug the user hit: -v/-vv/-vvv changed dotfiles-setup's own
-    logging but never reached setup.sh, so its VERBOSITY stayed 0 no matter
-    what was typed and output looked identical at every level."""
-    calls = []
-
-    def recording_run(argv, **kwargs):
-        calls.append(argv)
-
-        class _Result:
-            returncode = 0
-            stdout = "installed"
-            stderr = ""
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
-
+    calls = stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab", "-vv"]) == 0
     assert calls[0][calls[0].index("--verbosity") + 1] == "2"
 
 
 def test_install_passes_private_root_to_backend_when_overlay_present(isolated_dotfiles, monkeypatch, tmp_path):
-    calls = []
-
-    def recording_run(argv, **kwargs):
-        calls.append(argv)
-
-        class _Result:
-            returncode = 0
-            stdout = "installed"
-            stderr = ""
-        return _Result()
-
     private_root = tmp_path / "dotfiles-private"
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
-
+    calls = stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab"]) == 0
     assert calls[0][-2:] == ["--private-root", str(private_root)]
 
 
 def test_install_omits_private_root_when_no_overlay(isolated_dotfiles, monkeypatch):
-    calls = []
-
-    def recording_run(argv, **kwargs):
-        calls.append(argv)
-
-        class _Result:
-            returncode = 0
-            stdout = "installed"
-            stderr = ""
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
-
+    calls = stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab"]) == 0
     assert "--private-root" not in calls[0]
 
@@ -315,21 +251,24 @@ def test_install_raises_helpful_error_for_unknown_preset(isolated_dotfiles, caps
     assert "nonexistent" in capsys.readouterr().err
 
 
-def test_install_checks_for_dotfiles_updates_first(isolated_dotfiles, monkeypatch):
-    seen = []
-    monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda repo, logger: seen.append(repo) or False)
+def test_install_checks_for_dotfiles_updates_before_the_backend_runs(isolated_dotfiles, monkeypatch):
+    order = []
+    monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda repo, logger: order.append(repo) or False)
+    stub_subprocess(monkeypatch, calls=order)
     main(["install", "--preset", "homelab"])
-    assert seen == [isolated_dotfiles[0]]
+    assert order[0] == isolated_dotfiles[0]
+    assert isinstance(order[1], list)
 
 
 def test_install_pulls_private_overlay_after_dotfiles(isolated_dotfiles, monkeypatch, tmp_path):
     private = tmp_path / "private"
     private.mkdir()
-    seen = []
+    order = []
     monkeypatch.setattr("dotfiles_setup.cli.overlay.find_overlay_root", lambda: private)
-    monkeypatch.setattr("dotfiles_setup.cli.update.pull_overlay_if_git", lambda root, logger: seen.append(root) or False)
+    monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda repo, logger: order.append("dotfiles") or False)
+    monkeypatch.setattr("dotfiles_setup.cli.update.pull_overlay_if_git", lambda root, logger: order.append(root) or False)
     main(["install", "--preset", "homelab"])
-    assert seen == [private]
+    assert order == ["dotfiles", private]
 
 
 def test_install_generates_claude_settings_from_base_and_overlay(isolated_dotfiles, monkeypatch, tmp_path):
@@ -386,9 +325,9 @@ def test_install_keeps_existing_settings_when_staging_fails(isolated_dotfiles, t
 def test_install_leaves_identical_settings_untouched(isolated_dotfiles, tmp_path):
     assert main(["install", "--preset", "homelab"]) == 0
     settings = tmp_path / "claude-home" / "settings.json"
-    before = settings.stat().st_mtime_ns
+    os.utime(settings, ns=(0, 0))
     assert main(["install", "--preset", "homelab"]) == 0
-    assert settings.stat().st_mtime_ns == before
+    assert settings.stat().st_mtime_ns == 0
     assert not list(settings.parent.glob("settings.json.bak-*"))
 
 
@@ -406,7 +345,7 @@ def test_install_records_the_generated_settings_as_the_drift_baseline(isolated_d
 
 
 def test_install_stops_when_settings_were_edited_since_the_last_install(
-    isolated_dotfiles, plugin_updates, tmp_path, capsys,
+    isolated_dotfiles, plugin_updates, foothold_installs, tmp_path, capsys,
 ):
     settings = _install_then_edit_settings(tmp_path)
     edited = settings.read_text()
@@ -414,6 +353,7 @@ def test_install_stops_when_settings_were_edited_since_the_last_install(
     assert settings.read_text() == edited
     assert not list(settings.parent.glob("settings.json.bak-*"))
     assert len(plugin_updates) == 1
+    assert len(foothold_installs) == 1
     assert '+  "hand": "edited"' in capsys.readouterr().out
 
 
@@ -491,34 +431,18 @@ def test_install_keeps_the_foothold_when_the_preset_is_unchanged(isolated_dotfil
 
 
 def test_install_skips_the_foothold_when_the_backend_fails(isolated_dotfiles, foothold_installs, monkeypatch):
-    class _Failed:
-        returncode = 1
-        stdout = "boom"
-        stderr = ""
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", lambda argv, **kwargs: _Failed())
+    stub_subprocess(monkeypatch, returncode=1, stdout="boom")
     main(["install", "--preset", "homelab"])
     assert foothold_installs == []
 
 
 def test_install_skips_claude_plugin_update_when_the_backend_fails(isolated_dotfiles, plugin_updates, monkeypatch):
-    def failing_run(argv, **kwargs):
-        class _Result:
-            returncode = 1
-            stdout = "boom"
-            stderr = ""
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
+    stub_subprocess(monkeypatch, returncode=1, stdout="boom")
     main(["install", "--preset", "homelab"])
     assert plugin_updates == []
 
 
 def test_settings_replacement_leaves_a_preexisting_shared_tmp_file_alone(tmp_path):
-    from datetime import UTC, datetime
-
-    from dotfiles_setup.cli import _replace_settings_target
-
     target = tmp_path / "settings.json"
     target.write_text("old")
     other_install = tmp_path / "settings.json.tmp"
@@ -598,42 +522,61 @@ def test_private_clone_dest_defaults_to_none():
 
 
 def test_main_private_clone_clones_to_default_dest(tmp_path, monkeypatch):
-    calls = []
-
-    def recording_run(argv, **kwargs):
-        calls.append(argv)
-
-        class _Result:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-        return _Result()
-
     default_root = tmp_path / "dotfiles-private"
     monkeypatch.setattr("dotfiles_setup.cli.overlay.DEFAULT_OVERLAY_ROOT", default_root)
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
-
+    calls = stub_subprocess(monkeypatch, stdout="")
     assert main(["private", "clone", "--repo", "git@github.com:you/dotfiles-private.git"]) == 0
     assert calls == [["git", "clone", "git@github.com:you/dotfiles-private.git", str(default_root)]]
 
 
-def test_main_private_clone_honors_dest_override(tmp_path, monkeypatch):
+def test_main_private_clone_honors_dest_override(tmp_path):
+    dest = tmp_path / "custom-dest"
     calls = []
 
-    def recording_run(argv, **kwargs):
+    def run(argv, **kwargs):
         calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        class _Result:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-        return _Result()
-
-    dest = tmp_path / "custom-dest"
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
-
-    assert main(["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest)]) == 0
+    argv = ["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest)]
+    assert main(argv, Env(run=run)) == 0
     assert calls[0][-1] == str(dest)
+
+
+def test_install_uses_injected_clock_and_paths(isolated_dotfiles, tmp_path):
+    dotfiles_dir, _ = isolated_dotfiles
+    clock_value = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
+    env = Env(
+        clock=lambda: clock_value, claude_home=tmp_path / "injected-claude",
+        state_dir=tmp_path / "injected-state", dotfiles_dir=dotfiles_dir,
+    )
+    assert main(["install", "--preset", "homelab"], env) == 0
+    saved = state.load_state(tmp_path / "injected-state" / "state.json")
+    assert saved.created_at == clock_value.isoformat()
+    assert (tmp_path / "injected-claude" / "settings.json").is_file()
+    assert (tmp_path / "injected-state" / "packages" / "homelab.txt").is_file()
+
+
+def test_install_builds_backend_through_injected_factory(isolated_dotfiles):
+    dotfiles_dir, _ = isolated_dotfiles
+    seen = []
+
+    def factory(directory, overrides):
+        seen.append((directory, overrides))
+        return AptBackend(dotfiles_dir=directory, backend_overrides=overrides)
+
+    assert main(["install", "--preset", "homelab"], Env(dotfiles_dir=dotfiles_dir, backend_factory=factory)) == 0
+    assert seen == [(dotfiles_dir, {})]
+
+
+def test_env_now_iso_uses_clock():
+    env = Env(clock=lambda: datetime(2030, 1, 2, tzinfo=UTC))
+    assert env.now_iso() == "2030-01-02T00:00:00+00:00"
+
+
+def test_each_subcommand_parser_is_built_by_its_own_function():
+    parser = build_arg_parser()
+    assert parser.parse_args(["install", "-vv", "--force"]).verbosity == 2
+    assert parser.parse_args(["private", "clone", "--repo", "x"]).private_command == "clone"
 
 
 def test_main_private_clone_dry_run_does_not_clone(tmp_path, monkeypatch, capsys):
@@ -649,33 +592,32 @@ def test_main_private_clone_dry_run_does_not_clone(tmp_path, monkeypatch, capsys
 
 
 def test_main_private_clone_returns_nonzero_on_git_failure(tmp_path, monkeypatch, capsys):
-    def failing_run(argv, **kwargs):
-        class _Result:
-            returncode = 128
-            stdout = ""
-            stderr = "fatal: repository not found"
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", failing_run)
-
+    stub_subprocess(monkeypatch, returncode=128, stdout="", stderr="fatal: repository not found")
     dest = tmp_path / "dotfiles-private"
     assert main(["private", "clone", "--repo", "git@example.com/x.git", "--dest", str(dest)]) == 128
     assert "not found" in capsys.readouterr().err
 
 
 def test_install_force_flag_reaches_setup_sh(isolated_dotfiles, monkeypatch):
-    calls = []
-
-    def recording_run(argv, **kwargs):
-        calls.append(argv)
-
-        class _Result:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-        return _Result()
-
-    monkeypatch.setattr("dotfiles_setup.cli.subprocess.run", recording_run)
-
+    calls = stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab", "--force"]) == 0
     assert "--force-stow" in calls[0]
+
+
+def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):
+    _, tmp_path = isolated_dotfiles
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert not list((tmp_path / "claude-home").rglob("*"))
+    assert not (tmp_path / "state" / "state.json").exists()
+    assert not (tmp_path / "state" / "claude-profiles").exists()
+
+
+def test_switching_presets_forks_packages_and_regenerates_state(isolated_dotfiles, foothold_retirements):
+    dotfiles_dir, tmp_path = isolated_dotfiles
+    _add_preset(dotfiles_dir, "personal")
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert main(["install", "--preset", "personal"]) == 0
+    assert (tmp_path / "state" / "packages" / "homelab.txt").is_file()
+    assert (tmp_path / "state" / "packages" / "personal.txt").is_file()
+    assert state.load_state().preset_name == "personal"
+    assert foothold_retirements == ["homelab"]

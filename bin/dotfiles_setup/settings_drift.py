@@ -5,11 +5,12 @@ from __future__ import annotations
 import difflib
 import json
 from pathlib import Path
+from typing import Any
 
 BASELINE_NAME = "settings.last-generated.json"
 
 
-def render(settings: dict) -> str:
+def render(settings: dict[str, Any]) -> str:
     return json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
 
 

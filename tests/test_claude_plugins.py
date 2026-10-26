@@ -46,7 +46,7 @@ def _mutations(calls):
     return [c for c in calls if c[0] in MUTATING or c[:2] in (("marketplace", "add"), ("marketplace", "remove"), ("marketplace", "update"))]
 
 
-def test_plan_orders_add_refresh_install_uninstall_remove_update():
+def test_plan_orders_uninstall_remove_add_refresh_install_update():
     assert _labels(SETTINGS, {"m", "claude-skills"}, ["a@m", "b@m", "x@claude-skills"]) == [
         "uninstall b@m",
         "uninstall x@claude-skills",
@@ -104,8 +104,9 @@ def test_dry_run_lists_state_but_mutates_nothing(capsys):
 
 
 def test_missing_claude_is_not_fatal():
-    run, _ = _fake_run(missing=True)
+    run, calls = _fake_run(missing=True)
     update_claude_plugins(Logger(dry_run=False), SETTINGS, run=run)
+    assert _mutations(calls) == []
 
 
 def test_unlistable_state_skips_sync():

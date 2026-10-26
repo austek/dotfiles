@@ -11,3 +11,6 @@ ubuntu-desktop
 ubuntu-desktop-minimal
 ubuntu-restricted-addons
 ubuntu-wallpapers
+wl-clipboard
+xclip
+xsel

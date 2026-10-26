@@ -1,25 +1,8 @@
-import subprocess
-from pathlib import Path
-
-COMPLETION_SCRIPT = (
-    Path(__file__).resolve().parent.parent
-    / "bash" / ".local" / "share" / "bash-completion" / "completions" / "dotfiles-setup"
-)
+from _completion import complete
 
 
 def _complete(words: list[str], cword: int) -> list[str]:
-    comp_words = " ".join(f'"{w}"' for w in words)
-    script = f'''
-source "{COMPLETION_SCRIPT}"
-COMP_WORDS=({comp_words})
-COMP_CWORD={cword}
-_dotfiles_setup_completions
-printf '%s\\n' "${{COMPREPLY[@]}}"
-'''
-    result = subprocess.run(
-        ["bash", "-c", script], capture_output=True, text=True, check=True
-    )
-    return [line for line in result.stdout.splitlines() if line]
+    return complete("dotfiles-setup", "_dotfiles_setup_completions", words, cword)
 
 
 def test_completes_install_subcommand_by_prefix():
@@ -37,6 +20,22 @@ def test_completes_preset_values_after_preset_flag():
     assert set(completions) == {"work", "personal", "homelab"}
 
 
+def test_completes_private_clone_subcommand_and_options():
+    assert _complete(["dotfiles-setup", "pri"], 1) == ["private"]
+    assert _complete(["dotfiles-setup", "private", "cl"], 2) == ["clone"]
+    assert "--repo" in _complete(["dotfiles-setup", "private", "clone", "--"], 3)
+
+
+def test_completes_preset_equals_form():
+    completions = _complete(["dotfiles-setup", "install", "--preset=wo"], 2)
+    assert completions == ["--preset=work"]
+
+
+def test_completes_preset_when_bash_splits_the_equals_sign():
+    assert _complete(["dotfiles-setup", "install", "--preset", "=", "wo"], 4) == ["work"]
+    assert sorted(_complete(["dotfiles-setup", "install", "--preset", "="], 3)) == ["homelab", "personal", "work"]
+
+
 def test_completes_nothing_unexpected_for_bare_dash():
     completions = _complete(["dotfiles-setup", "install", "-"], 2)
-    assert set(completions) == {"-v", "--verbose", "-vv", "-vvv", "-h", "--help", "--preset", "--dry-run"}
+    assert set(completions) == {"-v", "--verbose", "-vv", "-vvv", "-h", "--help", "--preset", "--dry-run", "--reconfigure", "--force", "--accept-drift"}

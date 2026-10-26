@@ -13,6 +13,12 @@ def test_resolve_name_returns_logical_name_when_no_override():
     assert backend.resolve_name("ripgrep") == "ripgrep"
 
 
+def test_apt_backend_satisfies_backend_protocol():
+    from dotfiles_setup.backends import Backend
+
+    assert isinstance(AptBackend(dotfiles_dir=Path("/x"), backend_overrides={}), Backend)
+
+
 def test_detect_true_when_apt_get_on_path(monkeypatch):
     backend = AptBackend(dotfiles_dir=Path("/x"), backend_overrides={})
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/apt-get" if name == "apt-get" else None)
@@ -122,7 +128,7 @@ def test_install_appends_private_root_flag_when_given(tmp_path):
     assert calls[0][-2:] == ["--private-root", str(private_root)]
 
 
-def test_install_does_not_capture_subprocess_output(tmp_path, monkeypatch):
+def test_install_does_not_capture_subprocess_output(tmp_path):
     """setup.sh's own step logging is the only feedback during a real install —
     capturing it would silently swallow it all until a failure (if any) prints
     it back, leaving a successful run looking hung with no live output."""
@@ -138,14 +144,10 @@ def test_install_does_not_capture_subprocess_output(tmp_path, monkeypatch):
 
         return _Result()
 
-    monkeypatch.setattr("subprocess.run", recording_run)
-
-    import subprocess as subprocess_module
-
     backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
     backend.install(
         tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
-        dry_run=False, run=subprocess_module.run,
+        dry_run=False, run=recording_run,
     )
     assert calls == [{}]
 
@@ -245,3 +247,14 @@ def test_install_forwards_force_stow_only_when_requested(tmp_path):
         )
     assert "--force-stow" not in calls[0]
     assert "--force-stow" in calls[1]
+
+
+def test_setup_argv_adds_optional_flags_in_order():
+    from dotfiles_setup.backends.apt import setup_argv
+
+    argv = setup_argv(
+        Path("/r"), Path("/p.txt"), preset_name="work", claude_profile_dir=Path("/c"),
+        dry_run=True, private_root=Path("/priv"), verbosity=2, force_stow=True,
+    )
+    assert argv[-4:] == ["--private-root", "/priv", "--force-stow", "--dry-run"]
+    assert argv[:2] == ["bash", "/r/bin/setup.sh"]

@@ -76,8 +76,14 @@ reviews:
 
 
 def test_uncommitted_files_parses_porcelain_including_renames():
-    run = FakeRun({("git", "status", "--porcelain"): ok(" M changed.py\n?? new.py\nR  old.py -> new2.py\n")})
+    out = " M changed.py\0?? new.py\0R  new2.py\0old.py\0"
+    run = FakeRun({("git", "status", "--porcelain", "-z"): ok(out)})
     assert cra.uncommitted_files(run) == ["changed.py", "new.py", "new2.py"]
+
+
+def test_uncommitted_files_keeps_paths_with_spaces_and_non_ascii():
+    run = FakeRun({("git", "status", "--porcelain", "-z"): ok("?? my file.py\0?? café \"q\".py\0")})
+    assert cra.uncommitted_files(run) == ["my file.py", "café \"q\".py"]
 
 
 def test_chunk_splits_into_batches_of_size():
@@ -89,7 +95,7 @@ def test_main_full_repo_default_scope_runs_single_batch(tmp_path):
         ("git", "rev-parse", "--show-toplevel"): ok(str(tmp_path / "repo") + "\n"),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): ok("main\n"),
         ("git", "cat-file", "-e"): ok(returncode=0),
-        ("git", "ls-tree", "-r", "--name-only", "main", "--", "."): ok("a.py\nb.py\n"),
+        ("git", "ls-tree", "-r", "--name-only", "-z", "main", "--", "."): ok("a.py\0b.py\0"),
         ("git", "show", "main:.coderabbit.yaml"): ok(returncode=1),
         ("coderabbit", "review"): ok("REVIEW OUTPUT\n"),
     }
@@ -116,7 +122,7 @@ def test_main_uncommitted_within_limit_uses_simple_review(tmp_path):
     responses = {
         ("git", "rev-parse", "--show-toplevel"): ok(str(tmp_path / "repo") + "\n"),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): ok("main\n"),
-        ("git", "status", "--porcelain"): ok(" M a.py\n"),
+        ("git", "status", "--porcelain", "-z"): ok(" M a.py\0"),
         ("coderabbit", "review"): ok("SIMPLE REVIEW\n"),
     }
     run = FakeRun(responses)
@@ -130,7 +136,7 @@ def test_main_uncommitted_over_limit_snapshots_untracked_files(tmp_path):
     responses = {
         ("git", "rev-parse", "--show-toplevel"): ok(str(tmp_path / "repo") + "\n"),
         ("git", "rev-parse", "--abbrev-ref", "HEAD"): ok("main\n"),
-        ("git", "status", "--porcelain"): ok(" M a.py\n?? new.py\n"),
+        ("git", "status", "--porcelain", "-z"): ok(" M a.py\0?? new.py\0"),
         ("git", "write-tree"): ok("treesha\n"),
         ("git", "commit-tree"): ok("deadbeef\n"),
         ("coderabbit", "review"): sequence(["REVIEW1\n", "REVIEW2\n"]),
@@ -146,6 +152,23 @@ def test_main_uncommitted_over_limit_snapshots_untracked_files(tmp_path):
     assert ("git", "add", "-A") in [c[0] for c in run.calls]
     assert not any(c[0][:3] == ("git", "stash", "create") for c in run.calls)
     assert any(c[0][:3] == ("git", "ls-tree", "-r") and "deadbeef" in c[0] and "new.py" in c[0] for c in run.calls)
+
+
+def test_pr_url_slug_is_a_valid_branch_component():
+    slug = cra._slug("pr-https://github.com/o/r/pull/7")
+    assert slug == "pr-https-github-com-o-r-pull-7"
+
+
+def test_audit_of_a_pr_url_builds_a_valid_scratch_branch(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(cra, "_run_scoped", lambda run, audit: seen.append(audit) or 0)
+    run = FakeRun({
+        ("git", "rev-parse", "--abbrev-ref", "HEAD"): ok("pr-branch\n"),
+        ("gh", "pr", "view"): ok('{"baseRefName": "main"}\n'),
+        ("gh", "pr", "diff"): ok("x.py\ny.py\n"),
+    })
+    assert cra._audit_checked_out_pr(run, tmp_path, "https://github.com/o/r/pull/7", limit=1) == 0
+    assert seen[0].base_branch == "audit-base-pr-https-github-com-o-r-pull-7"
 
 
 def test_main_pr_uses_existing_review_when_present(tmp_path):
@@ -181,6 +204,7 @@ def _init_git_repo(path, monkeypatch):
     subprocess.run(["git", "init", "-q", "-b", "main", str(path)], check=True)
     subprocess.run(["git", "-C", str(path), "config", "user.email", "test@example.com"], check=True)
     subprocess.run(["git", "-C", str(path), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "commit.gpgsign", "false"], check=True)
     (path / "hello.py").write_text("print('hi')\n")
     (path / ".coderabbit.yaml").write_text("reviews:\n  path_filters: []\n")
     subprocess.run(["git", "-C", str(path), "add", "."], check=True)
@@ -217,6 +241,7 @@ def _init_feature_branch(repo, monkeypatch):
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "commit.gpgsign", "false"], check=True)
     for name in ("a.py", "b.py", "c.py"):
         (repo / name).write_text(f"# {name}\n")
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True)

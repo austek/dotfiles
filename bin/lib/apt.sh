@@ -77,6 +77,11 @@ determine_packages_to_install() {
         all_packages+=( "${work_packages[@]}" )
     fi
 
+    if [[ "$MACHINE_PRESET" == "personal" || "$MACHINE_PRESET" == "homelab" ]] && [[ -f "$APT_PACKAGE_DIR/apt_rust.txt" ]]; then
+        mapfile -t rust_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_rust.txt")
+        all_packages+=( "${rust_packages[@]}" )
+    fi
+
     if [[ "$MACHINE_PRESET" == "personal" ]] && [[ -f "$APT_PACKAGE_DIR/apt_personal.txt" ]]; then
         mapfile -t personal_packages < <(grep -vE "$PACKAGE_LIST_SKIP_PATTERN" "$APT_PACKAGE_DIR/apt_personal.txt")
         all_packages+=( "${personal_packages[@]}" )
@@ -207,7 +212,7 @@ detect_ubuntu_codename() {
         codename=""
     fi
     if [[ -z "$codename" ]]; then
-        log_warn "Could not detect Ubuntu codename; defaulting to 'noble'."
+        log_warn "Could not detect Ubuntu codename; defaulting to 'noble'." >&2
         codename="noble"
     fi
     printf '%s\n' "$codename"
@@ -281,42 +286,22 @@ Pin-Priority: 1001
 }
 
 stow_apt_source_files() {
-    local pgadmin_selected="$1" postgresql_selected="$2" teleport_selected="$3"
-
-    local stow_apt_dir="$DOTFILES_DIR/apt"
-    local temp_stow_backup_dir
-    temp_stow_backup_dir=$(mktemp -d)
-    register_temp_dir "$temp_stow_backup_dir"
+    local stow_ignores=()
 
     local source_map=(
         "1password:1password.sources"
         "google-chrome-stable:google-chrome.sources"
         "code:vscode.sources"
         "gh:github-cli.sources"
-        "pgadmin4:pgadmin4.sources"
-        "postgresql:postgresql.sources"
     )
 
     for mapping in "${source_map[@]}"; do
         local pkg_key="${mapping%%:*}"
         local source_file="${mapping#*:}"
-        local source_file_path="$stow_apt_dir/etc/apt/sources.list.d/$source_file"
-        local needed=0
 
-        if [[ "$pkg_key" == "pgadmin4" ]]; then
-            if [[ "$pgadmin_selected" -eq 1 ]]; then needed=1; fi
-        elif [[ "$pkg_key" == "postgresql" ]]; then
-            if [[ "$postgresql_selected" -eq 1 ]]; then needed=1; fi
-        elif [[ "$pkg_key" == "teleport" ]]; then
-            if [[ "$teleport_selected" -eq 1 ]]; then needed=1; fi
-        elif array_contains "$pkg_key" "${PACKAGES_TO_INSTALL[@]}"; then
-            needed=1
-        fi
-
-        if [[ -f "$source_file_path" ]] && [[ $needed -eq 0 ]]; then
-            log_info "Temporarily hiding unneeded source file: $source_file"
-            mkdir -p "$(dirname "$temp_stow_backup_dir/$source_file")"
-            mv "$source_file_path" "$temp_stow_backup_dir/$source_file"
+        if ! array_contains "$pkg_key" "${PACKAGES_TO_INSTALL[@]}"; then
+            log_info "Skipping unneeded source file: $source_file"
+            stow_ignores+=("--ignore=${source_file//./\\.}\$")
         fi
     done
 
@@ -327,7 +312,7 @@ stow_apt_source_files() {
     # Assigned via `if` rather than a bare `stow_output=$(...)`: under `set -e`, a bare
     # assignment aborts the script the instant stow (inside the pipe) fails, before
     # stow_status=$? ever runs — skipping the conflict backup/retry logic below entirely.
-    if stow_output=$(sudo stow --dir="$DOTFILES_DIR" --restow --no-folding --target=/ --verbose=1 apt 2>&1 | grep -v "WARNING\|existing target"); then
+    if stow_output=$(sudo stow --dir="$DOTFILES_DIR" --restow --no-folding "${stow_ignores[@]}" --target=/ --verbose=1 apt 2>&1 | grep -v "WARNING\|existing target"); then
         stow_status=0
     else
         stow_status=$?
@@ -342,7 +327,7 @@ stow_apt_source_files() {
 
         local conflict_files
         # shellcheck disable=SC2015
-        conflict_files=$( (cd "$DOTFILES_DIR" && sudo stow --dir="$DOTFILES_DIR" --no --no-folding --target=/ --verbose=1 apt 2>&1 | perl -ne 'if (/existing target.*?:\s*(\S+)/) { print "$1\n" } elsif (/existing target\s+(\S+)\s+since/) { print "$1\n" }') || true)
+        conflict_files=$( (cd "$DOTFILES_DIR" && sudo stow --dir="$DOTFILES_DIR" --no --no-folding "${stow_ignores[@]}" --target=/ --verbose=1 apt 2>&1 | perl -ne 'if (/existing target.*?:\s*(\S+)/) { print "$1\n" } elsif (/existing target\s+(\S+)\s+since/) { print "$1\n" }') || true)
 
         if [[ -n "$conflict_files" ]]; then
             local stow_backup_root="/var/backups/dotfiles-stow"
@@ -358,41 +343,61 @@ stow_apt_source_files() {
             done <<< "$conflict_files"
 
             cd "$DOTFILES_DIR"
-            quiet_run sudo stow --dir="$DOTFILES_DIR" --restow --no-folding --target=/ --verbose=1 apt
+            quiet_run sudo stow --dir="$DOTFILES_DIR" --restow --no-folding "${stow_ignores[@]}" --target=/ --verbose=1 apt
             cd "$HOME"
             track_change "STOW_ROOT:apt"
         fi
     else
         track_change "STOW_ROOT:apt"
     fi
+}
 
-    log_info "Restoring hidden source files..."
-    if [[ -d "$temp_stow_backup_dir" ]] && [[ "$(ls -A "$temp_stow_backup_dir")" ]]; then
-        rsync -a "$temp_stow_backup_dir/" "$stow_apt_dir/etc/apt/sources.list.d/"
+APT_RENDERED_MARKER="# Managed by dotfiles: rendered from apt-templates"
+
+render_apt_template() {
+    local name="$1" codename="$2"
+    local dir="${APT_SOURCES_DIR:-/etc/apt/sources.list.d}"
+    log_info "Configuring $name apt repository for suite: $codename"
+    sed "s/@CODENAME@/$codename/g" "$DOTFILES_DIR/apt-templates/$name.sources.template" | sudo tee "$dir/$name.sources" > /dev/null
+    track_change "FILE_CREATED:$dir/$name.sources"
+}
+
+remove_stale_rendered_source() {
+    local name="$1"
+    local path="${APT_SOURCES_DIR:-/etc/apt/sources.list.d}/$name.sources"
+    if [[ -f "$path" ]] && grep -qF "$APT_RENDERED_MARKER" "$path"; then
+        log_info "Removing deselected apt source: $name"
+        sudo rm -f "$path"
     fi
-    rm -rf -- "$temp_stow_backup_dir"
+}
+
+remove_deselected_rendered_sources() {
+    local docker_selected="$1" pgadmin_selected="$2" postgresql_selected="$3" teleport_selected="$4"
+    if [[ "$docker_selected" -eq 0 ]]; then remove_stale_rendered_source docker; fi
+    if [[ "$pgadmin_selected" -eq 0 ]]; then remove_stale_rendered_source pgadmin4; fi
+    if [[ "$postgresql_selected" -eq 0 ]]; then remove_stale_rendered_source postgresql; fi
+    if [[ "$teleport_selected" -eq 0 ]]; then remove_stale_rendered_source teleport; fi
 }
 
 generate_templated_apt_sources() {
-    local teleport_selected="$1"
+    local pgadmin_selected="$1" postgresql_selected="$2" teleport_selected="$3"
+    local docker_selected=0
+    array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}" && docker_selected=1
 
-    if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}" || [[ "$teleport_selected" -eq 1 ]]; then
-        local host_codename
-        # shellcheck disable=SC2119
-        host_codename=$(detect_ubuntu_codename)
+    remove_deselected_rendered_sources "$docker_selected" "$pgadmin_selected" "$postgresql_selected" "$teleport_selected"
 
-        if array_contains "$PKG_DOCKER_CE" "${PACKAGES_TO_INSTALL[@]}"; then
-            log_info "Configuring Docker apt repository for suite: $host_codename"
-            sed "s/^Suites:.*/Suites: $host_codename/" "$DOTFILES_DIR/apt-templates/docker.sources.template" | sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null
-            track_change "FILE_CREATED:/etc/apt/sources.list.d/docker.sources"
-        fi
-
-        if [[ "$teleport_selected" -eq 1 ]]; then
-            log_info "Configuring Teleport apt repository for suite: $host_codename"
-            sed "s/^Suites:.*/Suites: $host_codename/" "$DOTFILES_DIR/apt-templates/teleport.sources.template" | sudo tee /etc/apt/sources.list.d/teleport.sources > /dev/null
-            track_change "FILE_CREATED:/etc/apt/sources.list.d/teleport.sources"
-        fi
+    if [[ $((docker_selected + pgadmin_selected + postgresql_selected + teleport_selected)) -eq 0 ]]; then
+        return 0
     fi
+
+    local host_codename
+    # shellcheck disable=SC2119
+    host_codename=$(detect_ubuntu_codename)
+
+    if [[ "$docker_selected" -eq 1 ]]; then render_apt_template docker "$host_codename"; fi
+    if [[ "$pgadmin_selected" -eq 1 ]]; then render_apt_template pgadmin4 "$host_codename"; fi
+    if [[ "$postgresql_selected" -eq 1 ]]; then render_apt_template postgresql "$host_codename"; fi
+    if [[ "$teleport_selected" -eq 1 ]]; then render_apt_template teleport "$host_codename"; fi
 }
 
 configure_apt_sources() {
@@ -412,9 +417,6 @@ configure_apt_sources() {
     download_apt_gpg_keys "$pgadmin_selected" "$postgresql_selected" "$teleport_selected"
     configure_apt_ppas
 
-    # Dry-run must return before the code below, which physically moves
-    # tracked .sources files into a temp dir — checking DRY_RUN after that
-    # would make --dry-run mutate the working tree.
     if [[ "$DRY_RUN" = true ]]; then
         log_dry_run "Would stow 'apt' package to / (includes third-party repo sources)"
         log_dry_run "Would handle any stow conflicts by backing up existing files"
@@ -424,12 +426,18 @@ configure_apt_sources() {
         if [[ "$teleport_selected" -eq 1 ]]; then
             log_dry_run "Would generate /etc/apt/sources.list.d/teleport.sources for the detected Ubuntu codename"
         fi
+        if [[ "$pgadmin_selected" -eq 1 ]]; then
+            log_dry_run "Would generate /etc/apt/sources.list.d/pgadmin4.sources for the detected Ubuntu codename"
+        fi
+        if [[ "$postgresql_selected" -eq 1 ]]; then
+            log_dry_run "Would generate /etc/apt/sources.list.d/postgresql.sources for the detected Ubuntu codename"
+        fi
         log_success "Apt sources configured (dry-run)."
         return 0
     fi
 
-    stow_apt_source_files "$pgadmin_selected" "$postgresql_selected" "$teleport_selected"
-    generate_templated_apt_sources "$teleport_selected"
+    stow_apt_source_files
+    generate_templated_apt_sources "$pgadmin_selected" "$postgresql_selected" "$teleport_selected"
 
     log_success "Apt sources configured."
 }
@@ -604,7 +612,7 @@ install_github_bins() {
         fi
 
         local pkg_name=${filename%%_*}
-        if dpkg -l | grep -q "^ii.*$pkg_name"; then
+        if grep -q "^ii  ${pkg_name}[: ]" < <(dpkg -l); then
             log_info "Package $pkg_name is already installed. Skipping."
             continue
         fi

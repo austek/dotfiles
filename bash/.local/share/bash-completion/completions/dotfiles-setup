@@ -1,21 +1,43 @@
+_dotfiles_setup_presets() {
+    local file names=""
+    for file in "$HOME"/.dotfiles/presets/*.json; do
+        [[ -e "$file" ]] && names+="$(basename "$file" .json) "
+    done
+    echo "${names:-work personal homelab}"
+}
+
 _dotfiles_setup_completions() {
-    local cur prev opts
+    local cur prev
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD - 1]}"
+    [[ "$prev" == "=" ]] && prev="${COMP_WORDS[COMP_CWORD - 2]}"
+    [[ "$cur" == "=" ]] && cur=""
 
-    if [[ "${COMP_WORDS[1]}" != "install" ]]; then
-        COMPREPLY=($(compgen -W "install -h --help" -- "$cur"))
-        return 0
-    fi
-
-    opts="--preset --dry-run -v --verbose -vv -vvv -h --help"
-
-    if [[ "$prev" == "--preset" ]]; then
-        COMPREPLY=($(compgen -W "work personal homelab" -- "$cur"))
-        return 0
-    fi
-
-    COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+    case "${COMP_WORDS[1]}" in
+        install)
+            if [[ "$prev" == "--preset" ]]; then
+                COMPREPLY=($(compgen -W "$(_dotfiles_setup_presets)" -- "$cur"))
+            elif [[ "$cur" == --preset=* ]]; then
+                COMPREPLY=($(compgen -P "--preset=" -W "$(_dotfiles_setup_presets)" -- "${cur#--preset=}"))
+            else
+                COMPREPLY=($(compgen -W "--preset --dry-run -v --verbose -vv -vvv --reconfigure --force --accept-drift -h --help" -- "$cur"))
+            fi
+            ;;
+        private)
+            if [[ "${COMP_WORDS[2]}" == "clone" ]]; then
+                if [[ "$prev" == "--dest" ]]; then
+                    COMPREPLY=($(compgen -d -- "$cur"))
+                else
+                    COMPREPLY=($(compgen -W "--repo --dest --dry-run -v --verbose -h --help" -- "$cur"))
+                fi
+            else
+                COMPREPLY=($(compgen -W "clone -h --help" -- "$cur"))
+            fi
+            ;;
+        *)
+            COMPREPLY=($(compgen -W "install private -h --help" -- "$cur"))
+            ;;
+    esac
 }
 complete -F _dotfiles_setup_completions dotfiles-setup

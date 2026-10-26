@@ -30,9 +30,6 @@ ubuntu-minimal
 ubuntu-standard
 uv
 wget
-wl-clipboard
-xclip
-xsel
 yq
 zizmor
 zsh

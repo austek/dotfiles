@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -9,17 +11,25 @@ SETTINGS_FILES = ("~/.claude/settings.json", ".claude/settings.json", ".claude/s
 SEPARATORS = {"&&", "||", ";", "|"}
 OPERATOR_CHARS = set("();<>|&")
 SAFE_SINK = re.compile(r"^(/dev/null|/tmp/[^\s$`]*)$")
-SENSITIVE = re.compile(r"\.ssh|\.aws|\.gnupg|\.kube|\.netrc|id_rsa|/etc/shadow")
+SENSITIVE = re.compile(
+    r"\.ssh|\.aws|\.gnupg|\.kube|\.netrc|id_rsa|/etc/shadow|secrets\.env|\.credentials"
+    r"|\.git-credentials|\.npmrc|gh/hosts\.yml|/proc/[^/]*/environ|/dev/(?:tcp|udp)/|\.env(?:\W|$)"
+)
 ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
 UNSAFE_NAME = re.compile(r"^(PATH|IFS|SHELL|ENV|HOME|PROMPT_COMMAND|LD_.*|BASH_.*|GIT_.*|PYTHON.*|NODE_.*|_?JAVA.*)$")
+JQ_ENV = re.compile(r"\benv\b|\$ENV|\$__loc__|input_filename")
 LOOP_VAR = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SAFE_COMMANDS = {
     "echo", "printf", "cat", "head", "tail", "wc", "cut", "tr", "sort", "basename",
     "dirname", "pwd", "ls", "true", "false", "sleep", "date", "diff", "test", "jq", "grep",
     "egrep", "fgrep", "stat", "readlink", "realpath", "seq", "pgrep",
 }
-UNSAFE_FLAGS = {"sort": re.compile(r"^(--output|--compress-program|-[^-]*o)"), "date": re.compile(r"^(--set|-[^-]*s)")}
-EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir", "-delete"}
+UNSAFE_FLAGS = {
+    "sort": re.compile(r"^(--o|--c|-[^-]*o)"),
+    "date": re.compile(r"^(--s|-[^-]*s)"),
+    "printf": re.compile(r"^-v"),
+}
+EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"}
 
 
 def load_rules(cwd):
@@ -74,8 +84,8 @@ def next_quote(quote, ch):
     return quote
 
 
-def starts_word(out):
-    return not out or out[-1][-1:] in (" ", "\t", ";", "|", "&", "(")
+def starts_word(out: list[str]) -> bool:
+    return not out or (not out[-1].startswith("\\") and out[-1][-1:] in (" ", "\t", ";", "|", "&", "("))
 
 
 def extract_substitutions(command):
@@ -151,27 +161,65 @@ def join_words(words):
     return " ".join(shlex.quote(w) if not w or re.search(r"\s", w) else w for w in words)
 
 
-def has_unsafe_flag(words):
+def expands(word: str) -> bool:
+    return "$" in word or "SUBST" in word
+
+
+def has_unsafe_flag(words: list[str]) -> bool:
+    if words[0] == "jq" and any(JQ_ENV.search(w) for w in words[1:]):
+        return True
     pattern = UNSAFE_FLAGS.get(words[0])
+    if pattern and any(expands(w) for w in words[1:]):
+        return True
     return bool(pattern) and any(pattern.match(w) for w in words[1:])
 
 
-def runs_inner_command(words):
+def runs_inner_command(words: list[str]) -> bool:
+    if words[0] == "find" and any(expands(w) for w in words[1:]):
+        return True
     return words[0] == "xargs" or (words[0] == "find" and bool(EXEC_FLAGS & set(words[1:])))
 
 
-def command_allowed(words, rules):
+GLOB_CHARS = re.compile(r"[*?\[{]")
+FILE_ARG_COMMANDS = {"cat", "head", "tail", "wc", "ls", "stat", "readlink", "realpath", "diff", "sort", "cut"}
+
+
+def globbed_path(word: str, command: str) -> bool:
+    if not GLOB_CHARS.search(word):
+        return False
+    return command in FILE_ARG_COMMANDS or "/" in word or word.startswith("~")
+
+
+PATTERN_COMMANDS = {"grep", "egrep", "fgrep", "jq"}
+
+
+def has_globbed_path(words: list[str]) -> bool:
+    pattern_pending = words[0] in PATTERN_COMMANDS
+    for word in words[1:]:
+        is_flag = word.startswith("-")
+        command = "cat" if words[0] in PATTERN_COMMANDS and not is_flag and not pattern_pending else words[0]
+        pattern_pending = pattern_pending and is_flag
+        if globbed_path(word, command):
+            return True
+    return False
+
+
+def command_allowed(words: list[str], rules: dict) -> bool:
     text = join_words(words)
     if SENSITIVE.search(text) or words[0].startswith("$"):
         return False
     if matches(text, rules["deny"]) or matches(text, rules["ask"]):
         return False
     if words[0] in SAFE_COMMANDS:
-        return not has_unsafe_flag(words)
+        return not has_unsafe_flag(words) and not any("$" in w for w in words[1:]) and not has_globbed_path(words)
     return not runs_inner_command(words) and matches(text, rules["allow"])
 
 
-def segment_allowed(words, rules):
+def safe_loop_var(name: str) -> bool:
+    return bool(LOOP_VAR.match(name)) and not UNSAFE_NAME.match(name) and name not in os.environ
+
+
+def segment_allowed(words: list[str], rules: dict) -> bool:
     if not words or ASSIGNMENT.match(words[0]):
         return not words or strip_assignments(words) is not None
     if words[0] == "do":
@@ -179,7 +227,7 @@ def segment_allowed(words, rules):
     if words[0] == "done":
         return len(words) == 1
     if words[0] == "for":
-        return len(words) >= 3 and words[2] == "in" and bool(LOOP_VAR.match(words[1]))
+        return len(words) >= 3 and words[2] == "in" and safe_loop_var(words[1])
     return command_allowed(words, rules)
 
 

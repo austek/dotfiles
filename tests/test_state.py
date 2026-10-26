@@ -1,4 +1,11 @@
-from dotfiles_setup.state import MachineState, load_state, save_state
+from dotfiles_setup.state import (
+    MachineState,
+    load_state,
+    package_dir,
+    save_state,
+    state_dir,
+    state_file,
+)
 
 
 def _sample_state(**overrides):
@@ -15,8 +22,37 @@ def _sample_state(**overrides):
     return MachineState(**fields)
 
 
+def test_state_paths_derive_from_base_dir(tmp_path):
+    assert state_file(tmp_path) == tmp_path / "state.json"
+    assert package_dir(tmp_path) == tmp_path / "packages"
+
+
+def test_state_paths_resolve_home_lazily(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert state_dir() == tmp_path / ".config" / "dotfiles"
+
+
 def test_load_state_returns_none_when_file_missing(tmp_path):
     assert load_state(tmp_path / "state.json") is None
+
+
+def test_load_state_warns_and_returns_none_for_corrupt_file(tmp_path, capsys):
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{not json")
+    assert load_state(state_file) is None
+    assert str(state_file) in capsys.readouterr().err
+
+
+def test_load_state_warns_and_returns_none_for_unreadable_file(tmp_path, monkeypatch, capsys):
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}")
+
+    def deny(self, *args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(type(state_file), "read_text", deny)
+    assert load_state(state_file) is None
+    assert str(state_file) in capsys.readouterr().err
 
 
 def test_save_then_load_round_trips(tmp_path):

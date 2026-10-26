@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Any
 
 from dotfiles_setup.log import Logger
+
+Settings = dict[str, Any]
+RunFn = Callable[..., Any]
 
 LEGACY_MARKETPLACES = frozenset({"claude-skills"})
 UPDATE_WORKERS = 4
@@ -18,33 +23,33 @@ class Action:
     args: tuple[str, ...]
 
 
-def _claude(*args: str, run=subprocess.run) -> subprocess.CompletedProcess:
+def _claude(*args: str, run: RunFn = subprocess.run) -> subprocess.CompletedProcess[str]:
     return run(["claude", "plugin", *args], capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
 
-def _list_json(run, *args: str) -> list[dict] | None:
+def _list_json(run: RunFn, *args: str) -> list[dict[str, Any]] | None:
     listed = _claude(*args, "--json", run=run)
     return json.loads(listed.stdout or "[]") if listed.returncode == 0 else None
 
 
-def _marketplace_source(declared: dict) -> str | None:
+def _marketplace_source(declared: Settings) -> str | None:
     source = declared.get("source", {})
     return {"github": source.get("repo"), "git": source.get("url")}.get(source.get("source"))
 
 
-def _enabled_plugins(settings: dict) -> tuple[str, ...]:
+def _enabled_plugins(settings: Settings) -> tuple[str, ...]:
     return tuple(sorted(pid for pid, on in settings.get("enabledPlugins", {}).items() if on))
 
 
-def _declared_marketplaces(settings: dict) -> frozenset[str]:
+def _declared_marketplaces(settings: Settings) -> frozenset[str]:
     return frozenset(settings.get("extraKnownMarketplaces", {}))
 
 
-def _managed_marketplaces(settings: dict) -> frozenset[str]:
+def _managed_marketplaces(settings: Settings) -> frozenset[str]:
     return _declared_marketplaces(settings) | LEGACY_MARKETPLACES
 
 
-def _marketplace_adds(settings: dict, registered: frozenset[str]) -> tuple[Action, ...]:
+def _marketplace_adds(settings: Settings, registered: frozenset[str]) -> tuple[Action, ...]:
     declared = settings.get("extraKnownMarketplaces", {})
     return tuple(
         Action(f"add marketplace {name}", ("marketplace", "add", source))
@@ -53,32 +58,32 @@ def _marketplace_adds(settings: dict, registered: frozenset[str]) -> tuple[Actio
     )
 
 
-def _plugin_installs(settings: dict, installed: tuple[str, ...]) -> tuple[Action, ...]:
+def _plugin_installs(settings: Settings, installed: tuple[str, ...]) -> tuple[Action, ...]:
     return tuple(
         Action(f"install {p}", ("install", p, "--scope", "user"))
         for p in _enabled_plugins(settings) if p not in installed
     )
 
 
-def _plugin_removals(settings: dict, installed: tuple[str, ...]) -> tuple[Action, ...]:
+def _plugin_removals(settings: Settings, installed: tuple[str, ...]) -> tuple[Action, ...]:
     enabled, managed = _enabled_plugins(settings), _managed_marketplaces(settings)
     stale = [p for p in installed if p not in enabled and p.partition("@")[2] in managed]
     return tuple(Action(f"uninstall {p}", ("uninstall", p, "--scope", "user")) for p in stale) if enabled else ()
 
 
-def _marketplace_removals(settings: dict, registered: frozenset[str]) -> tuple[Action, ...]:
+def _marketplace_removals(settings: Settings, registered: frozenset[str]) -> tuple[Action, ...]:
     if not _enabled_plugins(settings):
         return ()
     stale = sorted((registered & LEGACY_MARKETPLACES) - _declared_marketplaces(settings))
     return tuple(Action(f"remove marketplace {n}", ("marketplace", "remove", n)) for n in stale)
 
 
-def _updates(settings: dict, installed: tuple[str, ...]) -> tuple[Action, ...]:
+def _updates(settings: Settings, installed: tuple[str, ...]) -> tuple[Action, ...]:
     gone = {a.args[1] for a in _plugin_removals(settings, installed)}
     return tuple(Action(f"update {p}", ("update", p, "--scope", "user")) for p in installed if p not in gone)
 
 
-def plan_actions(settings: dict, registered: frozenset[str], installed: tuple[str, ...]) -> tuple[Action, ...]:
+def plan_actions(settings: Settings, registered: frozenset[str], installed: tuple[str, ...]) -> tuple[Action, ...]:
     """Ordered actions that sync Claude Code with settings; uninstalls and marketplace adds/removes cover only managed marketplaces.
 
     Legacy marketplaces go before adds because a renamed marketplace collides with its old name.
@@ -93,7 +98,7 @@ def plan_actions(settings: dict, registered: frozenset[str], installed: tuple[st
     )
 
 
-def _snapshot(run) -> tuple[frozenset[str], tuple[str, ...]] | None:
+def _snapshot(run: RunFn) -> tuple[frozenset[str], tuple[str, ...]] | None:
     marketplaces, plugins = _list_json(run, "marketplace", "list"), _list_json(run, "list")
     if marketplaces is None or plugins is None:
         return None
@@ -101,7 +106,7 @@ def _snapshot(run) -> tuple[frozenset[str], tuple[str, ...]] | None:
     return frozenset(m["name"] for m in marketplaces), tuple(user_ids)
 
 
-def _apply(action: Action, logger: Logger, run) -> None:
+def _apply(action: Action, logger: Logger, run: RunFn) -> None:
     if logger.dry_run_notice(f"Would {action.label}."):
         return
     logger.info(f"Running: {action.label}")
@@ -114,7 +119,7 @@ def _apply(action: Action, logger: Logger, run) -> None:
         logger.warn(f"Could not {action.label}: {result.stderr.strip() or result.stdout.strip()}")
 
 
-def _apply_all(actions: tuple[Action, ...], logger: Logger, run) -> None:
+def _apply_all(actions: tuple[Action, ...], logger: Logger, run: RunFn) -> None:
     updates = [a for a in actions if a.args[0] == "update"]
     for action in (a for a in actions if a not in updates):
         _apply(action, logger, run)
@@ -123,7 +128,7 @@ def _apply_all(actions: tuple[Action, ...], logger: Logger, run) -> None:
         list(pool.map(lambda a: _apply(a, logger, run), updates))
 
 
-def update_claude_plugins(logger: Logger, settings: dict, run=subprocess.run) -> None:
+def update_claude_plugins(logger: Logger, settings: Settings, run: RunFn = subprocess.run) -> None:
     """Applies (or, in a dry run, prints) the plan that syncs Claude Code with settings. Warns instead of raising."""
     try:
         snapshot = _snapshot(run)

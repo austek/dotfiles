@@ -7,6 +7,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
+
+from dotfiles_setup.presets import package_names
 
 DEFAULT_OVERLAY_ROOT = Path.home() / ".dotfiles-private"
 LOCAL_OVERLAY_ROOT = Path.home() / ".config" / "dotfiles" / "local-overlay"
@@ -30,27 +33,27 @@ def overlay_package_names(overlay_root: Path | None, preset_name: str) -> tuple[
     fragment = overlay_root / "packages" / f"{preset_name}_extra.txt"
     if not fragment.is_file():
         return ()
-    names = {
-        line.strip()
-        for line in fragment.read_text().splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    }
-    return tuple(sorted(names))
+    return tuple(sorted(package_names(fragment.read_text())))
 
 
-def merge_claude_settings(base: dict, overlay: dict | None) -> dict:
-    if overlay is None:
-        return base
+def _merge(base: dict[str, Any], overlay: dict[str, Any], union_lists: bool) -> dict[str, Any]:
     merged = dict(base)
     for key, value in overlay.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = merge_claude_settings(merged[key], value)
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = _merge(current, value, union_lists)
+        elif union_lists and isinstance(value, list) and isinstance(current, list):
+            merged[key] = _union(current, value)
         else:
             merged[key] = value
     return merged
 
 
-def load_claude_settings(base_path: Path, overlay_root: Path | None, preset_name: str) -> dict:
+def merge_claude_settings(base: dict[str, Any], overlay: dict[str, Any] | None) -> dict[str, Any]:
+    return base if overlay is None else _merge(base, overlay, union_lists=False)
+
+
+def load_claude_settings(base_path: Path, overlay_root: Path | None, preset_name: str) -> dict[str, Any]:
     base = json.loads(base_path.read_text()) if base_path.is_file() else {}
     overlay_path = overlay_root / "claude-profiles" / f"{preset_name}.json" if overlay_root else None
     overlay = (
@@ -61,7 +64,7 @@ def load_claude_settings(base_path: Path, overlay_root: Path | None, preset_name
     return merge_claude_settings(base, overlay)
 
 
-def _union(base: list, extra: list) -> list:
+def _union(base: list[Any], extra: list[Any]) -> list[Any]:
     result = list(base)
     for item in extra:
         if item not in result:
@@ -69,20 +72,11 @@ def _union(base: list, extra: list) -> list:
     return result
 
 
-def merge_settings(base: dict, overlay: dict) -> dict:
-    merged = dict(base)
-    for key, value in overlay.items():
-        current = merged.get(key)
-        if isinstance(value, dict) and isinstance(current, dict):
-            merged[key] = merge_settings(current, value)
-        elif isinstance(value, list) and isinstance(current, list):
-            merged[key] = _union(current, value)
-        else:
-            merged[key] = value
-    return merged
+def merge_settings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    return _merge(base, overlay, union_lists=True)
 
 
-def load_settings(base_path: Path, overlay_root: Path | None) -> dict:
+def load_settings(base_path: Path, overlay_root: Path | None) -> dict[str, Any]:
     base = json.loads(base_path.read_text(encoding="utf-8"))
     overlay_path = overlay_root / "claude-settings" / "settings.json" if overlay_root else None
     if overlay_path is None or not overlay_path.is_file():
