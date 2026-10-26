@@ -56,9 +56,9 @@ def _prefer_ghostty(listing: Path) -> bool:
 def _update_terminal_lists(t: Tooling, config_dir: Path) -> None:
     # xdg-terminal-exec reads the desktop-prefixed lists before the generic one, so patch both.
     config_dir.mkdir(parents=True, exist_ok=True)
-    generic = config_dir / "xdg-terminals.list"
+    names = ["xdg-terminals.list", *sorted(p.name for p in config_dir.glob("*-xdg-terminals.list"))]
     updated = 0
-    for listing in [generic, *sorted(config_dir.glob("*-xdg-terminals.list"))]:
+    for listing in (config_dir / os.path.basename(name) for name in names):
         if _prefer_ghostty(listing):
             updated += 1
         else:
