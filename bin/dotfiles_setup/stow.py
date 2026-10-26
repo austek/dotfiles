@@ -160,9 +160,14 @@ def _file_count_over_limit(package_dir: Path) -> bool:
     return False
 
 
-def _track_new(plan: StowPlan, action: str, packages: Sequence[str]) -> None:
-    for pkg in packages:
-        plan.changes.track(f"{action}:{pkg}", dry_run=False)
+def _stow_tracked(plan: StowPlan, action: str, root: Path, args: Sequence[str], packages: Sequence[str]) -> bool:
+    """Records the packages this call linked, even when it fails afterwards, so a rollback can unlink them."""
+    pending = pkgs_not_yet_linked(root, plan.t.home, packages)
+    stowed = stow_with_backup(plan, args, root)
+    for pkg in pending:
+        if stow_pkg_is_linked(root, pkg, plan.t.home):
+            plan.changes.track(f"{action}:{pkg}", dry_run=False)
+    return stowed
 
 
 def stow_common_to_home(plan: StowPlan, ignores: list[str]) -> bool:
@@ -187,13 +192,11 @@ def stow_common_to_home(plan: StowPlan, ignores: list[str]) -> bool:
     if dry_run_all(plan.t, f"Would stow (unfolded) to {home}: {' '.join(nofold) or 'none'}",
                    f"Would stow (folded) to {home}: {' '.join(folded) or 'none'}"):
         return True
-    newly_stowed = pkgs_not_yet_linked(plan.dotfiles_dir, home, packages)
     common = [*ignores, f"--target={home}", "--verbose=1"]
-    if nofold and not stow_with_backup(plan, ["--restow", "--no-folding", *common, *nofold], plan.dotfiles_dir):
-        return False
-    if folded and not stow_with_backup(plan, ["--restow", *common, *folded], plan.dotfiles_dir):
-        return False
-    _track_new(plan, "STOW_HOME", newly_stowed)
+    groups = ((nofold, ["--restow", "--no-folding"]), (folded, ["--restow"]))
+    for group, flags in groups:
+        if group and not _stow_tracked(plan, "STOW_HOME", plan.dotfiles_dir, [*flags, *common, *group], group):
+            return False
     logger.success(f"All {home} packages stowed.")
     return True
 
@@ -220,14 +223,12 @@ def stow_private_to_home(plan: StowPlan) -> bool:
     if dry_run_all(plan.t, f"Would stow (unfolded, from {plan.private_root}, overriding any public file at the "
                            f"same path) to {home}: {' '.join(packages)}"):
         return True
-    newly_stowed = pkgs_not_yet_linked(plan.private_root, home, packages)
     for pkg in packages:
         for file in _regular_files(plan.private_root / pkg):
             clear_public_symlink_at_private_path(plan, pkg, file)
     args = ["--restow", "--no-folding", f"--target={home}", "--verbose=1", *packages]
-    if not stow_with_backup(plan, args, plan.private_root):
+    if not _stow_tracked(plan, "STOW_PRIVATE", plan.private_root, args, packages):
         return False
-    _track_new(plan, "STOW_PRIVATE", newly_stowed)
     logger.success("All private-overlay packages stowed.")
     return True
 

@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,7 +10,8 @@ from dotfiles_setup.rollback import RollbackLog
 class Stower:
     """Stands in for stow, git and everything else: simulates one conflict and records every call."""
 
-    def __init__(self, conflict=".rc", stow_rc=0, git_rc=0):
+    def __init__(self, conflict=".rc", stow_rc=0, git_rc=0, link_despite_failure=False):
+        self.link_despite_failure = link_despite_failure
         self.calls = []
         self.conflict = conflict
         self.stow_rc = stow_rc
@@ -22,7 +24,22 @@ class Stower:
         if "--simulate" in argv:
             line = f"  * existing target is neither a link nor a directory: {self.conflict}"
             return SimpleNamespace(returncode=0, stdout="", stderr=line)
+        if self.stow_rc == 0 or self.link_despite_failure:
+            self._link(argv, kwargs.get("cwd"))
         return SimpleNamespace(returncode=self.stow_rc, stdout="", stderr="stow failed" if self.stow_rc else "")
+
+    def _link(self, argv, cwd):
+        """Does what stow does for each package: link its files into the target."""
+        target = next((Path(a.split("=", 1)[1]) for a in argv if a.startswith("--target=")), None)
+        if target is None:
+            return
+        for package in (a for a in argv[1:] if not a.startswith("--")):
+            files = sorted(p for p in (Path(cwd) / package).rglob("*") if p.is_file())
+            if files:
+                link = target / files[0].relative_to(Path(cwd) / package)
+                link.parent.mkdir(parents=True, exist_ok=True)
+                if not link.exists():
+                    link.symlink_to(files[0])
 
     def stow_calls(self):
         return [argv[1:] for argv, _ in self.calls if argv[0] == "stow" and "--simulate" not in argv]
@@ -171,6 +188,43 @@ def test_the_common_stow_splits_folded_and_unfolded_packages_and_tracks_new_ones
     assert plan.changes.entries() == ["STOW_HOME:pkgA", "STOW_HOME:gradle"]
 
 
+class FailsOnFolded(Stower):
+    """Succeeds for the unfolded call and fails for the folded one."""
+
+    def __call__(self, argv, **kwargs):
+        self.stow_rc = 1 if argv[0] == "stow" and "--no-folding" not in argv and "--simulate" not in argv else 0
+        return super().__call__(argv, **kwargs)
+
+
+def test_packages_stowed_before_a_later_group_fails_are_still_tracked(world):
+    make_repo(world)
+    (world.repo / "gradle/.gradle").mkdir(parents=True)
+    (world.repo / "gradle/.gradle/f").write_text("g")
+    write_packages(world.repo / ".stow-packages", "pkgA", "gradle")
+    plan, _ = plan_for(world, FailsOnFolded(), force=False)
+    assert not stow.stow_common_to_home(plan, [])
+    assert plan.changes.entries() == ["STOW_HOME:pkgA"]
+
+
+def test_packages_linked_by_a_stow_whose_backup_then_fails_are_tracked(world):
+    make_repo(world)
+    write_packages(world.repo / ".stow-packages", "pkgA")
+    blocker = world.tmp / "blocker"
+    blocker.write_text("")
+    plan, _ = plan_for(world, Stower(), backup_root=blocker / "backups")
+    (world.home / ".rc").write_text("original")
+    assert not stow.stow_common_to_home(plan, [])
+    assert plan.changes.entries() == ["STOW_HOME:pkgA"]
+
+
+def test_packages_a_failed_stow_never_linked_are_not_tracked(world):
+    make_repo(world)
+    write_packages(world.repo / ".stow-packages", "pkgA")
+    plan, _ = plan_for(world, Stower(stow_rc=1), force=False)
+    assert not stow.stow_common_to_home(plan, [])
+    assert plan.changes.entries() == []
+
+
 def test_a_missing_stow_packages_file_is_skipped(world):
     plan, runner = plan_for(world)
     assert stow.stow_common_to_home(plan, [])
@@ -211,7 +265,7 @@ def test_the_private_overlay_replaces_a_public_symlink_and_tracks_its_packages(w
     target.symlink_to(public)
     plan, runner = plan_for(world, private=private, force=False)
     assert stow.stow_private_to_home(plan)
-    assert not target.is_symlink()
+    assert target.resolve() == (private / "claude/.claude/CLAUDE.md").resolve()
     assert runner.stow_calls() == [["--restow", "--no-folding", f"--target={world.home}", "--verbose=1", "claude"]]
     assert runner.calls[0][1] == private
     assert plan.changes.entries() == ["STOW_PRIVATE:claude"]

@@ -80,11 +80,11 @@ def _write_as_root(ctx: SystemContext, destination: str, content: str) -> bool:
 
 def _dearmor(ctx: SystemContext, url: str, destination: str) -> bool:
     try:
-        key = ctx.t.fetch(url)
+        key = ctx.t.fetch_bytes(url)
     except (OSError, ValueError) as error:
         ctx.t.logger.error(f"Could not download the signing key {url}: {error}")
         return False
-    return ctx.t.run(["sudo", "gpg", "--dearmor", "--yes", "-o", destination], input=key, text=True).returncode == 0
+    return ctx.t.run(["sudo", "gpg", "--dearmor", "--yes", "-o", destination], input=key).returncode == 0
 
 
 def download_apt_gpg_keys(ctx: SystemContext) -> bool:
@@ -177,7 +177,7 @@ def _resolve_stow_conflicts(ctx: SystemContext, ignores: list[str]) -> bool:
         backup = f"{STOW_BACKUP_ROOT}/{existing.name}.backup-{int(time.time())}"
         if ctx.t.run(["sudo", "mv", str(existing), backup]).returncode != 0:
             return False
-        ctx.track(f"FILE_BACKUP:{backup}")
+        ctx.track(f"FILE_BACKUP:{backup}|{existing}")
     if not ctx.quiet("sudo", "stow", f"--dir={ctx.dotfiles_dir}", "--restow", "--no-folding", *ignores,
                      "--target=/", "--verbose=1", "apt", cwd=ctx.dotfiles_dir):
         return False

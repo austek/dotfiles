@@ -58,15 +58,25 @@ def test_steps_returning_none_or_true_let_the_run_continue(tmp_path, no_sudo, mo
     assert flow.run_install(inputs(tmp_path)).succeeded
 
 
-def test_the_rollback_log_is_truncated_at_the_start_and_removed_on_success(tmp_path, no_sudo, monkeypatch):
+def test_entries_from_an_unfinished_run_are_kept_and_the_log_is_removed_on_success(tmp_path, no_sudo, monkeypatch):
     log = RollbackLog.for_home(tmp_path / "home")
     (tmp_path / "home").mkdir()
-    log.path.write_text("STOW_HOME:stale\n")
+    log.path.write_text("STOW_HOME:earlier\n")
     seen = {}
     monkeypatch.setattr(flow, "build_steps", lambda *a: [("peek", lambda: seen.update(entries=log.entries()))])
     assert flow.run_install(inputs(tmp_path)).succeeded
-    assert seen["entries"] == []
+    assert seen["entries"] == ["STOW_HOME:earlier"]
     assert not log.path.exists()
+
+
+def test_a_failed_run_after_an_unfinished_one_keeps_both_runs_entries(tmp_path, no_sudo, monkeypatch):
+    log = RollbackLog.for_home(tmp_path / "home")
+    (tmp_path / "home").mkdir()
+    log.path.write_text("STOW_HOME:earlier\n")
+    steps = [("track", lambda: log.track("STOW_HOME:now", dry_run=False)), ("fail", lambda: False)]
+    monkeypatch.setattr(flow, "build_steps", lambda *a: steps)
+    flow.run_install(inputs(tmp_path))
+    assert log.entries() == ["STOW_HOME:earlier", "STOW_HOME:now"]
 
 
 def test_the_rollback_log_survives_a_failed_run(tmp_path, no_sudo, monkeypatch):

@@ -363,7 +363,8 @@ class _Install:
 def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
     return tooling.Tooling(
         logger, Path.home(), run=env.run,
-        fetch=tooling.fetch_https, download=tooling.download_https, redirect=tooling.redirect_location,
+        fetch=tooling.fetch_https, fetch_bytes=tooling.fetch_bytes_https,
+        download=tooling.download_https, redirect=tooling.redirect_location,
     )
 
 

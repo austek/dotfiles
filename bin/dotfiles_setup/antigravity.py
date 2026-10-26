@@ -154,14 +154,20 @@ def _set_sandbox_bit(t: Tooling, layout: Layout) -> bool:
     return True
 
 
+def _restore_previous(t: Tooling, layout: Layout) -> None:
+    if layout.old_dir.is_dir():
+        _sudo(t, "rm", "-rf", "--", str(layout.install_dir))
+        _sudo(t, "mv", "--", str(layout.old_dir), str(layout.install_dir))
+
+
 def _swap_into_place(t: Tooling, layout: Layout) -> bool:
+    """Moves the previous install to .old; it is deleted only once the new one is wired up."""
+    _sudo(t, "rm", "-rf", "--", str(layout.old_dir))
     _sudo(t, "mv", "--", str(layout.install_dir), str(layout.old_dir))
     if not _sudo(t, "mv", "--", str(layout.staging_dir), str(layout.install_dir)):
         _fail_placing(t, layout, f"Failed to move staged Antigravity IDE into {layout.install_dir}.")
-        if layout.old_dir.is_dir():
-            _sudo(t, "mv", "--", str(layout.old_dir), str(layout.install_dir))
+        _restore_previous(t, layout)
         return False
-    _sudo(t, "rm", "-rf", "--", str(layout.old_dir))
     return True
 
 
@@ -194,8 +200,12 @@ def _wire_up(t: Tooling, layout: Layout, resolved: Resolved) -> bool:
 
 def place(t: Tooling, layout: Layout, extracted: Path, resolved: Resolved) -> bool:
     t.logger.info(f"Installing Antigravity IDE to {layout.install_dir}...")
-    if not (_stage(t, layout, extracted) and _swap_into_place(t, layout) and _wire_up(t, layout, resolved)):
+    if not (_stage(t, layout, extracted) and _swap_into_place(t, layout)):
         return False
+    if not _wire_up(t, layout, resolved):
+        _restore_previous(t, layout)
+        return False
+    _sudo(t, "rm", "-rf", "--", str(layout.old_dir))
     t.logger.success(f"Antigravity IDE {resolved.version or 'unknown'} installed to {layout.install_dir}.")
     return True
 

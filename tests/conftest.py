@@ -18,5 +18,5 @@ def no_network_tool_fetch(monkeypatch):
     def refuse(url, *_args):
         raise AssertionError(f"test attempted a real network call: {url}")
 
-    for name in ("fetch_https", "download_https", "redirect_location"):
+    for name in ("fetch_https", "fetch_bytes_https", "download_https", "redirect_location"):
         monkeypatch.setattr(f"dotfiles_setup.tooling.{name}", refuse)

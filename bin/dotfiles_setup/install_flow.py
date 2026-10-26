@@ -79,7 +79,10 @@ def _run_steps(steps: list[Step], logger: Logger, log: RollbackLog) -> InstallRe
 def _start_log(inputs: FlowInputs, logger: Logger) -> RollbackLog:
     log = RollbackLog.for_home(inputs.t.home)
     if not logger.dry_run:
-        log.path.write_text("")
+        pending = len(log.entries())
+        if pending:
+            logger.warn(f"Keeping {pending} rollback entries from an earlier unfinished run ({log.path}).")
+        log.path.touch()
         logger.info(f"Rollback tracking enabled. Log: {log.path}")
     return log
 

@@ -65,6 +65,18 @@ def test_a_backed_up_file_is_restored_to_its_original_name(tmp_path):
     assert machine.argvs() == [["sudo", "mv", str(backup), str(tmp_path / "hosts")]]
 
 
+def test_a_backup_kept_elsewhere_is_restored_to_the_recorded_original(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    backup = tmp_path / "backups" / "docker.sources.backup-1"
+    backup.parent.mkdir()
+    backup.write_text("old")
+    original = tmp_path / "etc" / "docker.sources"
+    ctx.log.track(f"FILE_BACKUP:{backup}|{original}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert machine.argvs() == [["sudo", "mv", str(backup), str(original)]]
+
+
 def test_a_missing_backup_file_is_skipped(tmp_path):
     machine = Machine()
     ctx = context(tmp_path, machine)

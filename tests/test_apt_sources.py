@@ -30,8 +30,9 @@ class Machine:
         return self.inputs[tuple(argv)]
 
 
-def make(tmp_path, machine, packages=(), dry_run=False, fetch=lambda url: f"KEY:{url}"):
-    t = tools.Tooling(Logger(dry_run=dry_run, verbosity=1), tmp_path, run=machine, fetch=fetch)
+def make(tmp_path, machine, packages=(), dry_run=False, fetch=lambda url: f"KEY:{url}", fetch_bytes=None):
+    fetch_bytes = fetch_bytes or (lambda url: f"KEY:{url}".encode())
+    t = tools.Tooling(Logger(dry_run=dry_run, verbosity=1), tmp_path, run=machine, fetch=fetch, fetch_bytes=fetch_bytes)
     repo = tmp_path / "repo"
     repo.mkdir(exist_ok=True)
     return ss.SystemContext(t, repo, frozenset(packages), RollbackLog(tmp_path / "rollback.log"))
@@ -48,7 +49,7 @@ def test_each_selected_package_gets_its_signing_key_dearmored_into_its_keyring(t
         ("/usr/share/keyrings/githubcli-archive-keyring.gpg",
          "https://cli.github.com/packages/githubcli-archive-keyring.gpg"),
     ):
-        assert machine.input_for("sudo", "gpg", "--dearmor", "--yes", "-o", destination) == f"KEY:{url}"
+        assert machine.input_for("sudo", "gpg", "--dearmor", "--yes", "-o", destination) == f"KEY:{url}".encode()
 
 
 def test_1password_writes_its_key_to_both_keyrings(tmp_path):
@@ -80,7 +81,16 @@ def test_a_key_download_failure_stops_the_step(tmp_path):
     def broken(url):
         raise OSError("offline")
 
-    assert not aps.download_apt_gpg_keys(make(tmp_path, Machine(), packages=["gh"], fetch=broken))
+    assert not aps.download_apt_gpg_keys(make(tmp_path, Machine(), packages=["gh"], fetch_bytes=broken))
+
+
+def test_a_binary_keyring_is_passed_to_gpg_unchanged(tmp_path):
+    keyring = bytes(range(256))
+    machine = Machine()
+    ctx = make(tmp_path, machine, packages=["gh"], fetch_bytes=lambda url: keyring)
+    assert aps.download_apt_gpg_keys(ctx)
+    destination = "/usr/share/keyrings/githubcli-archive-keyring.gpg"
+    assert machine.input_for("sudo", "gpg", "--dearmor", "--yes", "-o", destination) == keyring
 
 
 def test_a_failed_gpg_dearmor_stops_the_step(tmp_path):
@@ -169,6 +179,7 @@ def test_stow_conflicts_are_backed_up_then_the_stow_is_retried(tmp_path, monkeyp
     assert aps.stow_apt_source_files(ctx)
     entries = ctx.changes.entries()
     assert entries[0].startswith(f"FILE_BACKUP:{tmp_path / 'backups'}/docker.sources.backup-")
+    assert entries[0].endswith(f"|{conflict}")
     assert entries[1] == "STOW_ROOT:apt"
     assert not conflict.exists()
     assert len([c for c in machine.commands if "--restow" in c]) == 2

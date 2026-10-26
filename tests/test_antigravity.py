@@ -166,6 +166,28 @@ def test_a_failed_swap_restores_the_previous_install(tmp_path):
     assert not machine.ran("sudo", "ln")
 
 
+def test_the_previous_install_is_deleted_only_after_the_new_one_is_wired_up(tmp_path):
+    machine = Machine()
+    t, _, layout = make(tmp_path, machine)
+    stage_files(layout)
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
+    last_rm = max(i for i, c in enumerate(machine.commands) if c[:5] == ["sudo", "rm", "-rf", "--", str(layout.old_dir)])
+    assert last_rm > machine.index("sudo", "tee", str(layout.build_file))
+
+
+def test_a_wiring_failure_restores_the_previous_install(tmp_path):
+    machine = Machine(fail=[("sudo", "tee", str(tmp_path / "root/usr/share/applications/antigravity-ide.desktop"))])
+    t, _, layout = make(tmp_path, machine)
+    layout.old_dir.mkdir(parents=True)
+    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    assert machine.ran("sudo", "mv", "--", str(layout.old_dir), str(layout.install_dir))
+    assert not any(
+        c[:5] == ["sudo", "rm", "-rf", "--", str(layout.old_dir)] and i > machine.index("sudo", "tee", str(layout.desktop))
+        for i, c in enumerate(machine.commands)
+    )
+    assert not machine.ran("sudo", "tee", str(layout.build_file))
+
+
 def test_a_failed_download_continues_without_installing(tmp_path):
     machine = Machine()
     t, _, layout = make(tmp_path, machine)
