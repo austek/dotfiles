@@ -190,6 +190,20 @@ def globbed_path(word: str, command: str) -> bool:
     return command in FILE_ARG_COMMANDS or "/" in word or word.startswith("~")
 
 
+PATTERN_COMMANDS = {"grep", "egrep", "fgrep"}
+
+
+def has_globbed_path(words: list[str]) -> bool:
+    pattern_pending = words[0] in PATTERN_COMMANDS
+    for word in words[1:]:
+        is_flag = word.startswith("-")
+        command = "cat" if words[0] in PATTERN_COMMANDS and not is_flag and not pattern_pending else words[0]
+        pattern_pending = pattern_pending and is_flag
+        if globbed_path(word, command):
+            return True
+    return False
+
+
 def command_allowed(words: list[str], rules: dict) -> bool:
     text = join_words(words)
     if SENSITIVE.search(text) or words[0].startswith("$"):
@@ -197,7 +211,7 @@ def command_allowed(words: list[str], rules: dict) -> bool:
     if matches(text, rules["deny"]) or matches(text, rules["ask"]):
         return False
     if words[0] in SAFE_COMMANDS:
-        return not has_unsafe_flag(words) and not any("$" in w or globbed_path(w, words[0]) for w in words[1:])
+        return not has_unsafe_flag(words) and not any("$" in w for w in words[1:]) and not has_globbed_path(words)
     return not runs_inner_command(words) and matches(text, rules["allow"])
 
 

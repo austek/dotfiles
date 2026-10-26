@@ -159,6 +159,18 @@ def test_pr_url_slug_is_a_valid_branch_component():
     assert slug == "pr-https-github-com-o-r-pull-7"
 
 
+def test_audit_of_a_pr_url_builds_a_valid_scratch_branch(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(cra, "_run_scoped", lambda run, audit: seen.append(audit) or 0)
+    run = FakeRun({
+        ("git", "rev-parse", "--abbrev-ref", "HEAD"): ok("pr-branch\n"),
+        ("gh", "pr", "view"): ok('{"baseRefName": "main"}\n'),
+        ("gh", "pr", "diff"): ok("x.py\ny.py\n"),
+    })
+    assert cra._audit_checked_out_pr(run, tmp_path, "https://github.com/o/r/pull/7", limit=1) == 0
+    assert seen[0].base_branch == "audit-base-pr-https-github-com-o-r-pull-7"
+
+
 def test_main_pr_uses_existing_review_when_present(tmp_path):
     responses = {
         ("git", "rev-parse", "--show-toplevel"): ok(str(tmp_path / "repo") + "\n"),

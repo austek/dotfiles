@@ -80,12 +80,14 @@ class TestAuditBypasses(unittest.TestCase):
                 self.assertFalse(allowed(command))
 
     def test_globbed_paths_on_safe_commands_are_rejected(self):
-        for command in ("cat ~/.s[s]h/i[d]_rsa", "cat ~/.ss?/id_r*", "cat /etc/{shadow,passwd}", "ls src/*.py", "cat .en?", "cat i[d]_rsa"):
+        for command in ("cat ~/.s[s]h/i[d]_rsa", "cat ~/.ss?/id_r*", "cat /etc/{shadow,passwd}", "ls src/*.py", "cat .en?", "cat i[d]_rsa",
+                        "grep foo .en?", "grep -rn foo ./src/*", "egrep foo cred?"):
             with self.subTest(command=command):
                 self.assertFalse(allowed(command))
 
     def test_patterns_that_are_not_paths_stay_allowed(self):
-        for command in ("jq '.a[0]' f.json", "grep 'a[0-9]*' f.txt", "tr '[:lower:]' '[:upper:]'", "echo {a,b}"):
+        for command in ("jq '.a[0]' f.json", "grep 'a[0-9]*' f.txt", "tr '[:lower:]' '[:upper:]'", "echo {a,b}",
+                        "grep 'a.*b' file.txt", "grep -rn 'a[0-9]' src"):
             with self.subTest(command=command):
                 self.assertTrue(allowed(command))
 
