@@ -120,7 +120,7 @@ cleanup() {
                 log_info "You can manually roll back by reviewing: $ROLLBACK_LOG"
             fi
         fi
-    elif [[ $exit_code -eq 0 ]] && [[ -f "$ROLLBACK_LOG" ]]; then
+    elif [[ $exit_code -eq 0 ]] && [[ "$KEEP_ROLLBACK_LOG" = false ]] && [[ -f "$ROLLBACK_LOG" ]]; then
         rm -f "$ROLLBACK_LOG"
     fi
 }

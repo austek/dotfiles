@@ -846,6 +846,38 @@ check "omz: keeps zshrc and skips shell switch" test "$(cat "$STOW_TMP/omz_env")
 unset -f curl_https bash sh
 stow_teardown
 
+# --- --only / --list-steps step selection ---
+ONLY_STEPS=()
+check "steps: every step is selected without --only" step_selected install_packages
+ONLY_STEPS=(install_packages)
+check "steps: --only selects a listed step" step_selected install_packages
+if step_selected configure_dotfiles; then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("steps: --only selected an unlisted step")
+else
+    PASS_COUNT=$((PASS_COUNT + 1))
+fi
+ONLY_STEPS=(not_a_step)
+if (validate_only_steps >/dev/null 2>&1); then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    FAILURES+=("steps: validate_only_steps accepted an unknown step")
+else
+    PASS_COUNT=$((PASS_COUNT + 1))
+fi
+ONLY_STEPS=()
+check "steps: --list-steps prints steps in run order" test "$(bash "$SCRIPT_DIR/setup.sh" --list-steps | head -n 1)" = "install_core_deps"
+
+# --- a partial run keeps the rollback log for the next segment ---
+ROLLBACK_LOG=$(mktemp)
+echo "change" > "$ROLLBACK_LOG"
+KEEP_ROLLBACK_LOG=true
+( cleanup 0 ) >/dev/null 2>&1
+check "steps: partial run keeps the rollback log" test -s "$ROLLBACK_LOG"
+KEEP_ROLLBACK_LOG=false
+( cleanup 0 ) >/dev/null 2>&1
+check "steps: final run removes the rollback log" test ! -e "$ROLLBACK_LOG"
+rm -f "$ROLLBACK_LOG"
+
 echo
 echo "Passed: $PASS_COUNT  Failed: $FAIL_COUNT"
 if [[ "$FAIL_COUNT" -gt 0 ]]; then
