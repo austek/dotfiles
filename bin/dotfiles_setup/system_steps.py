@@ -1,6 +1,4 @@
-"""The system-level setup steps that need root: sudo, core dependencies, snapd
-removal, the /etc/environment PATH, and the GNOME and docker group tweaks.
-A step returns False to stop the run; changes it makes are recorded for rollback."""
+"""System-level steps that need root. A step returns False to stop the run and records its changes for rollback."""
 from __future__ import annotations
 
 import getpass

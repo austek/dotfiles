@@ -67,6 +67,7 @@ class Tooling:
     redirect: Callable[[str], str | None] = redirect_location
 
 
+# Returning False aborts the run; None or True continues.
 Installer = Callable[[Tooling], bool | None]
 
 

@@ -1,6 +1,4 @@
-"""Third-party apt repositories: signing keys, PPAs, the stowed `apt` package of
-fixed sources, and the sources rendered from apt-templates for the host's Ubuntu
-codename."""
+"""Configures the third-party apt repositories: keys, PPAs, stowed sources and rendered templates."""
 from __future__ import annotations
 
 import re

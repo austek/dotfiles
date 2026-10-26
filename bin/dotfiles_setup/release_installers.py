@@ -1,6 +1,4 @@
-"""Installers for tools shipped as a release artifact: resolve the latest
-version, download it into a per-tool cache, unpack, install. A failure in any
-of those steps warns and lets setup continue."""
+"""Installs tools shipped as release artifacts; a failure at any stage warns and continues."""
 from __future__ import annotations
 
 import os

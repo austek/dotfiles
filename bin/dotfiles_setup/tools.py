@@ -1,7 +1,4 @@
-"""Third-party installers that run between the shell apt-source and package
-steps: the script-based tool managers (sdkman, oh-my-zsh, nvm), the
-release-artifact installers in release_installers.py and the vendor-script and
-pipx installers in vendor_installers.py."""
+"""Registry and runner for the third-party installers that run before the apt package install."""
 from __future__ import annotations
 
 import json
@@ -111,7 +108,6 @@ def install_nvm(t: Tooling) -> None:
     _install_node_lts(t, nvm_dir)
 
 
-# An installer returns False to abort the run; None or True lets it continue.
 TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("oh-my-zsh", install_omz),
     ("sdkman", install_sdkman),

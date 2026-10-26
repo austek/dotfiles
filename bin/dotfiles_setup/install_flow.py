@@ -1,5 +1,4 @@
-"""The ordered install: every setup step in the order it runs, with the sudo
-session and rollback log that surround them."""
+"""The install: every setup step in run order, inside a sudo session and rollback log."""
 from __future__ import annotations
 
 import os

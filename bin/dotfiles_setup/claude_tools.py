@@ -1,6 +1,4 @@
-"""The CLIs Claude Code's hooks and MCP servers shell out to: rtk, cozempic,
-Serena and the caveman proxy. Each step verifies the tool, installs it when
-missing, and logs an error rather than aborting setup."""
+"""Installs the CLIs Claude Code's hooks and MCP servers need; failures log an error and continue."""
 from __future__ import annotations
 
 import os

@@ -9,7 +9,7 @@ from dotfiles_setup.release_installers import Resolved, download_with_cache
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import dry_run_all
 
-# Installed by tools.py or post_apt_installers.py rather than apt.
+# Package names installed outside apt; the apt install skips them.
 CUSTOM_INSTALL_PACKAGES = frozenset({
     "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "istioctl", "awscli", "slack-desktop", "jetbrains-toolbox",
     "antigravity-ide", "zizmor", "mcp-grafana", "ruff", "coderabbit", "auditr", "sonarqube-cli", "uv", "cargo-deny",

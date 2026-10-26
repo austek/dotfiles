@@ -1,6 +1,4 @@
-"""Installers that need a tool from the apt step (pipx, cargo), so they run
-after install_packages: auditr and the cargo-deny and cargo-audit crates.
-A failure logs an error and never aborts setup."""
+"""Installers that need pipx or cargo from the apt step; a failure logs an error and continues."""
 from __future__ import annotations
 
 import os
@@ -85,7 +83,7 @@ def _install_rustup_toolchain(t: Tooling) -> bool:
 
 
 def _cargo_for_crates(t: Tooling) -> str | None:
-    """Ubuntu 24.04's apt cargo is 1.75; current cargo-deny and cargo-audit need Rust 1.88."""
+    """Returns a cargo meeting CARGO_MIN_MINOR, installing a rustup toolchain if needed; None if unavailable."""
     if _cargo_meets_min(t, "cargo"):
         return shutil.which("cargo")
     rustup_cargo = str(t.home / ".cargo/bin/cargo")
@@ -109,7 +107,6 @@ def _crate_present(t: Tooling, crate: str) -> bool:
 
 
 def install_cargo_crate(t: Tooling, crate: str) -> None:
-    """Installs with --root ~/.local, since ~/.cargo/bin is not on PATH."""
     t.logger.info(f"Installing {crate}...")
     manual = f"cargo install --locked --root ~/.local {crate}"
     if _crate_present(t, crate):

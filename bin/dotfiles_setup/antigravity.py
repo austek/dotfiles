@@ -1,7 +1,4 @@
-"""Antigravity IDE installer: resolves the latest build from the vendor
-download page, caches the tarball by build id, stages the app under
-/opt/antigravity-ide and swaps it in only once fully built. A failure warns
-and lets setup continue."""
+"""Installs the Antigravity IDE, swapping it into place only once fully staged; failures warn and continue."""
 from __future__ import annotations
 
 import platform

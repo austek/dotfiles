@@ -46,7 +46,7 @@ def _prefer_ghostty(listing: Path) -> bool:
 
 
 def _update_terminal_lists(t: Tooling, config_dir: Path) -> None:
-    """GNOME's Ctrl+Alt+T can resolve through xdg-terminal-exec, which reads desktop-prefixed lists first."""
+    # xdg-terminal-exec reads the desktop-prefixed lists before the generic one, so patch both.
     config_dir.mkdir(parents=True, exist_ok=True)
     generic = config_dir / "xdg-terminals.list"
     updated = 0
@@ -60,7 +60,7 @@ def _update_terminal_lists(t: Tooling, config_dir: Path) -> None:
 
 
 def _set_gnome_terminal(t: Tooling, ghostty: str) -> None:
-    """gsd-media-keys reads this deprecated dconf key directly whenever it holds a non-default override."""
+    # gsd-media-keys reads this deprecated key directly whenever it holds a non-default override.
     if shutil.which("gsettings") is None:
         return
     first = t.run(["gsettings", "set", TERMINAL_SCHEMA, "exec", ghostty]).returncode == 0
