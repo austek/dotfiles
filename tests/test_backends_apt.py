@@ -7,6 +7,7 @@ from dotfiles_setup.backends.apt import (
     AFTER_APT_PACKAGES,
     AFTER_APT_SOURCES,
     AFTER_CLAUDE_PROFILE,
+    AFTER_DOCKER_GROUP,
     SETUP_STEPS,
     AptBackend,
 )
@@ -19,7 +20,7 @@ def test_setup_steps_match_the_steps_setup_sh_lists_in_order():
 
 
 def test_every_hook_key_is_a_setup_step():
-    assert {AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_CLAUDE_PROFILE} <= set(SETUP_STEPS)
+    assert {AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_DOCKER_GROUP, AFTER_CLAUDE_PROFILE} <= set(SETUP_STEPS)
 
 
 def run_with_hooks(tmp_path, hooks):
@@ -38,15 +39,17 @@ def run_with_hooks(tmp_path, hooks):
 
 
 def test_each_hook_runs_right_after_the_step_it_is_keyed_on(tmp_path):
-    result, events = run_with_hooks(tmp_path, [AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_CLAUDE_PROFILE])
+    hooks = [AFTER_APT_SOURCES, AFTER_APT_PACKAGES, AFTER_DOCKER_GROUP, AFTER_CLAUDE_PROFILE]
+    result, events = run_with_hooks(tmp_path, hooks)
     assert result.succeeded
     assert events == [
         ["install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources"],
         "hook:configure_apt_sources",
         ["install_packages"],
         "hook:install_packages",
-        ["enable_gpaste_extension", "install_github_bins", "configure_docker_group",
-         "configure_dotfiles", "configure_claude_profile"],
+        ["enable_gpaste_extension", "install_github_bins", "configure_docker_group"],
+        "hook:configure_docker_group",
+        ["configure_claude_profile"],
         "hook:configure_claude_profile",
         ["change_shell", "set_default_terminal"],
     ]
@@ -325,35 +328,12 @@ def test_print_completion_asks_setup_sh_for_the_banner_only(tmp_path):
     ]
 
 
-def test_install_forwards_force_stow_only_when_requested(tmp_path):
-    calls = []
-
-    def fake_run(argv, **kwargs):
-        calls.append(argv)
-
-        class _Result:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return _Result()
-
-    backend = AptBackend(dotfiles_dir=Path("/repo"), backend_overrides={})
-    for force in (False, True):
-        backend.install(
-            tmp_path / "w.txt", preset_name="work", claude_profile_dir=tmp_path,
-            dry_run=False, force_stow=force, run=fake_run,
-        )
-    assert "--force-stow" not in calls[0]
-    assert "--force-stow" in calls[1]
-
-
 def test_setup_argv_adds_optional_flags_in_order():
     from dotfiles_setup.backends.apt import setup_argv
 
     argv = setup_argv(
         Path("/r"), Path("/p.txt"), preset_name="work", claude_profile_dir=Path("/c"),
-        dry_run=True, private_root=Path("/priv"), verbosity=2, force_stow=True,
+        dry_run=True, private_root=Path("/priv"), verbosity=2, only_steps=("a", "b"),
     )
-    assert argv[-4:] == ["--private-root", "/priv", "--force-stow", "--dry-run"]
+    assert argv[-5:] == ["--private-root", "/priv", "--only", "a,b", "--dry-run"]
     assert argv[:2] == ["bash", "/r/bin/setup.sh"]

@@ -23,8 +23,10 @@ from dotfiles_setup import (
     presets,
     private,
     reconcile,
+    rollback,
     settings_drift,
     state,
+    stow,
     tooling,
     tools,
     update,
@@ -365,10 +367,23 @@ class _Install:
     prior: state.MachineState | None
 
 
-def _step_hooks(logger: Logger, env: Env, plan: _Install) -> dict[str, Callable[[], bool]]:
-    t = tools.Tooling(
+def _tooling(logger: Logger, env: Env) -> tools.Tooling:
+    return tools.Tooling(
         logger, Path.home(), run=env.run,
         fetch=tooling.fetch_https, download=tooling.download_https, redirect=tooling.redirect_location,
+    )
+
+
+def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.RollbackContext:
+    t = _tooling(logger, env)
+    return rollback.RollbackContext(t, rollback.RollbackLog.for_home(t.home), plan.dotfiles_dir, plan.overlay_root)
+
+
+def _step_hooks(logger: Logger, env: Env, plan: _Install, force: bool) -> dict[str, Callable[[], bool]]:
+    t = _tooling(logger, env)
+    stow_plan = stow.StowPlan(
+        t, plan.dotfiles_dir, plan.overlay_root, force, t.home / ".local/state/dotfiles/stow-backups",
+        env.clock().strftime("%Y%m%d%H%M%S"), rollback.RollbackLog.for_home(t.home),
     )
 
     def names() -> set[str]:
@@ -381,6 +396,7 @@ def _step_hooks(logger: Logger, env: Env, plan: _Install) -> dict[str, Callable[
     return {
         apt_backend.AFTER_APT_SOURCES: lambda: tools.install_tools(t, names()),
         apt_backend.AFTER_APT_PACKAGES: lambda: tools.install_post_apt_tools(t, names()),
+        apt_backend.AFTER_DOCKER_GROUP: lambda: stow.configure_dotfiles(stow_plan),
         apt_backend.AFTER_CLAUDE_PROFILE: run_claude_tools,
     }
 
@@ -393,10 +409,12 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     result = plan.backend.install(
         plan.package_file, preset_name=plan.preset.name, claude_profile_dir=claude_dir,
         dry_run=args.dry_run, private_root=plan.overlay_root, verbosity=args.verbosity,
-        force_stow=args.force, step_hooks=_step_hooks(logger, env, plan), run=env.run,
+        step_hooks=_step_hooks(logger, env, plan, args.force), run=env.run,
     )
     if not result.succeeded:
         _log_install_failure(logger, result)
+        if result.rollback_pending:
+            rollback.offer_rollback(_rollback_context(logger, env, plan), interactive=sys.stdin.isatty())
         return result.returncode
     _finish_install(args, logger, env, plan, claude_settings)
     return 0

@@ -247,7 +247,8 @@ def test_install_runs_setup_sh_in_segments_around_the_tool_installers(isolated_d
     assert main(["install", "--preset", "homelab"]) == 0
     only = [call[call.index("--only") + 1].split(",") for call in calls if "--only" in call]
     assert [steps[0] for steps in only] == [
-        "install_core_deps", "install_packages", "enable_gpaste_extension", "change_shell",
+        "install_core_deps", "install_packages", "enable_gpaste_extension", "configure_claude_profile",
+        "change_shell",
     ]
 
 
@@ -609,10 +610,21 @@ def test_main_private_clone_returns_nonzero_on_git_failure(tmp_path, monkeypatch
     assert "not found" in capsys.readouterr().err
 
 
-def test_install_force_flag_reaches_setup_sh(isolated_dotfiles, monkeypatch):
-    calls = stub_subprocess(monkeypatch)
+def test_install_force_flag_reaches_the_stow_step(isolated_dotfiles, monkeypatch):
+    seen = []
+    monkeypatch.setattr("dotfiles_setup.cli.stow.configure_dotfiles", lambda plan: seen.append(plan.force) or True)
+    stub_subprocess(monkeypatch)
     assert main(["install", "--preset", "homelab", "--force"]) == 0
-    assert "--force-stow" in calls[0]
+    assert seen == [True]
+
+
+def test_a_failed_stow_offers_a_rollback(isolated_dotfiles, monkeypatch):
+    offered = []
+    monkeypatch.setattr("dotfiles_setup.cli.stow.configure_dotfiles", lambda plan: False)
+    monkeypatch.setattr("dotfiles_setup.cli.rollback.offer_rollback", lambda ctx, interactive: offered.append(ctx))
+    stub_subprocess(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert len(offered) == 1
 
 
 def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):

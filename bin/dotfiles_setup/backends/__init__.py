@@ -15,6 +15,7 @@ class InstallResult:
     succeeded: bool
     returncode: int
     stdout: str
+    rollback_pending: bool = False
 
 
 @runtime_checkable
@@ -32,7 +33,6 @@ class Backend(Protocol):
         dry_run: bool,
         private_root: Path | None = None,
         verbosity: int = 0,
-        force_stow: bool = False,
         step_hooks: Mapping[str, Callable[[], bool]] | None = None,
         run: Callable[..., Any] = ...,
     ) -> InstallResult: ...
