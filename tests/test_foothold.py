@@ -54,7 +54,7 @@ def test_rendered_unit_waits_for_connectivity_before_launching():
     unit = foothold.render_unit("personal", "%h/p.json")
     assert unit.index("ExecStartPre=") < unit.index("ExecStart=/bin/sh")
     assert foothold.NETWORK_PROBE_URL in unit
-    assert "TimeoutStartSec=180" in unit
+    assert "TimeoutStartSec=300" in unit
 
 
 def test_rendered_unit_quotes_paths_for_the_shell():

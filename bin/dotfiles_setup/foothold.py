@@ -53,7 +53,7 @@ def _service_section(preset_name: str, settings: str) -> tuple[str, ...]:
         "Type=oneshot",
         "RemainAfterExit=yes",
         "KillMode=process",
-        "TimeoutStartSec=180",
+        "TimeoutStartSec=300",
         "Restart=on-failure",
         "RestartSec=30",
         f'Environment="PATH={":".join(PATH_DIRS)}"',
