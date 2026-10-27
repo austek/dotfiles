@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from dotfiles_setup.checksums import DigestMismatchError
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
 MSG_CONTINUING_SETUP = "Continuing with setup..."
@@ -67,6 +68,8 @@ def download_with_cache(
             shutil.copy(cached, dest)
             verify(dest)
             return True
+    except DigestMismatchError:
+        cached.unlink(missing_ok=True)
     except OSError:
         pass
     t.download(resolved.url, dest)

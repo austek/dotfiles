@@ -16,6 +16,10 @@ class ChecksumError(ValueError):
     pass
 
 
+class DigestMismatchError(ChecksumError):
+    pass
+
+
 def load(path: Path) -> dict[str, str]:
     table: dict[str, str] = {}
     try:
@@ -38,7 +42,7 @@ def verify(table: Mapping[str, str] | None, url: str, data: bytes) -> None:
         raise ChecksumError(f"no digest recorded for {url}; add one to packages/{FILE_NAME}")
     actual = hashlib.sha256(data).hexdigest()
     if actual != expected:
-        raise ChecksumError(f"digest mismatch for {url}: expected {expected}, got {actual}")
+        raise DigestMismatchError(f"digest mismatch for {url}: expected {expected}, got {actual}")
 
 
 def verify_file(table: Mapping[str, str] | None, url: str, path: Path) -> None:

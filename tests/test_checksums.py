@@ -106,6 +106,16 @@ def test_a_refused_deb_is_not_cached_for_the_next_run(tmp_path):
     assert not list((tmp_path / "cache").rglob("*.deb"))
 
 
+def test_a_cached_deb_that_differs_from_its_digest_is_replaced_by_a_fresh_download(tmp_path):
+    cached = tmp_path / "cache/dotfiles-setup/github-bins/owner/tool/1.2.3-tool_1.2.3_amd64.deb"
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"corrupt")
+    machine = Machine()
+    ap.install_github_bins(bins_context(tmp_path, machine, {DEB_URL: DIGEST}))
+    assert any(c[:3] == ["sudo", "dpkg", "-i"] for c in machine.commands)
+    assert cached.read_bytes() == PAYLOAD
+
+
 def test_a_vendor_script_that_differs_from_its_digest_never_runs(tmp_path, capsys):
     machine = Machine()
     t = tooling(tmp_path, machine, {vi.UV.url: "0" * 64})
