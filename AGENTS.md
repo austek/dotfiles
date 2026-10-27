@@ -80,7 +80,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - Develop every change in a git worktree (`git worktree add ~/Workspace/austek/dotfiles-wt/<slug> -b <branch> origin/main`). Never run `dotfiles-setup install` or `stow` from a worktree.
 
 ### Modifying Configurations
-- Edit configuration files directly inside their respective `stow` packages (e.g., `~/.dotfiles/zsh/.zshrc`).
+- Edit configuration files directly inside their respective `stow` packages (e.g., `zsh/.zshrc`, relative to your worktree).
 - Symlinks are managed by `stow <package-name>` (to create) and `stow -D <package-name>` (to delete).
 - `dotfiles-setup install --force` moves files that block stow to `~/.local/state/dotfiles/stow-backups/<timestamp>/<path relative to $HOME>` and logs each move, then stows. Without it, a conflict fails the install with a hint to re-run with `--force`. Never make force the default.
 - Manual stowing is for quick adjustments; `dotfiles-setup install` handles it automatically (`stow.py`).
