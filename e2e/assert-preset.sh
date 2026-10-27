@@ -22,6 +22,23 @@ assert_symlink_into_repo() {
     [[ $(readlink -f "$link") == "$HOME/.dotfiles/"* ]] || fail "$link does not resolve into ~/.dotfiles"
 }
 
+assert_apt_sources_follow_the_preset() {
+    local sources_dir=/etc/apt/sources.list.d
+    local tracked_dir="$HOME/.dotfiles/apt$sources_dir"
+    local pair package file
+    for pair in 1password:1password.sources google-chrome-stable:google-chrome.sources code:vscode.sources gh:github-cli.sources; do
+        package=${pair%%:*}
+        file=${pair#*:}
+        [[ -f "$tracked_dir/$file" ]] || fail "tracked source $file is missing from the checkout"
+        if grep -qx "$package" "$forked"; then
+            [[ -L "$sources_dir/$file" ]] || fail "$file is not linked although '$package' is selected"
+            [[ $(readlink -f "$sources_dir/$file") == "$tracked_dir/$file" ]] || fail "$file does not link to the checkout"
+        else
+            [[ ! -e "$sources_dir/$file" && ! -L "$sources_dir/$file" ]] || fail "$file is linked although '$package' is not selected"
+        fi
+    done
+}
+
 assert_installed_state() {
     [[ -f "$config_dir/state.json" ]] || fail "state.json missing"
     python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("preset_name") == sys.argv[2] else 1)' \
@@ -31,6 +48,7 @@ assert_installed_state() {
     assert_symlink_into_repo "$HOME/.zshrc"
     assert_symlink_into_repo "$HOME/.gitconfig"
     [[ -f /etc/apt/preferences.d/nosnap.pref ]] || fail "snapd block preference missing"
+    assert_apt_sources_follow_the_preset
     ! dpkg -s snapd >/dev/null 2>&1 || fail "snapd is installed"
     local tool
     for tool in zsh stow tmux git; do

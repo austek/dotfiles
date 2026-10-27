@@ -56,16 +56,21 @@ def _store_in_cache(cache_dir: Path, cache_key: str, artifact: Path) -> None:
         pass
 
 
-def download_with_cache(t: Tooling, tool: str, resolved: Resolved, dest: Path) -> bool:
+def download_with_cache(
+    t: Tooling, tool: str, resolved: Resolved, dest: Path, verify: Callable[[Path], None] = lambda _: None,
+) -> bool:
+    """`verify` runs on every artifact before it is returned or cached, and raises to refuse it."""
     cache_dir = _cache_dir(t, tool)
     cached = cache_dir / resolved.cache_key
     try:
         if cached.is_file() and cached.stat().st_size > 0:
             shutil.copy(cached, dest)
+            verify(dest)
             return True
     except OSError:
         pass
     t.download(resolved.url, dest)
+    verify(dest)
     _store_in_cache(cache_dir, resolved.cache_key, dest)
     return False
 

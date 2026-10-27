@@ -5,6 +5,7 @@ import re
 import tempfile
 from pathlib import Path
 
+from dotfiles_setup import checksums
 from dotfiles_setup.release_installers import Resolved, download_with_cache
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import dry_run_all
@@ -70,9 +71,12 @@ def _install_deb(ctx: SystemContext, repo: str, version: str, filename: str, tem
     deb = temp_dir / filename
     logger.info(f"Fetching {filename} v{version} from {repo}...")
     try:
-        hit = download_with_cache(ctx.t, f"github-bins/{repo}", Resolved(version, url, f"{version}-{filename}"), deb)
-    except (OSError, ValueError):
-        logger.error(f"Failed to download {filename} from {url}")
+        hit = download_with_cache(
+            ctx.t, f"github-bins/{repo}", Resolved(version, url, f"{version}-{filename}"), deb,
+            verify=lambda path: checksums.verify_file(ctx.t.checksums, url, path),
+        )
+    except (OSError, ValueError) as error:
+        logger.error(f"Failed to download {filename} from {url}: {error}")
         return
     if hit:
         logger.info("(using cached .deb)")

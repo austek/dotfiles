@@ -8,7 +8,7 @@ import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -95,6 +95,7 @@ class Tooling:
     fetch_bytes: Callable[[str], bytes] = fetch_bytes_https
     download: Callable[[str, Path], None] = download_https
     redirect: Callable[[str], str | None] = redirect_location
+    checksums: Mapping[str, str] | None = None
 
 
 # Returning False aborts the run; None or True continues.
