@@ -75,6 +75,10 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 
 ## Maintenance & Workflows
 
+### Development Checkout
+- `~/.dotfiles` and `~/.dotfiles-private` stay on `main`: stow symlinks point into them, so switching branches there changes live config.
+- Develop every change in a git worktree (`git worktree add ~/Workspace/austek/dotfiles-wt/<slug> -b <branch> origin/main`). Never run `dotfiles-setup install` or `stow` from a worktree.
+
 ### Modifying Configurations
 - Edit configuration files directly inside their respective `stow` packages (e.g., `~/.dotfiles/zsh/.zshrc`).
 - Symlinks are managed by `stow <package-name>` (to create) and `stow -D <package-name>` (to delete).
