@@ -1,27 +1,27 @@
 {
+  "env": {
+    "COZEMPIC_NO_AUTO_UPDATE": "1"
+  },
   "permissions": {
     "allow": [
-      "Bash(gh api repos/compress4j/*/rulesets/*)",
-      "Bash(fd *)",
-      "Bash(find *)",
       "Bash(grep *)",
       "Bash(head *)",
       "Bash(jq *)",
       "Bash(ls *)",
       "Bash(rg *)",
-      "Bash(sed *)",
       "Bash(sleep *)",
       "Bash(tail *)",
       "Bash(which *)",
-      "Bash(xargs *)",
       "Glob",
       "Grep",
       "Read",
-      "Bash(gh api repos/ZirekHQ/*/rulesets*)",
       "Bash(docker manifest inspect *)",
       "Bash(jobs *)",
       "Bash(mkdocs --version)",
       "mcp__serena__*"
+    ],
+    "ask": [
+      "Bash(rg *--pre*)"
     ],
     "defaultMode": "auto"
   },
