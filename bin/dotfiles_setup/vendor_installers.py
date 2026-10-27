@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotfiles_setup import checksums
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all
 
 
@@ -18,6 +19,7 @@ def run_vendor_script(t: Tooling, url: str, shell: str, *args: str) -> bool:
         script = Path(temp_dir) / "install"
         try:
             t.download(url, script)
+            checksums.verify_file(t.checksums, url, script)
         except (OSError, ValueError) as error:
             t.logger.error(f"Could not download {url}: {error}")
             return False

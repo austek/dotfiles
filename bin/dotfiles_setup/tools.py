@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dotfiles_setup import (
     antigravity,
+    checksums,
     post_apt_installers,
     release_installers,
     vendor_installers,
@@ -33,6 +34,7 @@ def _run_script(t: Tooling, name: str, url: str, argv: list[str], env: dict[str,
     t.logger.info(f"Downloading and running {name} install script...")
     try:
         script = t.fetch(url)
+        checksums.verify(t.checksums, url, script.encode())
     except (OSError, ValueError) as error:
         t.logger.error(f"Could not download the {name} install script: {error}")
         return False

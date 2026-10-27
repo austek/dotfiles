@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from dotfiles_setup import (
+    checksums,
     claude_plugins,
     foothold,
     identity,
@@ -368,6 +369,7 @@ def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
         logger, Path.home(), run=env.run,
         fetch=tooling.fetch_https, fetch_bytes=tooling.fetch_bytes_https,
         download=tooling.download_https, redirect=tooling.redirect_location,
+        checksums=checksums.load(env.dotfiles_dir / "packages" / checksums.FILE_NAME),
     )
 
 
