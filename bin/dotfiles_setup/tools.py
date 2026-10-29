@@ -20,7 +20,7 @@ __all__ = ["TOOL_INSTALLERS", "Tooling", "fetch_https", "install_tools"]
 SDKMAN_URL = "https://get.sdkman.io?rcupdate=false"
 OMZ_URL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
 NVM_RELEASE_API = "https://api.github.com/repos/nvm-sh/nvm/releases/latest"
-NVM_FALLBACK_URL = "https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh"
+NVM_FALLBACK_URL = "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh"
 NVM_HELP_URL = "https://github.com/nvm-sh/nvm#installing-and-updating"
 MSG_CONTINUING_SETUP = "Continuing with setup..."
 NODE_LTS_SCRIPT = (

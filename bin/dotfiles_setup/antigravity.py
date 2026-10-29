@@ -13,7 +13,7 @@ from dotfiles_setup.release_installers import Resolved, download_with_cache, ski
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
 DOWNLOAD_PAGE = "https://antigravity.google/download"
-PINNED_BUILD = "2.1.1-6123990880747520"
+PINNED_BUILD = "2.6.0-5526304964083712"
 ARCH_DIRS = {"x86_64": "linux-x64", "aarch64": "linux-arm", "arm64": "linux-arm"}
 CACHE_TOOL = "antigravity-ide"
 DESKTOP_ENTRY = """[Desktop Entry]

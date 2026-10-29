@@ -15,7 +15,7 @@ initscript {
         mavenCentral()
     }
     dependencies {
-        classpath("org.openrewrite:plugin:7.39.0")
+        classpath("org.openrewrite:plugin:7.41.0")
     }
 }
 
@@ -23,7 +23,7 @@ gradle.rootProject {
     pluginManager.apply(RewritePlugin::class.java)
 
     dependencies {
-        "rewrite"("org.openrewrite:rewrite-java:8.56.1")
+        "rewrite"("org.openrewrite:rewrite-java:8.90.4")
     }
 
     extensions.configure<RewriteExtension> {
