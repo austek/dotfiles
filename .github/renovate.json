@@ -1,17 +1,17 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
-  "schedule": ["before 6am on monday"],
-  "minimumReleaseAge": "7 days",
-  "commitMessagePrefix": "build(deps):",
-  "semanticCommits": "disabled",
-  "lockFileMaintenance": { "enabled": true },
+  "extends": ["github>austek/renovate-config"],
   "packageRules": [
-    { "matchManagers": ["github-actions"], "groupName": "actions" },
-    { "matchManagers": ["pep621"], "groupName": "python" },
-    { "matchDepNames": ["derailed/k9s", "fullstorydev/grpcurl"], "groupName": "github release debs" },
-    { "matchDatasources": ["docker"], "matchPackageNames": ["ubuntu"], "allowedVersions": "/^\\d{2}\\.04$/" }
+    { "matchDatasources": ["docker"], "matchPackageNames": ["ubuntu"], "allowedVersions": "/^\\d{2}\\.04$/" },
+    { "matchDatasources": ["custom.antigravity-ide"], "minimumReleaseAgeBehaviour": "timestamp-optional" }
   ],
+  "customDatasources": {
+    "antigravity-ide": {
+      "defaultRegistryUrlTemplate": "https://antigravity-ide-auto-updater-974169037036.us-central1.run.app/releases",
+      "format": "json",
+      "transformTemplates": ["{ \"releases\": $.{ \"version\": version & \"-\" & execution_id } }"]
+    }
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -41,6 +41,33 @@
       "depNameTemplate": "kindest/node",
       "datasourceTemplate": "docker",
       "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "description": "ingress-nginx controller manifest ref defaulted in kdev",
+      "managerFilePatterns": ["/^local/\\.local/bin/kdev$/"],
+      "matchStrings": ["INGRESS_NGINX_REF:-controller-v(?<currentValue>[\\d.]+)\\}"],
+      "depNameTemplate": "kubernetes/ingress-nginx",
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^controller-v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Python version passed to setup-uv",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["python-version: '(?<currentValue>[\\d.]+)'"],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "python-version",
+      "versioningTemplate": "python"
+    },
+    {
+      "customType": "regex",
+      "description": "Antigravity IDE fallback build, version-executionId",
+      "managerFilePatterns": ["/^bin/dotfiles_setup/antigravity\\.py$/"],
+      "matchStrings": ["PINNED_BUILD = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "antigravity-ide",
+      "datasourceTemplate": "custom.antigravity-ide",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$"
     },
     {
       "customType": "regex",
