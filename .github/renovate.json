@@ -27,9 +27,9 @@
       "description": "GitHub release .debs: version and filename in github_bins.txt",
       "managerFilePatterns": ["/^packages/github_bins\\.txt$/"],
       "matchStrings": [
-        "(?<![^\\n])(?<depName>[\\w.-]+/[\\w.-]+) (?<currentValue>\\d[\\w.]*) (?<file>\\S+)"
+        "(?<lead>^|\\n)(?<depName>[\\w.-]+/[\\w.-]+) (?<currentValue>\\d[\\w.]*) (?<file>\\S+)"
       ],
-      "autoReplaceStringTemplate": "{{{depName}}} {{{newValue}}} {{{replace currentValue newValue file}}}",
+      "autoReplaceStringTemplate": "{{{lead}}}{{{depName}}} {{{newValue}}} {{{replace currentValue newValue file}}}",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v?(?<version>.+)$"
     },
