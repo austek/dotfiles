@@ -76,7 +76,7 @@ CODERABBIT = VendorSpec(
 )
 SONARQUBE_CLI = VendorSpec(
     "SonarQube CLI", _on_path_or_at("sonar", lambda home: home / ".local/share/sonarqube-cli/bin/sonar"),
-    "https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh", "bash",
+    "https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/tags/1.11.0.16877/user-scripts/install.sh", "bash",
     "Would install the SonarQube CLI via SonarSource's install script.",
     lambda t: "SonarQube CLI installed.",
 )

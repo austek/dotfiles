@@ -1,0 +1,54 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "schedule": ["before 6am on monday"],
+  "minimumReleaseAge": "7 days",
+  "commitMessagePrefix": "build(deps):",
+  "semanticCommits": "disabled",
+  "lockFileMaintenance": { "enabled": true },
+  "packageRules": [
+    { "matchManagers": ["github-actions"], "groupName": "actions" },
+    { "matchManagers": ["pep621"], "groupName": "python" },
+    { "matchDepNames": ["derailed/k9s", "fullstorydev/grpcurl"], "groupName": "github release debs" },
+    { "matchDatasources": ["docker"], "matchPackageNames": ["ubuntu"], "allowedVersions": "/^\\d{2}\\.04$/" }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Installer scripts pinned to a tag in a raw.githubusercontent.com URL",
+      "managerFilePatterns": ["/^bin/dotfiles_setup/.+\\.py$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "https://raw\\.githubusercontent\\.com/(?<depName>[^/\\s\"]+/[^/\\s\"]+)/(?:refs/tags/)?(?<currentValue>v?\\d[^/\\s\"]*)/"
+      ],
+      "datasourceTemplate": "github-tags"
+    },
+    {
+      "customType": "regex",
+      "description": "GitHub release .debs: version in github_bins.txt and the digest line in checksums.txt",
+      "managerFilePatterns": ["/^packages/github_bins\\.txt$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "^(?<depName>[\\w.-]+/[\\w.-]+) (?<currentValue>\\d[\\w.]*) ",
+        "https://github\\.com/(?<depName>[^/\\s]+/[^/\\s]+)/releases/download/v(?<currentValue>\\d[^/\\s]*)/"
+      ],
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "kind node image used by kdev",
+      "managerFilePatterns": ["/^local/\\.local/bin/kdev$/"],
+      "matchStrings": ["K8S_VERSION=\"(?<currentValue>v[^\"]+)\""],
+      "depNameTemplate": "kindest/node",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "description": "auditr pinned for pipx",
+      "managerFilePatterns": ["/^bin/dotfiles_setup/post_apt_installers\\.py$/"],
+      "matchStrings": ["AUDITR_VERSION = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "auditr",
+      "datasourceTemplate": "pypi"
+    }
+  ]
+}

@@ -2,7 +2,7 @@ x-preset: &preset
   build:
     context: .
     args:
-      UBUNTU_VERSION: ${UBUNTU_VERSION:-26.04}
+      - UBUNTU_VERSION
   environment:
     GITHUB_TOKEN: ${GITHUB_TOKEN:-}
   volumes:
