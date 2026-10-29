@@ -305,21 +305,31 @@ def test_a_preset_scoped_package_is_stowed_only_for_that_preset(world):
     ]
 
 
-def test_other_presets_skip_the_scoped_package_and_unstow_it(world):
+def test_other_presets_skip_the_scoped_package(world):
     private = preset_scoped_overlay(world)
     plan, runner = plan_for(world, private=private, force=False, preset="homelab")
     assert stow.stow_private_to_home(plan)
     assert runner.stow_calls() == [
         ["--restow", "--no-folding", f"--target={world.home}", "--verbose=1", "claude"],
-        ["--delete", f"--target={world.home}", "--verbose=1", "claude-collibra"],
     ]
     assert plan.changes.entries() == ["STOW_PRIVATE:claude"]
+
+
+def test_other_presets_unstow_the_scoped_package_before_any_stow(world):
+    make_repo(world)
+    write_packages(world.repo / ".stow-packages", "pkgA")
+    private = preset_scoped_overlay(world)
+    plan, runner = plan_for(world, private=private, force=False, preset="homelab")
+    assert stow.configure_dotfiles(plan)
+    first, *rest = runner.stow_calls()
+    assert first == ["--delete", f"--target={world.home}", "--verbose=1", "claude-collibra"]
+    assert all("--restow" in call for call in rest)
 
 
 def test_a_dry_run_does_not_unstow_the_scoped_package(world):
     private = preset_scoped_overlay(world)
     plan, runner = plan_for(world, private=private, force=False, preset="personal", dry_run=True)
-    assert stow.stow_private_to_home(plan)
+    stow.unstow_other_preset_packages(plan)
     assert runner.stow_calls() == []
 
 
@@ -327,8 +337,8 @@ def test_a_package_listed_for_every_preset_is_never_unstowed(world):
     private = preset_scoped_overlay(world)
     write_packages(private / ".stow-packages", "claude", "claude-collibra")
     plan, runner = plan_for(world, private=private, force=False, preset="homelab")
-    assert stow.stow_private_to_home(plan)
-    assert not any("--delete" in call for call in runner.stow_calls())
+    stow.unstow_other_preset_packages(plan)
+    assert runner.stow_calls() == []
 
 
 def test_a_failed_unstow_warns_and_does_not_fail_the_step(world):
@@ -342,6 +352,7 @@ def test_a_failed_unstow_warns_and_does_not_fail_the_step(world):
             return super().__call__(argv, **kwargs)
 
     plan, _ = plan_for(world, FailsDelete(), private=private, force=False, preset="homelab")
+    stow.unstow_other_preset_packages(plan)
     assert stow.stow_private_to_home(plan)
 
 

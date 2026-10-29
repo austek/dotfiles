@@ -50,9 +50,10 @@ def test_a_profile_directory_holding_other_files_is_kept(tmp_path):
     t, home = make(tmp_path)
     profiles = home / ".config/dotfiles/claude-profiles"
     write(profiles / "claude_work.json", "{}")
-    keep = write(profiles / "notes.txt", "mine")
+    keep = [write(profiles / "notes.txt", "mine"), write(profiles / "claude_custom.json", "{}")]
     cp.retire_claude_profile(t)
-    assert keep.exists()
+    assert all(path.exists() for path in keep)
+    assert not (profiles / "claude_work.json").exists()
 
 
 def test_a_file_the_user_wrote_at_a_generated_path_is_left_alone(tmp_path):

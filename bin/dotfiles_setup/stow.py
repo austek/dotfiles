@@ -243,12 +243,8 @@ def stow_private_to_home(plan: StowPlan) -> bool:
     packages = overlay_packages(plan)
     if not packages:
         plan.t.logger.info(f"No private-overlay packages for preset '{plan.preset}' ({plan.private_root}). Skipping private stow.")
-        unstow_other_preset_packages(plan)
         return True
-    if not _stow_private_packages(plan, packages):
-        return False
-    unstow_other_preset_packages(plan)
-    return True
+    return _stow_private_packages(plan, packages)
 
 
 def _stow_private_packages(plan: StowPlan, packages: list[str]) -> bool:
@@ -284,6 +280,7 @@ def configure_git_hooks(plan: StowPlan) -> bool:
 
 def configure_dotfiles(plan: StowPlan) -> bool:
     plan.t.logger.step("Step 7: Configuring dotfiles...")
+    unstow_other_preset_packages(plan)
     ignores = private_override_ignores(plan)
     return (
         stow_common_to_home(plan, ignores)
