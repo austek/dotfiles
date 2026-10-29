@@ -24,12 +24,23 @@
     },
     {
       "customType": "regex",
-      "description": "GitHub release .debs: version in github_bins.txt and the digest line in checksums.txt",
-      "managerFilePatterns": ["/^packages/github_bins\\.txt$/", "/^packages/checksums\\.txt$/"],
+      "description": "GitHub release .debs: version and filename in github_bins.txt",
+      "managerFilePatterns": ["/^packages/github_bins\\.txt$/"],
       "matchStrings": [
-        "^(?<depName>[\\w.-]+/[\\w.-]+) (?<currentValue>\\d[\\w.]*) ",
-        "https://github\\.com/(?<depName>[^/\\s]+/[^/\\s]+)/releases/download/v(?<currentValue>\\d[^/\\s]*)/"
+        "(?<![^\\n])(?<depName>[\\w.-]+/[\\w.-]+) (?<currentValue>\\d[\\w.]*) (?<file>\\S+)"
       ],
+      "autoReplaceStringTemplate": "{{{depName}}} {{{newValue}}} {{{replace currentValue newValue file}}}",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "GitHub release .debs: tag and filename in the checksums.txt URL; the digest stays stale until re-recorded",
+      "managerFilePatterns": ["/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "(?<digest>[0-9a-f]{64})  https://github\\.com/(?<depName>[^/\\s]+/[^/\\s]+)/releases/download/v(?<currentValue>\\d[^/\\s]*)/(?<file>\\S+)"
+      ],
+      "autoReplaceStringTemplate": "{{{digest}}}  https://github.com/{{{depName}}}/releases/download/v{{{newValue}}}/{{{replace currentValue newValue file}}}",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v?(?<version>.+)$"
     },
