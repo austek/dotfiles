@@ -61,7 +61,8 @@ def test_a_file_the_user_wrote_at_a_generated_path_is_left_alone(tmp_path):
     wrapper = write(home / "bin/claude", "#!/bin/sh\nexec /opt/claude \"$@\"\n")
     aliases = write(home / ".zshrc.profile", "alias ll='ls -l'\n")
     cp.retire_claude_profile(t)
-    assert wrapper.exists() and aliases.exists()
+    assert wrapper.exists()
+    assert aliases.exists()
 
 
 def test_a_dry_run_removes_nothing(tmp_path):

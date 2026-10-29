@@ -19,6 +19,7 @@ _CONFLICT_PATTERNS = (
     re.compile(r"cannot stow \S+ over existing target (\S+) since "),
 )
 STOW_PACKAGES_FILE = ".stow-packages"
+VERBOSE_FLAG = "--verbose=1"
 _REGEX_SPECIALS = re.compile(r"[.\[\\*^$()+?{}|]")
 
 
@@ -208,7 +209,7 @@ def stow_common_to_home(plan: StowPlan, ignores: list[str]) -> bool:
     if dry_run_all(plan.t, f"Would stow (unfolded) to {home}: {' '.join(nofold) or 'none'}",
                    f"Would stow (folded) to {home}: {' '.join(folded) or 'none'}"):
         return True
-    common = [*ignores, f"--target={home}", "--verbose=1"]
+    common = [*ignores, f"--target={home}", VERBOSE_FLAG]
     groups = ((nofold, ["--restow", "--no-folding"]), (folded, ["--restow"]))
     for group, flags in groups:
         if group and not _stow_tracked(plan, "STOW_HOME", plan.dotfiles_dir, [*flags, *common, *group], group):
@@ -233,7 +234,7 @@ def unstow_other_preset_packages(plan: StowPlan) -> None:
     if dry_run_all(plan.t, f"Would unstow private-overlay packages scoped to other presets from {home}: {' '.join(packages)}"):
         return
     linked = [pkg for pkg in packages if stow_pkg_is_linked(plan.private_root, pkg, home)]
-    args = ["stow", "--delete", f"--target={home}", "--verbose=1", *packages]
+    args = ["stow", "--delete", f"--target={home}", VERBOSE_FLAG, *packages]
     if logger.quiet_run(args, run=plan.t.run, cwd=plan.private_root).returncode != 0:
         logger.warn(f"Could not unstow {' '.join(packages)}; remove their links from {home} by hand.")
         return
@@ -260,7 +261,7 @@ def _stow_private_packages(plan: StowPlan, packages: list[str]) -> bool:
     for pkg in packages:
         for file in _regular_files(plan.private_root / pkg):
             clear_public_symlink_at_private_path(plan, pkg, file)
-    args = ["--restow", "--no-folding", f"--target={home}", "--verbose=1", *packages]
+    args = ["--restow", "--no-folding", f"--target={home}", VERBOSE_FLAG, *packages]
     if not _stow_tracked(plan, "STOW_PRIVATE", plan.private_root, args, packages):
         return False
     logger.success("All private-overlay packages stowed.")
