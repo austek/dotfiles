@@ -206,6 +206,16 @@ def test_install_reports_backend_failure(isolated_dotfiles, monkeypatch):
     assert main(["install", "--preset", "homelab"]) == 1
 
 
+def test_a_failed_install_leaves_the_claude_settings_untouched(isolated_dotfiles, tmp_path, monkeypatch):
+    claude_home = tmp_path / "claude-home"
+    claude_home.mkdir()
+    (claude_home / "settings.json").write_text('{"previous": true}')
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: InstallResult(False, 1, "x"))
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert json.loads((claude_home / "settings.json").read_text()) == {"previous": True}
+    assert not list(claude_home.glob("settings.json.bak-*"))
+
+
 def test_install_reports_a_failure_with_no_message(isolated_dotfiles, capsys, monkeypatch):
     monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: InstallResult(False, 3, ""))
     assert main(["install", "--preset", "homelab"]) == 3

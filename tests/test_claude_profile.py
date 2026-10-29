@@ -65,6 +65,13 @@ def test_a_file_the_user_wrote_at_a_generated_path_is_left_alone(tmp_path):
     assert aliases.exists()
 
 
+def test_a_kept_zshrc_profile_warns_that_it_is_no_longer_loaded(tmp_path, capsys):
+    t, home = make(tmp_path)
+    write(home / ".zshrc.profile", "alias ll='ls -l'\n")
+    cp.retire_claude_profile(t)
+    assert ".zshrc.profile is no longer loaded" in capsys.readouterr().out
+
+
 def test_a_dry_run_removes_nothing(tmp_path):
     t, home = make(tmp_path, dry_run=True)
     files = generated(home)

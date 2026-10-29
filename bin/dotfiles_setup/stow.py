@@ -133,17 +133,21 @@ def stow_with_backup(plan: StowPlan, args: Sequence[str], cwd: Path) -> bool:
     return stage is None or finalize_stow_backup(plan, stage)
 
 
-def _first_package_file(package_dir: Path) -> Path | None:
-    candidates = sorted(p for p in package_dir.rglob("*") if p.is_file() or p.is_symlink())
-    return candidates[0] if candidates else None
+def _package_files(package_dir: Path) -> list[Path]:
+    return sorted(p for p in package_dir.rglob("*") if p.is_file() or p.is_symlink())
+
+
+def _links_to(link: Path, source: Path) -> bool:
+    return link.exists() and link.resolve() == source.resolve()
 
 
 def stow_pkg_is_linked(root: Path, pkg: str, target: Path) -> bool:
-    first = _first_package_file(root / pkg)
-    if first is None:
-        return False
-    linked = target / first.relative_to(root / pkg)
-    return linked.exists() and linked.resolve() == first.resolve()
+    files = _package_files(root / pkg)
+    return bool(files) and _links_to(target / files[0].relative_to(root / pkg), files[0])
+
+
+def stow_pkg_has_links(root: Path, pkg: str, target: Path) -> bool:
+    return any(_links_to(target / file.relative_to(root / pkg), file) for file in _package_files(root / pkg))
 
 
 def pkgs_not_yet_linked(root: Path, target: Path, packages: Sequence[str]) -> list[str]:
@@ -233,7 +237,7 @@ def unstow_other_preset_packages(plan: StowPlan) -> None:
     logger, home = plan.t.logger, plan.t.home
     if dry_run_all(plan.t, f"Would unstow private-overlay packages scoped to other presets from {home}: {' '.join(packages)}"):
         return
-    linked = [pkg for pkg in packages if stow_pkg_is_linked(plan.private_root, pkg, home)]
+    linked = [pkg for pkg in packages if stow_pkg_has_links(plan.private_root, pkg, home)]
     args = ["stow", "--delete", f"--target={home}", VERBOSE_FLAG, *packages]
     if logger.quiet_run(args, run=plan.t.run, cwd=plan.private_root).returncode != 0:
         logger.warn(f"Could not unstow {' '.join(packages)}; remove their links from {home} by hand.")

@@ -373,13 +373,13 @@ def _flow_inputs(logger: Logger, env: Env, plan: _Install, force: bool) -> insta
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset)
-    _write_claude_settings(logger, claude_settings, env)
     result = install_flow.run_install(_flow_inputs(logger, env, plan, args.force))
     if not result.succeeded:
         _log_install_failure(logger, result)
         if result.rollback_pending:
             rollback.offer_rollback(_rollback_context(logger, env, plan), interactive=sys.stdin.isatty())
         return result.returncode
+    _write_claude_settings(logger, claude_settings, env)
     _finish_install(args, logger, env, plan, claude_settings)
     return 0
 

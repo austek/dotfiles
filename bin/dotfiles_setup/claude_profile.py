@@ -44,5 +44,7 @@ def retire_claude_profile(t: Tooling) -> None:
     removed += _remove_profiles(profile_dir)
     for path in removed:
         t.logger.info(f"Removed {path}.")
+    if (home / ".zshrc.profile").exists():
+        t.logger.warn(f"{home / '.zshrc.profile'} is no longer loaded by .zshrc; move its customizations to ~/.zshrc.secret.")
     if (home / ".claude-burst").exists():
         t.logger.warn(f"{home / '.claude-burst'} is no longer used; delete it once you no longer need its credentials.")

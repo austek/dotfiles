@@ -336,6 +336,18 @@ def test_unstowing_a_linked_package_records_its_undo(world):
     assert plan.changes.entries() == ["UNSTOW_PRIVATE:claude-collibra"]
 
 
+def test_a_partially_linked_package_still_records_its_undo(world):
+    private = preset_scoped_overlay(world)
+    extra = private / "claude-collibra/.claude/zz.md"
+    extra.write_text("z")
+    link = world.home / ".claude/zz.md"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(extra)
+    plan, _ = plan_for(world, private=private, force=False, preset="homelab")
+    stow.unstow_other_preset_packages(plan)
+    assert plan.changes.entries() == ["UNSTOW_PRIVATE:claude-collibra"]
+
+
 def test_unstowing_a_package_that_was_never_linked_records_nothing(world):
     private = preset_scoped_overlay(world)
     plan, _ = plan_for(world, private=private, force=False, preset="homelab")
