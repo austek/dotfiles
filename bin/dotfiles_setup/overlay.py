@@ -4,6 +4,7 @@ defaults. One mechanism serves a stranger's plain fork (no overlay found)
 and a work machine with ~/.dotfiles-private cloned alongside alike."""
 from __future__ import annotations
 
+import functools
 import json
 import os
 from pathlib import Path
@@ -49,21 +50,6 @@ def _merge(base: dict[str, Any], overlay: dict[str, Any], union_lists: bool) -> 
     return merged
 
 
-def merge_claude_settings(base: dict[str, Any], overlay: dict[str, Any] | None) -> dict[str, Any]:
-    return base if overlay is None else _merge(base, overlay, union_lists=False)
-
-
-def load_claude_settings(base_path: Path, overlay_root: Path | None, preset_name: str) -> dict[str, Any]:
-    base = json.loads(base_path.read_text()) if base_path.is_file() else {}
-    overlay_path = overlay_root / "claude-profiles" / f"{preset_name}.json" if overlay_root else None
-    overlay = (
-        json.loads(overlay_path.read_text())
-        if overlay_path and overlay_path.is_file()
-        else None
-    )
-    return merge_claude_settings(base, overlay)
-
-
 def _union(base: list[Any], extra: list[Any]) -> list[Any]:
     result = list(base)
     for item in extra:
@@ -76,9 +62,17 @@ def merge_settings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, A
     return _merge(base, overlay, union_lists=True)
 
 
-def load_settings(base_path: Path, overlay_root: Path | None) -> dict[str, Any]:
-    base = json.loads(base_path.read_text(encoding="utf-8"))
-    overlay_path = overlay_root / "claude-settings" / "settings.json" if overlay_root else None
-    if overlay_path is None or not overlay_path.is_file():
-        return base
-    return merge_settings(base, json.loads(overlay_path.read_text(encoding="utf-8")))
+def _read_layer(path: Path | None) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8")) if path is not None and path.is_file() else {}
+
+
+def load_preset_settings(
+    base_path: Path, profile_path: Path | None, overlay_root: Path | None, preset_name: str,
+) -> dict[str, Any]:
+    """Merges base, the preset's profile, then the overlay's settings and its `<preset>.json`; later layers win."""
+    overlay_files = (
+        (overlay_root / "claude-settings" / "settings.json", overlay_root / "claude-profiles" / f"{preset_name}.json")
+        if overlay_root is not None else ()
+    )
+    layers = [_read_layer(path) for path in (profile_path, *overlay_files)]
+    return functools.reduce(merge_settings, layers, json.loads(base_path.read_text(encoding="utf-8")))

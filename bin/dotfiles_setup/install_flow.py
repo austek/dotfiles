@@ -35,7 +35,6 @@ class FlowInputs:
     packages: frozenset[str]
     overlay_root: Path | None
     force: bool
-    claude_dir: Path
     stamp: str
     euid: int = field(default_factory=os.geteuid)
 
@@ -59,8 +58,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("install_github_bins", lambda: apt_packages.install_github_bins(ctx)),
         ("configure_docker_group", lambda: system_steps.configure_docker_group(ctx)),
         ("configure_dotfiles", lambda: stow.configure_dotfiles(stow_plan)),
-        ("configure_claude_profile",
-         lambda: claude_profile.configure_claude_profile(t, inputs.preset_name, inputs.claude_dir)),
+        ("retire_claude_profile", lambda: claude_profile.retire_claude_profile(t)),
         ("configure_claude_tools", lambda: claude_tools.configure_claude_tools(t, inputs.preset_name)),
         ("change_shell", lambda: desktop_defaults.change_shell(t)),
         ("set_default_terminal", lambda: desktop_defaults.set_default_terminal(t)),

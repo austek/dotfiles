@@ -6,9 +6,6 @@ import pytest
 from dotfiles_setup import foothold
 from dotfiles_setup.log import Logger
 
-HOME = Path("/fake-home")
-PROFILE = HOME / ".config/dotfiles/claude-profiles/claude_homelab.json"
-
 
 @pytest.fixture(autouse=True)
 def tools_present(monkeypatch):
@@ -25,9 +22,9 @@ def _recording_run(returncode=0, stderr=""):
     return run, calls
 
 
-def _install(tmp_path, preset="homelab", profile=PROFILE, dry_run=False, run=None):
+def _install(tmp_path, preset="homelab", dry_run=False, run=None):
     run = run or _recording_run()[0]
-    return foothold.install_foothold(Logger(dry_run=dry_run), preset, profile, unit_dir=tmp_path, home=HOME, run=run)
+    return foothold.install_foothold(Logger(dry_run=dry_run), preset, unit_dir=tmp_path, run=run)
 
 
 def test_names_append_the_preset_to_foothold():
@@ -36,53 +33,44 @@ def test_names_append_the_preset_to_foothold():
     assert foothold.unit_name("work") == "claude-foothold-work.service"
 
 
-def test_unit_path_uses_the_home_specifier_under_home():
-    assert foothold.unit_path_for(PROFILE, HOME) == "%h/.config/dotfiles/claude-profiles/claude_homelab.json"
-
-
-def test_unit_path_keeps_paths_outside_home_absolute():
-    assert foothold.unit_path_for(Path("/etc/claude.json"), HOME) == "/etc/claude.json"
-
-
-def test_rendered_unit_launches_the_named_remote_control_session_with_the_profile():
-    unit = foothold.render_unit("personal", "%h/p.json")
-    assert 'claude-foothold-launch foothold-personal "%h/p.json"' in unit
+def test_rendered_unit_launches_the_named_remote_control_session():
+    unit = foothold.render_unit("personal")
+    assert "claude-foothold-launch foothold-personal'" in unit
+    assert "--settings" not in unit
     assert "tmux new-session -d -s claude-foothold-personal" in unit
 
 
 def test_rendered_unit_waits_for_connectivity_before_launching():
-    unit = foothold.render_unit("personal", "%h/p.json")
+    unit = foothold.render_unit("personal")
     assert unit.index("ExecStartPre=") < unit.index("ExecStart=/bin/sh")
     assert foothold.NETWORK_PROBE_URL in unit
     assert "TimeoutStartSec=300" in unit
 
 
-def test_rendered_unit_quotes_paths_for_the_shell():
-    unit = foothold.render_unit("personal", "%h/my profile.json")
-    assert '-c "%h/Workspace"' in unit
-    assert 'foothold-personal "%h/my profile.json"' in unit
+def test_rendered_unit_quotes_the_working_directory_for_the_shell():
+    assert '-c "%h/Workspace"' in foothold.render_unit("personal")
 
 
 def test_rendered_unit_resolves_curl_through_path():
-    assert "ExecStartPre=/usr/bin/env curl " in foothold.render_unit("personal", "%h/p.json")
+    assert "ExecStartPre=/usr/bin/env curl " in foothold.render_unit("personal")
 
 
 def test_rendered_unit_retries_after_a_failed_connectivity_probe():
-    unit = foothold.render_unit("personal", "%h/p.json")
+    unit = foothold.render_unit("personal")
     assert "Restart=on-failure" in unit
     assert "RestartSec=30" in unit
 
 
 def test_rendered_unit_puts_the_sonarqube_cli_on_path():
-    assert "%h/.local/share/sonarqube-cli/bin" in foothold.render_unit("personal", "%h/p.json")
+    assert "%h/.local/share/sonarqube-cli/bin" in foothold.render_unit("personal")
 
 
 def test_rendered_unit_loads_the_secrets_env_file_optionally():
-    assert "EnvironmentFile=-%h/.config/dotfiles/secrets.env" in foothold.render_unit("personal", "%h/p.json")
+    assert "EnvironmentFile=-%h/.config/dotfiles/secrets.env" in foothold.render_unit("personal")
 
 
 def test_rendered_unit_launches_claude_through_the_launcher():
-    unit = foothold.render_unit("personal", "%h/p.json")
+    unit = foothold.render_unit("personal")
     assert "%h/.dotfiles/bin/claude-foothold-launch" in unit
     assert "claude --remote-control" not in unit
 
@@ -109,14 +97,12 @@ def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o60
 
 
 def test_launcher_exports_secrets_to_claude(tmp_path):
-    out = _run_launcher(
-        tmp_path, 'echo "$FOO|$1|$2|$3|$4"', ["foothold-x", "my profile.json"], secrets="FOO='bar baz'\n",
-    )
-    assert out == "bar baz|--remote-control|foothold-x|--settings|my profile.json"
+    out = _run_launcher(tmp_path, 'echo "$FOO|$1|$2|$3"', ["foothold-x"], secrets="FOO='bar baz'\n")
+    assert out == "bar baz|--remote-control|foothold-x|"
 
 
 def test_launcher_ignores_group_readable_secrets(tmp_path):
-    out = _run_launcher(tmp_path, 'echo "[$FOO]"', ["n", "s"], secrets="FOO=leak\n", secrets_mode=0o644)
+    out = _run_launcher(tmp_path, 'echo "[$FOO]"', ["n"], secrets="FOO=leak\n", secrets_mode=0o644)
     assert out == "[]"
 
 
@@ -126,18 +112,18 @@ def test_launcher_parses_secrets_as_data_not_shell(tmp_path):
         "PADDED=  ' keep me '  \nTRAILING='abc' \nNO_NEWLINE=last"
     )
     out = _run_launcher(
-        tmp_path, 'echo "$PLAIN|$TICK|$DQ|$SQ|$PADDED|$TRAILING|$NO_NEWLINE"', ["n", "s"], secrets=secrets,
+        tmp_path, 'echo "$PLAIN|$TICK|$DQ|$SQ|$PADDED|$TRAILING|$NO_NEWLINE"', ["n"], secrets=secrets,
     )
     assert out == "abc def|`touch pwned`$(touch pwned)|x y|p q| keep me |abc|last"
     assert not (tmp_path / "pwned").exists()
 
 
 def test_launcher_runs_claude_without_a_secrets_file(tmp_path):
-    assert _run_launcher(tmp_path, "echo ok", ["n", "s"]) == "ok"
+    assert _run_launcher(tmp_path, "echo ok", ["n"]) == "ok"
 
 
 def test_rendered_unit_hardcodes_no_home_directory():
-    assert "/home/" not in foothold.render_unit("personal", "%h/p.json")
+    assert "/home/" not in foothold.render_unit("personal")
 
 
 def test_install_writes_the_unit_enables_linger_and_starts_it(tmp_path):
@@ -192,13 +178,6 @@ def test_retire_dry_run_changes_nothing(tmp_path):
     assert (tmp_path / "claude-foothold-work.service").is_file()
 
 
-def test_install_does_nothing_for_a_preset_without_a_claude_profile(tmp_path):
-    run, calls = _recording_run()
-    _install(tmp_path, profile=None, run=run)
-    assert calls == []
-    assert list(tmp_path.iterdir()) == []
-
-
 def test_dry_run_changes_nothing(tmp_path, capsys):
     run, calls = _recording_run()
     _install(tmp_path, dry_run=True, run=run)
@@ -233,10 +212,6 @@ def test_install_reports_failure_when_a_command_fails(tmp_path):
 def test_install_reports_failure_when_a_tool_is_missing(tmp_path, monkeypatch):
     monkeypatch.setattr("dotfiles_setup.foothold.shutil.which", lambda name: None)
     assert _install(tmp_path) is False
-
-
-def test_install_reports_success_when_there_is_nothing_to_do(tmp_path):
-    assert _install(tmp_path, profile=None) is True
 
 
 def test_an_unwritable_unit_dir_warns_without_raising(tmp_path, capsys):

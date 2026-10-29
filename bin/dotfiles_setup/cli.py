@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import tempfile
@@ -176,21 +175,6 @@ class Env:
         return self.clock().isoformat()
 
 
-def _write_claude_profile(
-    logger: Logger, preset: Preset, dotfiles_dir: Path, claude_dir: Path,
-    overlay_root: Path | None, preset_name: str,
-) -> None:
-    if not preset.claude_settings:
-        return
-    claude_profile_path = claude_dir / preset.claude_settings
-    if logger.dry_run_notice(f"Would write {claude_profile_path}."):
-        return
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    base_path = dotfiles_dir / "claude-profiles" / preset.claude_settings
-    merged = overlay.load_claude_settings(base_path, overlay_root, preset_name)
-    claude_profile_path.write_text(json.dumps(merged, indent=2) + "\n")
-
-
 def _stage(target: Path, rendered: str) -> Path:
     descriptor, name = tempfile.mkstemp(dir=target.parent, prefix=f"{target.name}.", suffix=".tmp")
     try:
@@ -212,8 +196,11 @@ def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None
     staged.replace(target)
 
 
-def _merged_claude_settings(dotfiles_dir: Path, overlay_root: Path | None) -> dict[str, Any]:
-    return overlay.load_settings(dotfiles_dir / "claude" / ".claude" / SETTINGS_FILE, overlay_root)
+def _merged_claude_settings(dotfiles_dir: Path, overlay_root: Path | None, preset: Preset) -> dict[str, Any]:
+    profile = dotfiles_dir / "claude-profiles" / preset.claude_settings if preset.claude_settings else None
+    return overlay.load_preset_settings(
+        dotfiles_dir / "claude" / ".claude" / SETTINGS_FILE, profile, overlay_root, preset.name,
+    )
 
 
 def _write_claude_settings(logger: Logger, merged: dict[str, Any], env: Env) -> None:
@@ -278,9 +265,8 @@ def _save_state(env: Env, plan: _Install) -> None:
     ), state.state_file(env.state_dir))
 
 
-def _sync_foothold(logger: Logger, preset: Preset, claude_dir: Path, prior: state.MachineState | None) -> None:
-    profile_path = claude_dir / preset.claude_settings if preset.claude_settings else None
-    installed = foothold.install_foothold(logger, preset.name, profile_path)
+def _sync_foothold(logger: Logger, preset: Preset, prior: state.MachineState | None) -> None:
+    installed = foothold.install_foothold(logger, preset.name)
     if installed and prior and prior.preset_name != preset.name:
         foothold.retire_foothold(logger, prior.preset_name)
 
@@ -378,19 +364,17 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
     return rollback.RollbackContext(t, rollback.RollbackLog.for_home(t.home), plan.dotfiles_dir, plan.overlay_root)
 
 
-def _flow_inputs(logger: Logger, env: Env, plan: _Install, force: bool, claude_dir: Path) -> install_flow.FlowInputs:
+def _flow_inputs(logger: Logger, env: Env, plan: _Install, force: bool) -> install_flow.FlowInputs:
     return install_flow.FlowInputs(
         _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.packages, plan.overlay_root,
-        force, claude_dir, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(),
+        force, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(),
     )
 
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
-    claude_dir = env.state_dir / "claude-profiles"
-    _write_claude_profile(logger, plan.preset, plan.dotfiles_dir, claude_dir, plan.overlay_root, plan.preset.name)
-    claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root)
+    claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset)
     _write_claude_settings(logger, claude_settings, env)
-    result = install_flow.run_install(_flow_inputs(logger, env, plan, args.force, claude_dir))
+    result = install_flow.run_install(_flow_inputs(logger, env, plan, args.force))
     if not result.succeeded:
         _log_install_failure(logger, result)
         if result.rollback_pending:
@@ -403,9 +387,8 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
 def _finish_install(
     args: argparse.Namespace, logger: Logger, env: Env, plan: _Install, claude_settings: dict[str, Any]
 ) -> None:
-    claude_dir = env.state_dir / "claude-profiles"
     claude_plugins.update_claude_plugins(logger, claude_settings)
-    _sync_foothold(logger, plan.preset, claude_dir, plan.prior)
+    _sync_foothold(logger, plan.preset, plan.prior)
     install_flow.print_completion_banner(logger)
     if not args.dry_run:
         _save_state(env, plan)

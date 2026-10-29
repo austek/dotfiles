@@ -31,4 +31,4 @@ fi
 nvm_node=$(find "$HOME/.nvm/versions/node" -mindepth 2 -maxdepth 2 -name bin -type d 2>/dev/null | sort -V | tail -n 1)
 [ -z "$nvm_node" ] || export PATH="$nvm_node:$PATH"
 
-exec "$(dirname -- "$0")/claude-pane-loop" claude --remote-control "$1" --settings "$2"
+exec "$(dirname -- "$0")/claude-pane-loop" claude --remote-control "$1"
