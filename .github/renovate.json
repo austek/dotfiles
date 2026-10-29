@@ -9,7 +9,8 @@
   "packageRules": [
     { "matchManagers": ["github-actions"], "groupName": "actions" },
     { "matchManagers": ["pep621"], "groupName": "python" },
-    { "matchDepNames": ["derailed/k9s", "fullstorydev/grpcurl"], "groupName": "github release debs" }
+    { "matchDepNames": ["derailed/k9s", "fullstorydev/grpcurl"], "groupName": "github release debs" },
+    { "matchDatasources": ["docker"], "matchPackageNames": ["ubuntu"], "allowedVersions": "/^\\d{2}\\.04$/" }
   ],
   "customManagers": [
     {
@@ -31,6 +32,15 @@
       ],
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "kind node image used by kdev",
+      "managerFilePatterns": ["/^local/\\.local/bin/kdev$/"],
+      "matchStrings": ["K8S_VERSION=\"(?<currentValue>v[^\"]+)\""],
+      "depNameTemplate": "kindest/node",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver-coerced"
     },
     {
       "customType": "regex",
