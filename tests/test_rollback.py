@@ -55,6 +55,16 @@ def test_entries_are_undone_newest_first_and_the_log_is_removed(tmp_path):
     assert not ctx.log.path.exists()
 
 
+def test_an_unstowed_private_package_is_restowed(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine, private=tmp_path / "private")
+    ctx.log.track("UNSTOW_PRIVATE:claude-collibra", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert machine.commands == [
+        (["stow", "--restow", "--no-folding", f"--target={tmp_path / 'home'}", "claude-collibra"], tmp_path / "private"),
+    ]
+
+
 def test_a_backed_up_file_is_restored_to_its_original_name(tmp_path):
     machine = Machine()
     ctx = context(tmp_path, machine)

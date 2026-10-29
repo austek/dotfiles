@@ -232,9 +232,13 @@ def unstow_other_preset_packages(plan: StowPlan) -> None:
     logger, home = plan.t.logger, plan.t.home
     if dry_run_all(plan.t, f"Would unstow private-overlay packages scoped to other presets from {home}: {' '.join(packages)}"):
         return
+    linked = [pkg for pkg in packages if stow_pkg_is_linked(plan.private_root, pkg, home)]
     args = ["stow", "--delete", f"--target={home}", "--verbose=1", *packages]
     if logger.quiet_run(args, run=plan.t.run, cwd=plan.private_root).returncode != 0:
         logger.warn(f"Could not unstow {' '.join(packages)}; remove their links from {home} by hand.")
+        return
+    for pkg in linked:
+        plan.changes.track(f"UNSTOW_PRIVATE:{pkg}", dry_run=False)
 
 
 def stow_private_to_home(plan: StowPlan) -> bool:
