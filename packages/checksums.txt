@@ -3,7 +3,7 @@
 # After bumping a version in github_bins.txt, record the new URL's digest:
 #   curl -fsSL <url> | sha256sum
 56b539a509eb2d6357cf4f575ed38c089f0e4880c95f79a70196b54f14954908  https://github.com/derailed/k9s/releases/download/v0.51.0/k9s_linux_amd64.deb
-0710dc05a28f1fac2230fd438c1fc61b90e0431809372a65aea4b53a57947451  https://github.com/fullstorydev/grpcurl/releases/download/v1.9.3/grpcurl_1.9.3_linux_amd64.deb
+c0f3213a3b9ccdf88b005eb91c406c1c0186fbdc3115385907d8cced6313cf41  https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_amd64.deb
 
 # Installer scripts. Several track a moving branch, so an upstream change fails the check until re-recorded.
 7ca3997314f631b8ad267e5add9af4b7a2f0351bdab0b1c5a9b7ed4008d0434a  https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh
