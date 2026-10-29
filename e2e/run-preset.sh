@@ -12,13 +12,26 @@ removed_package=tree
 copy_repo() {
     mkdir -p "$dest"
     # Tracked plus untracked-but-not-ignored files: local edits are tested, the gitignored gradle cache is not copied.
-    git -c safe.directory="$src" -C "$src" ls-files -z --cached --others --exclude-standard \
-        | tar --null --ignore-failed-read -C "$src" -T - -cf - \
-        | tar -xf - -C "$dest"
+    # A git worktree's .git points at a host path that is not mounted here, so it falls back to a plain copy.
+    if git -c safe.directory="$src" -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
+        git -c safe.directory="$src" -C "$src" ls-files -z --cached --others --exclude-standard \
+            | tar --null --ignore-failed-read -C "$src" -T - -cf - \
+            | tar -xf - -C "$dest"
+    else
+        tar --exclude=./.git --exclude=./gradle/.gradle -C "$src" -cf - . | tar -xf - -C "$dest"
+    fi
 }
 
 install_preset() {
-    "$dest/bin/dotfiles-setup" install --preset "$preset" --force -v < /dev/null
+    local log
+    log=$(mktemp)
+    "$dest/bin/dotfiles-setup" install --preset "$preset" --force -v < /dev/null 2>&1 | tee "$log"
+    # Tool installers log an error and carry on, so the exit status alone hides a failed install.
+    if grep -qF '[ERROR]' "$log"; then
+        echo "e2e[$preset]: install logged errors:" >&2
+        grep -F '[ERROR]' "$log" >&2
+        return 1
+    fi
 }
 
 main() {
