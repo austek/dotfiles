@@ -54,12 +54,12 @@ def world(tmp_path):
     return SimpleNamespace(tmp=tmp_path, home=home, repo=repo)
 
 
-def plan_for(world, runner=None, force=True, private=None, dry_run=False, backup_root=None):
+def plan_for(world, runner=None, force=True, private=None, dry_run=False, backup_root=None, preset=""):
     runner = runner or Stower()
     t = tools.Tooling(Logger(dry_run=dry_run, verbosity=1), world.home, run=runner)
     return stow.StowPlan(
         t, world.repo, private, force, backup_root or world.tmp / "backups", "T1",
-        RollbackLog(world.tmp / "rollback.log"),
+        RollbackLog(world.tmp / "rollback.log"), preset,
     ), runner
 
 
@@ -284,6 +284,75 @@ def test_a_non_repo_symlink_at_a_private_path_is_left_alone(world):
     plan, _ = plan_for(world, private=private, force=False)
     stow.stow_private_to_home(plan)
     assert target.is_symlink()
+
+
+def preset_scoped_overlay(world):
+    private = world.tmp / "private"
+    for pkg in ("claude", "claude-collibra"):
+        (private / pkg / ".claude").mkdir(parents=True)
+        (private / pkg / ".claude" / f"{pkg}.md").write_text(pkg)
+    write_packages(private / ".stow-packages", "claude")
+    write_packages(private / ".stow-packages.work", "claude-collibra")
+    return private
+
+
+def test_a_preset_scoped_package_is_stowed_only_for_that_preset(world):
+    private = preset_scoped_overlay(world)
+    plan, runner = plan_for(world, private=private, force=False, preset="work")
+    assert stow.stow_private_to_home(plan)
+    assert runner.stow_calls() == [
+        ["--restow", "--no-folding", f"--target={world.home}", "--verbose=1", "claude", "claude-collibra"]
+    ]
+
+
+def test_other_presets_skip_the_scoped_package_and_unstow_it(world):
+    private = preset_scoped_overlay(world)
+    plan, runner = plan_for(world, private=private, force=False, preset="homelab")
+    assert stow.stow_private_to_home(plan)
+    assert runner.stow_calls() == [
+        ["--restow", "--no-folding", f"--target={world.home}", "--verbose=1", "claude"],
+        ["--delete", f"--target={world.home}", "--verbose=1", "claude-collibra"],
+    ]
+    assert plan.changes.entries() == ["STOW_PRIVATE:claude"]
+
+
+def test_a_dry_run_does_not_unstow_the_scoped_package(world):
+    private = preset_scoped_overlay(world)
+    plan, runner = plan_for(world, private=private, force=False, preset="personal", dry_run=True)
+    assert stow.stow_private_to_home(plan)
+    assert runner.stow_calls() == []
+
+
+def test_a_package_listed_for_every_preset_is_never_unstowed(world):
+    private = preset_scoped_overlay(world)
+    write_packages(private / ".stow-packages", "claude", "claude-collibra")
+    plan, runner = plan_for(world, private=private, force=False, preset="homelab")
+    assert stow.stow_private_to_home(plan)
+    assert not any("--delete" in call for call in runner.stow_calls())
+
+
+def test_a_failed_unstow_warns_and_does_not_fail_the_step(world):
+    private = preset_scoped_overlay(world)
+
+    class FailsDelete(Stower):
+        def __call__(self, argv, **kwargs):
+            if "--delete" in argv:
+                self.calls.append((list(argv), kwargs.get("cwd")))
+                return SimpleNamespace(returncode=1, stdout="", stderr="cannot unstow")
+            return super().__call__(argv, **kwargs)
+
+    plan, _ = plan_for(world, FailsDelete(), private=private, force=False, preset="homelab")
+    assert stow.stow_private_to_home(plan)
+
+
+def test_the_public_stow_ignores_files_a_scoped_package_overrides_only_for_its_preset(world):
+    private = preset_scoped_overlay(world)
+    (world.repo / "claude-collibra/.claude").mkdir(parents=True)
+    (world.repo / "claude-collibra/.claude/claude-collibra.md").write_text("public")
+    work, _ = plan_for(world, private=private, preset="work")
+    other, _ = plan_for(world, private=private, preset="homelab")
+    assert stow.private_override_ignores(work) == [r"--ignore=\.claude/claude-collibra\.md"]
+    assert stow.private_override_ignores(other) == []
 
 
 def test_no_private_root_means_no_private_stow(world):

@@ -45,7 +45,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
     ctx = SystemContext(t, inputs.dotfiles_dir, packages, changes)
     stow_plan = stow.StowPlan(
         t, inputs.dotfiles_dir, inputs.overlay_root, inputs.force,
-        t.home / ".local/state/dotfiles/stow-backups", inputs.stamp, changes,
+        t.home / ".local/state/dotfiles/stow-backups", inputs.stamp, changes, inputs.preset_name,
     )
     return [
         ("install_core_deps", lambda: system_steps.install_core_deps(ctx)),
