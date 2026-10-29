@@ -10,7 +10,7 @@
 9502b514362a21096210d498f143b8cdacda365d3dfcf45e8f5541e089ccafc0  https://sh.rustup.rs
 434360efbde4d2ee31940ff28130fc6ec66121f1e1afc84aa37504752c4babb0  https://get.sdkman.io?rcupdate=false
 5574b96e94dbcb769f0d1592fa83aeb6ca2caf41c6ae5d76fcc7f04c524b4f55  https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
-8e45fa547f428e9196a5613efad3bfa4d4608b74ca870f930090598f5af5f643  https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh
+8e45fa547f428e9196a5613efad3bfa4d4608b74ca870f930090598f5af5f643  https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh
 a971b226f9f0d94e948372a24ce1eb51f244093542e0597e4d21cfd520ab0cd8  https://cli.coderabbit.ai/install.sh
 cb68f168a6b22279a58ff58da052792237b17dbcf35a16e86e38bcbfc6bf3d6a  https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/tags/1.11.0.16877/user-scripts/install.sh
 f7a56e7afaec49a3bcbc3ac3cdbe917e7c6ce30e0d815308a12e531aa5ef23b7  https://astral.sh/uv/install.sh
