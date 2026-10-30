@@ -60,6 +60,13 @@ def _unstow(ctx: RollbackContext, label: str, data: str, root: Path | None, sudo
         ctx.t.logger.warn(f"Failed to unstow {data}")
 
 
+def _restow_private(ctx: RollbackContext, data: str) -> None:
+    ctx.t.logger.info(f"Restoring private-overlay package links to HOME: {data}")
+    argv = ["stow", "--restow", "--no-folding", f"--target={ctx.t.home}", data]
+    if ctx.private_root is None or not _run_quiet(ctx, argv, cwd=ctx.private_root):
+        ctx.t.logger.warn(f"Failed to restow {data}")
+
+
 def _restore_backup(ctx: RollbackContext, data: str) -> None:
     """The entry is `backup|original`; a bare `backup` sits next to the original with a `.backup-<ts>` suffix."""
     backup, _, recorded = data.partition("|")
@@ -77,6 +84,8 @@ def _undo(ctx: RollbackContext, entry: str) -> None:
         _unstow(ctx, f"Unstowing package from HOME: {data}", data, ctx.dotfiles_dir)
     elif action == "STOW_PRIVATE":
         _unstow(ctx, f"Unstowing private-overlay package from HOME: {data}", data, ctx.private_root)
+    elif action == "UNSTOW_PRIVATE":
+        _restow_private(ctx, data)
     elif action == "STOW_ROOT":
         _unstow(ctx, f"Unstowing package from /: {data}", data, ctx.dotfiles_dir, sudo=True)
     elif action == "DOCKER_GROUP":

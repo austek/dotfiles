@@ -19,6 +19,7 @@ _CONFLICT_PATTERNS = (
     re.compile(r"cannot stow \S+ over existing target (\S+) since "),
 )
 STOW_PACKAGES_FILE = ".stow-packages"
+VERBOSE_FLAG = "--verbose=1"
 _REGEX_SPECIALS = re.compile(r"[.\[\\*^$()+?{}|]")
 
 
@@ -31,6 +32,7 @@ class StowPlan:
     backup_root: Path
     stamp: str
     changes: RollbackLog
+    preset: str = ""
 
 
 def stow_regex_escape(path: str) -> str:
@@ -41,6 +43,24 @@ def stow_regex_escape(path: str) -> str:
 def package_lines(stow_file: Path) -> list[str]:
     lines = (line.strip() for line in stow_file.read_text().splitlines())
     return [line for line in lines if line and not line.startswith("#")]
+
+
+def overlay_packages(plan: StowPlan) -> list[str]:
+    """Packages for every preset (`.stow-packages`), then those scoped to this one (`.stow-packages.<preset>`)."""
+    if plan.private_root is None:
+        return []
+    files = [plan.private_root / STOW_PACKAGES_FILE, plan.private_root / f"{STOW_PACKAGES_FILE}.{plan.preset}"]
+    return list(dict.fromkeys(name for file in files if file.is_file() for name in package_lines(file)))
+
+
+def other_preset_packages(plan: StowPlan) -> list[str]:
+    """Packages scoped to other presets only; a package this preset also lists is never returned."""
+    if plan.private_root is None:
+        return []
+    own = f"{STOW_PACKAGES_FILE}.{plan.preset}"
+    scoped = sorted(f for f in plan.private_root.glob(f"{STOW_PACKAGES_FILE}.*") if f.name != own and f.is_file())
+    keep = set(overlay_packages(plan))
+    return [name for name in dict.fromkeys(n for f in scoped for n in package_lines(f)) if name not in keep]
 
 
 def _conflicts(output: str) -> list[str]:
@@ -113,17 +133,21 @@ def stow_with_backup(plan: StowPlan, args: Sequence[str], cwd: Path) -> bool:
     return stage is None or finalize_stow_backup(plan, stage)
 
 
-def _first_package_file(package_dir: Path) -> Path | None:
-    candidates = sorted(p for p in package_dir.rglob("*") if p.is_file() or p.is_symlink())
-    return candidates[0] if candidates else None
+def _package_files(package_dir: Path) -> list[Path]:
+    return sorted(p for p in package_dir.rglob("*") if p.is_file() or p.is_symlink())
+
+
+def _links_to(link: Path, source: Path) -> bool:
+    return link.exists() and link.resolve() == source.resolve()
 
 
 def stow_pkg_is_linked(root: Path, pkg: str, target: Path) -> bool:
-    first = _first_package_file(root / pkg)
-    if first is None:
-        return False
-    linked = target / first.relative_to(root / pkg)
-    return linked.exists() and linked.resolve() == first.resolve()
+    files = _package_files(root / pkg)
+    return bool(files) and _links_to(target / files[0].relative_to(root / pkg), files[0])
+
+
+def stow_pkg_has_links(root: Path, pkg: str, target: Path) -> bool:
+    return any(_links_to(target / file.relative_to(root / pkg), file) for file in _package_files(root / pkg))
 
 
 def pkgs_not_yet_linked(root: Path, target: Path, packages: Sequence[str]) -> list[str]:
@@ -136,11 +160,8 @@ def _regular_files(directory: Path) -> list[Path]:
 
 def private_override_ignores(plan: StowPlan) -> list[str]:
     """Paths the private overlay overrides must be excluded from the public stow, or the two fight over them every rerun."""
-    stow_file = plan.private_root / STOW_PACKAGES_FILE if plan.private_root else None
-    if stow_file is None or not stow_file.is_file():
-        return []
     ignores = []
-    for pkg in package_lines(stow_file):
+    for pkg in overlay_packages(plan):
         if not (plan.dotfiles_dir / pkg).is_dir():
             continue
         for file in _regular_files(plan.private_root / pkg):
@@ -192,7 +213,7 @@ def stow_common_to_home(plan: StowPlan, ignores: list[str]) -> bool:
     if dry_run_all(plan.t, f"Would stow (unfolded) to {home}: {' '.join(nofold) or 'none'}",
                    f"Would stow (folded) to {home}: {' '.join(folded) or 'none'}"):
         return True
-    common = [*ignores, f"--target={home}", "--verbose=1"]
+    common = [*ignores, f"--target={home}", VERBOSE_FLAG]
     groups = ((nofold, ["--restow", "--no-folding"]), (folded, ["--restow"]))
     for group, flags in groups:
         if group and not _stow_tracked(plan, "STOW_HOME", plan.dotfiles_dir, [*flags, *common, *group], group):
@@ -208,17 +229,35 @@ def clear_public_symlink_at_private_path(plan: StowPlan, pkg: str, file: Path) -
         target.unlink()
 
 
+def unstow_other_preset_packages(plan: StowPlan) -> None:
+    """Removes links a previous install under another preset left; a failure only warns."""
+    packages = other_preset_packages(plan)
+    if not packages:
+        return
+    logger, home = plan.t.logger, plan.t.home
+    if dry_run_all(plan.t, f"Would unstow private-overlay packages scoped to other presets from {home}: {' '.join(packages)}"):
+        return
+    linked = [pkg for pkg in packages if stow_pkg_has_links(plan.private_root, pkg, home)]
+    args = ["stow", "--delete", f"--target={home}", VERBOSE_FLAG, *packages]
+    if logger.quiet_run(args, run=plan.t.run, cwd=plan.private_root).returncode != 0:
+        logger.warn(f"Could not unstow {' '.join(packages)}; remove their links from {home} by hand.")
+        return
+    for pkg in linked:
+        plan.changes.track(f"UNSTOW_PRIVATE:{pkg}", dry_run=False)
+
+
 def stow_private_to_home(plan: StowPlan) -> bool:
     if plan.private_root is None:
         return True
-    logger, home = plan.t.logger, plan.t.home
-    stow_file = plan.private_root / STOW_PACKAGES_FILE
-    if not stow_file.is_file():
-        logger.info(f"No .stow-packages in the private overlay ({plan.private_root}). Skipping private stow.")
-        return True
-    packages = package_lines(stow_file)
+    packages = overlay_packages(plan)
     if not packages:
+        plan.t.logger.info(f"No private-overlay packages for preset '{plan.preset}' ({plan.private_root}). Skipping private stow.")
         return True
+    return _stow_private_packages(plan, packages)
+
+
+def _stow_private_packages(plan: StowPlan, packages: list[str]) -> bool:
+    logger, home = plan.t.logger, plan.t.home
     logger.info(f"Stowing private-overlay packages to {home}: {' '.join(packages)}...")
     if dry_run_all(plan.t, f"Would stow (unfolded, from {plan.private_root}, overriding any public file at the "
                            f"same path) to {home}: {' '.join(packages)}"):
@@ -226,7 +265,7 @@ def stow_private_to_home(plan: StowPlan) -> bool:
     for pkg in packages:
         for file in _regular_files(plan.private_root / pkg):
             clear_public_symlink_at_private_path(plan, pkg, file)
-    args = ["--restow", "--no-folding", f"--target={home}", "--verbose=1", *packages]
+    args = ["--restow", "--no-folding", f"--target={home}", VERBOSE_FLAG, *packages]
     if not _stow_tracked(plan, "STOW_PRIVATE", plan.private_root, args, packages):
         return False
     logger.success("All private-overlay packages stowed.")
@@ -250,6 +289,7 @@ def configure_git_hooks(plan: StowPlan) -> bool:
 
 def configure_dotfiles(plan: StowPlan) -> bool:
     plan.t.logger.step("Step 7: Configuring dotfiles...")
+    unstow_other_preset_packages(plan)
     ignores = private_override_ignores(plan)
     return (
         stow_common_to_home(plan, ignores)

@@ -105,7 +105,7 @@ def foothold_installs(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "dotfiles_setup.cli.foothold.install_foothold",
-        lambda logger, preset_name, profile_path: calls.append((preset_name, profile_path)) or True,
+        lambda logger, preset_name: calls.append(preset_name) or True,
     )
     return calls
 
@@ -157,7 +157,7 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
         "claude_settings": "claude_homelab.json",
     }))
     (dotfiles_dir / "packages" / "apt_common.txt").write_text("zsh\ncurl\n")
-    (dotfiles_dir / "claude-profiles" / "claude_homelab.json").write_text(json.dumps({"enabledPlugins": {}}))
+    (dotfiles_dir / "claude-profiles" / "claude_homelab.json").write_text("{}")
 
     (dotfiles_dir / "claude" / ".claude").mkdir(parents=True)
     (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps({"model": "base"}))
@@ -206,6 +206,18 @@ def test_install_reports_backend_failure(isolated_dotfiles, monkeypatch):
     assert main(["install", "--preset", "homelab"]) == 1
 
 
+def test_the_claude_settings_exist_before_the_install_steps_run(isolated_dotfiles, tmp_path, monkeypatch):
+    seen = {}
+
+    def run_install(inputs):
+        seen["settings"] = (tmp_path / "claude-home" / "settings.json").is_file()
+        return InstallResult(True, 0, "")
+
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", run_install)
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert seen == {"settings": True}
+
+
 def test_install_reports_a_failure_with_no_message(isolated_dotfiles, capsys, monkeypatch):
     monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: InstallResult(False, 3, ""))
     assert main(["install", "--preset", "homelab"]) == 3
@@ -222,10 +234,15 @@ def test_dry_run_skips_git_identity(isolated_dotfiles, monkeypatch):
     assert calls == []
 
 
-def test_dry_run_skips_claude_profile_write(isolated_dotfiles):
-    _dotfiles_dir, tmp_path = isolated_dotfiles
-    main(["install", "--preset", "homelab", "--dry-run"])
-    assert not (tmp_path / "state" / "claude-profiles" / "claude_homelab.json").exists()
+def test_install_merges_the_preset_profile_into_the_generated_settings(isolated_dotfiles):
+    dotfiles_dir, tmp_path = isolated_dotfiles
+    (dotfiles_dir / "claude-profiles" / "claude_homelab.json").write_text(
+        json.dumps({"enabledPlugins": {"sonarqube@official": True}})
+    )
+    assert main(["install", "--preset", "homelab"]) == 0
+    generated = json.loads((tmp_path / "claude-home" / "settings.json").read_text())
+    assert generated == {"model": "base", "enabledPlugins": {"sonarqube@official": True}}
+    assert not (tmp_path / "state" / "claude-profiles").exists()
 
 
 def test_dry_run_does_not_create_the_forked_package_file(isolated_dotfiles):
@@ -426,9 +443,9 @@ def test_install_updates_claude_plugins_after_a_successful_install(isolated_dotf
     assert len(plugin_updates) == 1
 
 
-def test_install_sets_up_the_foothold_for_the_preset_profile(isolated_dotfiles, foothold_installs):
+def test_install_sets_up_the_foothold_for_the_preset(isolated_dotfiles, foothold_installs):
     assert main(["install", "--preset", "homelab"]) == 0
-    assert [(name, path.name) for name, path in foothold_installs] == [("homelab", "claude_homelab.json")]
+    assert foothold_installs == ["homelab"]
 
 
 def _add_preset(dotfiles_dir, name):
@@ -454,7 +471,7 @@ def test_install_keeps_the_previous_foothold_when_the_replacement_fails(isolated
     dotfiles_dir, _ = isolated_dotfiles
     _add_preset(dotfiles_dir, "personal")
     assert main(["install", "--preset", "homelab"]) == 0
-    monkeypatch.setattr("dotfiles_setup.cli.foothold.install_foothold", lambda logger, preset_name, profile_path: False)
+    monkeypatch.setattr("dotfiles_setup.cli.foothold.install_foothold", lambda logger, preset_name: False)
     assert main(["install", "--preset", "personal"]) == 0
     assert foothold_retirements == []
 

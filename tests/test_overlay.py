@@ -2,9 +2,7 @@ import json
 
 from dotfiles_setup.overlay import (
     find_overlay_root,
-    load_claude_settings,
-    load_settings,
-    merge_claude_settings,
+    load_preset_settings,
     merge_settings,
     overlay_package_names,
 )
@@ -47,45 +45,6 @@ def test_overlay_package_names_reads_and_dedupes(tmp_path):
     assert overlay_package_names(tmp_path, "work") == ("docker-cli", "kubectl")
 
 
-def test_merge_claude_settings_shallow_overlay_wins():
-    base = {"a": 1, "b": 2}
-    overlay = {"b": 3, "c": 4}
-    assert merge_claude_settings(base, overlay) == {"a": 1, "b": 3, "c": 4}
-
-
-def test_merge_claude_settings_deep_merges_nested_dicts():
-    base = {"hooks": {"PreToolUse": {"x": 1}}}
-    overlay = {"hooks": {"PreToolUse": {"y": 2}}}
-    assert merge_claude_settings(base, overlay) == {"hooks": {"PreToolUse": {"x": 1, "y": 2}}}
-
-
-def test_merge_claude_settings_none_overlay_returns_base_unchanged():
-    base = {"a": 1}
-    assert merge_claude_settings(base, None) == base
-
-
-def test_load_claude_settings_merges_base_and_overlay(tmp_path):
-    base_path = tmp_path / "base.json"
-    base_path.write_text(json.dumps({"enabledPlugins": {"x": True}}))
-    overlay_root = tmp_path / "priv"
-    (overlay_root / "claude-profiles").mkdir(parents=True)
-    (overlay_root / "claude-profiles" / "work.json").write_text(
-        json.dumps({"enabledPlugins": {"y": True}})
-    )
-    merged = load_claude_settings(base_path, overlay_root, "work")
-    assert merged == {"enabledPlugins": {"x": True, "y": True}}
-
-
-def test_load_claude_settings_base_only_when_no_overlay(tmp_path):
-    base_path = tmp_path / "base.json"
-    base_path.write_text(json.dumps({"enabledPlugins": {"x": True}}))
-    assert load_claude_settings(base_path, None, "work") == {"enabledPlugins": {"x": True}}
-
-
-def test_load_claude_settings_empty_dict_when_base_missing(tmp_path):
-    assert load_claude_settings(tmp_path / "nonexistent.json", None, "work") == {}
-
-
 def test_merge_settings_unions_lists_keeping_base_order():
     base = {"permissions": {"allow": ["a", "b"]}}
     overlay = {"permissions": {"allow": ["b", "c"]}}
@@ -96,19 +55,40 @@ def test_merge_settings_overlay_scalar_wins():
     assert merge_settings({"x": 1}, {"x": 2}) == {"x": 2}
 
 
-def test_load_settings_returns_base_without_overlay(tmp_path):
-    base_path = tmp_path / "base.json"
-    base_path.write_text(json.dumps({"a": 1}))
-    assert load_settings(base_path, None) == {"a": 1}
-    assert load_settings(base_path, tmp_path) == {"a": 1}
+def write_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data))
+    return path
 
 
-def test_load_settings_merges_overlay_file(tmp_path):
-    base_path = tmp_path / "base.json"
-    base_path.write_text(json.dumps({"enabledPlugins": {"a": True}}))
-    (tmp_path / "claude-settings").mkdir()
-    (tmp_path / "claude-settings" / "settings.json").write_text(json.dumps({"enabledPlugins": {"b": True}}))
-    assert load_settings(base_path, tmp_path) == {"enabledPlugins": {"a": True, "b": True}}
+def test_preset_settings_are_the_base_without_a_profile_or_overlay(tmp_path):
+    base = write_json(tmp_path / "base.json", {"a": 1})
+    assert load_preset_settings(base, None, None, "work") == {"a": 1}
+    assert load_preset_settings(base, tmp_path / "missing.json", tmp_path, "work") == {"a": 1}
+
+
+def test_preset_settings_merge_the_profile_over_the_base(tmp_path):
+    base = write_json(tmp_path / "base.json", {"enabledPlugins": {"a": True}, "permissions": {"allow": ["x"]}})
+    profile = write_json(tmp_path / "profile.json", {"enabledPlugins": {"b": True}, "permissions": {"allow": ["y"]}})
+    merged = load_preset_settings(base, profile, None, "work")
+    assert merged == {"enabledPlugins": {"a": True, "b": True}, "permissions": {"allow": ["x", "y"]}}
+
+
+def test_preset_settings_apply_the_overlay_settings_then_its_preset_file(tmp_path):
+    base = write_json(tmp_path / "base.json", {"model": "base", "enabledPlugins": {"a": True}})
+    profile = write_json(tmp_path / "profile.json", {"model": "profile"})
+    overlay = tmp_path / "priv"
+    write_json(overlay / "claude-settings" / "settings.json", {"model": "overlay", "enabledPlugins": {"b": True}})
+    write_json(overlay / "claude-profiles" / "work.json", {"model": "overlay-work", "enabledPlugins": {"c": True}})
+    merged = load_preset_settings(base, profile, overlay, "work")
+    assert merged == {"model": "overlay-work", "enabledPlugins": {"a": True, "b": True, "c": True}}
+
+
+def test_preset_settings_skip_another_presets_overlay_file(tmp_path):
+    base = write_json(tmp_path / "base.json", {"enabledPlugins": {}})
+    overlay = tmp_path / "priv"
+    write_json(overlay / "claude-profiles" / "work.json", {"enabledPlugins": {"collibra": True}})
+    assert load_preset_settings(base, None, overlay, "homelab") == {"enabledPlugins": {}}
 
 
 def test_merge_settings_deduplicates_repeats_within_the_overlay_list():

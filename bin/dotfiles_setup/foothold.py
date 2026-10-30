@@ -34,20 +34,15 @@ def unit_name(preset_name: str) -> str:
     return f"{session_name(preset_name)}.service"
 
 
-def unit_path_for(path: Path, home: Path) -> str:
-    """Returns path as `%h/<relative>` when under home, else the absolute path."""
-    return f"%h/{path.relative_to(home)}" if path.is_relative_to(home) else str(path)
-
-
-def _launch_command(preset_name: str, settings: str) -> str:
+def _launch_command(preset_name: str) -> str:
     tmux = session_name(preset_name)
     return (
         f'tmux has-session -t {tmux} 2>/dev/null || exec tmux new-session -d -s {tmux} -c "%h/Workspace" '
-        f'{LAUNCHER} {foothold_name(preset_name)} "{settings}"'
+        f"{LAUNCHER} {foothold_name(preset_name)}"
     )
 
 
-def _service_section(preset_name: str, settings: str) -> tuple[str, ...]:
+def _service_section(preset_name: str) -> tuple[str, ...]:
     return (
         "[Service]",
         "Type=oneshot",
@@ -61,11 +56,11 @@ def _service_section(preset_name: str, settings: str) -> tuple[str, ...]:
         "EnvironmentFile=-%h/.config/dotfiles/secrets.env",
         # The link gains carrier before DNS and routes work; Remote Control fails session creation if it starts earlier.
         f"ExecStartPre=/usr/bin/env curl -s --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 -o /dev/null {NETWORK_PROBE_URL}",
-        f"ExecStart=/bin/sh -c '{_launch_command(preset_name, settings)}'",
+        f"ExecStart=/bin/sh -c '{_launch_command(preset_name)}'",
     )
 
 
-def render_unit(preset_name: str, settings: str) -> str:
+def render_unit(preset_name: str) -> str:
     unit_section = (
         "[Unit]",
         f"Description=Claude remote-control session {foothold_name(preset_name)}",
@@ -73,7 +68,7 @@ def render_unit(preset_name: str, settings: str) -> str:
         "Wants=network-online.target",
     )
     install_section = ("[Install]", "WantedBy=default.target")
-    sections = (unit_section, _service_section(preset_name, settings), install_section)
+    sections = (unit_section, _service_section(preset_name), install_section)
     return "\n\n".join("\n".join(section) for section in sections) + "\n"
 
 
@@ -120,22 +115,16 @@ def retire_foothold(
     logger.info(f"Retired {unit.name}.")
 
 
-def install_foothold(
-    logger: Logger, preset_name: str, profile_path: Path | None,
-    unit_dir: Path = UNIT_DIR, home: Path | None = None, run=subprocess.run,
-) -> bool:
-    """Installs and enables the per-preset unit and lingering. Returns whether it succeeded or had nothing to do; warns instead of raising."""
-    if profile_path is None:
-        return True
+def install_foothold(logger: Logger, preset_name: str, unit_dir: Path = UNIT_DIR, run=subprocess.run) -> bool:
+    """Installs and enables the per-preset unit and lingering. Returns whether it succeeded; warns instead of raising."""
     unit = unit_dir / unit_name(preset_name)
     if logger.dry_run_notice(f"Would install {unit}, enable linger and start {unit.name}."):
         return True
     if missing := _missing_tools():
         logger.warn(f"{', '.join(missing)} not found; skipping {foothold_name(preset_name)} setup.")
         return False
-    settings = unit_path_for(profile_path, home or Path.home())
     try:
-        _write_unit(unit, render_unit(preset_name, settings))
+        _write_unit(unit, render_unit(preset_name))
         results = [_run_command(argv, logger, run) for argv in _commands(unit.name)]
     except OSError as exc:
         logger.warn(f"Could not set up {foothold_name(preset_name)}: {exc}")

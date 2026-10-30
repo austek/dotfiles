@@ -73,14 +73,6 @@ path_append "$HOME/.krew/bin"
 path_append "/usr/local/go/bin"
 # --- END PATH ---
 
-# --- LOAD PROFILE CONFIGS ---
-# This file is built by dotfiles-setup from ~/dotfiles/claude-profiles
-# It is ignored by .gitignore
-if [[ -r ~/.zshrc.profile ]]; then
-  source ~/.zshrc.profile
-fi
-# --- END PROFILE CONFIGS ---
-
 # --- LOAD SECRET/MANUAL OVERRIDES ---
 # Optional shell-only overrides (aliases, functions). Env-var secrets belong in ~/.config/dotfiles/secrets.env.
 # It is NOT in the git repo.
