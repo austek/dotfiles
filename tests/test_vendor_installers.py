@@ -43,7 +43,7 @@ def test_vendor_script_is_downloaded_then_run_with_its_shell(tmp_path):
     machine = Machine()
     t, downloads = make(tmp_path, machine)
     assert vi.install_vendor(t, vi.UV) is None
-    assert downloads == ["https://astral.sh/uv/install.sh"]
+    assert downloads == [vi.UV.url]
     assert machine.commands[0][0] == "sh"
 
 
@@ -57,7 +57,7 @@ def test_truncated_or_failed_download_never_runs_the_script(tmp_path, capsys):
     t, _ = make(tmp_path, machine, broken_download=True)
     assert vi.install_vendor(t, vi.UV) is None
     assert machine.commands == []
-    assert "Could not download https://astral.sh/uv/install.sh: offline" in capsys.readouterr().err
+    assert f"Could not download {vi.UV.url}: offline" in capsys.readouterr().err
 
 
 def test_dry_run_downloads_nothing(tmp_path):
