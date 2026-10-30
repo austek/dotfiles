@@ -177,6 +177,12 @@ def _user_in_docker_group(ctx: SystemContext, user: str) -> bool:
     return "docker" in groups.replace(":", " ").split()
 
 
+def docker_group_pending(ctx: SystemContext, user: str | None = None) -> bool:
+    if "docker-ce" not in ctx.packages:
+        return False
+    return not _docker_group_exists(ctx) or not _user_in_docker_group(ctx, user or getpass.getuser())
+
+
 def configure_docker_group(ctx: SystemContext, user: str | None = None) -> bool:
     if "docker-ce" not in ctx.packages:
         return True

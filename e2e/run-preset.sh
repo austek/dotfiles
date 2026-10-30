@@ -32,6 +32,7 @@ install_preset() {
         grep -F '[ERROR]' "$log" >&2
         return 1
     fi
+    last_install_log=$log
 }
 
 main() {
@@ -51,6 +52,8 @@ main() {
 
     echo "=== e2e[$preset]: second install ==="
     install_preset
+    grep -qF 'System stage is up to date' "$last_install_log" \
+        || { echo "ASSERT FAILED [$preset/second]: the second install still ran the system stage" >&2; return 1; }
     "$here/assert-preset.sh" "$preset" second "$removed_package"
 
     echo "=== e2e[$preset]: PASS ==="

@@ -84,6 +84,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - Symlinks are managed by `stow <package-name>` (to create) and `stow -D <package-name>` (to delete).
 - `dotfiles-setup install --force` moves files that block stow to `~/.local/state/dotfiles/stow-backups/<timestamp>/<path relative to $HOME>` and logs each move, then stows. Without it, a conflict fails the install with a hint to re-run with `--force`. Never make force the default.
 - Manual stowing is for quick adjustments; `dotfiles-setup install` handles it automatically (`stow.py`).
+- `install` splits into a user stage and a system stage. The system stage is the steps in `install_flow.SYSTEM_STEPS` (apt, snapd, apt sources, GitHub `.deb`s, docker group, login shell, default terminal); only it needs sudo. By default `system_check.system_stage_reasons` decides, read-only, whether it has anything left to do and the sudo prompt is skipped when it does not. `--system` forces the stage, `--no-system` skips it. A new sudo step must be added to `SYSTEM_STEPS`, and to `system_check` if its state can be checked without root.
 - Steps that change the system record what they did in `~/.dotfiles-setup-rollback.log` (`RollbackLog.track`); a failed install offers to undo them via `rollback.py`. A new step that touches system state must record its undo entry there.
 
 ### Saving Changes

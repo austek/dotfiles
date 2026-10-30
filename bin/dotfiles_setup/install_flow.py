@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from dotfiles_setup import (
     apt_packages,
@@ -20,11 +21,16 @@ from dotfiles_setup import (
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
+from dotfiles_setup.system_check import system_stage_reasons
 from dotfiles_setup.system_steps import SudoSession, SystemContext
 from dotfiles_setup.tooling import Tooling
 
 Step = tuple[str, Callable[[], bool | None]]
 INTERRUPTED_EXIT_CODE = 130
+SYSTEM_STEPS = frozenset({
+    "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
+    "install_packages", "install_github_bins", "configure_docker_group", "change_shell", "set_default_terminal",
+})
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,7 @@ class FlowInputs:
     force: bool
     stamp: str
     euid: int = field(default_factory=os.geteuid)
+    system: Literal["auto", "always", "never"] = "auto"
 
 
 def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackLog) -> list[Step]:
@@ -96,6 +103,18 @@ def _user_bin_on_path(home: Path) -> Iterator[None]:
         os.environ["PATH"] = original
 
 
+def _system_stage_wanted(inputs: FlowInputs, ctx: SystemContext) -> bool:
+    logger = inputs.t.logger
+    if inputs.system != "auto":
+        return inputs.system == "always"
+    reasons = system_stage_reasons(ctx)
+    if reasons:
+        logger.info(f"System stage needed: {'; '.join(reasons)}.")
+        return True
+    logger.info("System stage is up to date; skipping the sudo steps (--system forces them).")
+    return False
+
+
 def run_install(inputs: FlowInputs) -> InstallResult:
     logger = inputs.t.logger
     if inputs.euid == 0:
@@ -104,12 +123,15 @@ def run_install(inputs: FlowInputs) -> InstallResult:
     packages = inputs.packages
     logger.info(f"Found {len(packages)} unique packages to install.")
     log = _start_log(inputs, logger)
-    session = SudoSession(SystemContext(inputs.t, inputs.dotfiles_dir, packages, log))
+    ctx = SystemContext(inputs.t, inputs.dotfiles_dir, packages, log)
+    system = _system_stage_wanted(inputs, ctx)
+    session = SudoSession(ctx)
     try:
-        if not session.start():
+        if system and not session.start():
             return InstallResult(False, 1, "Could not obtain sudo credentials.")
+        steps = [step for step in build_steps(inputs, packages, log) if system or step[0] not in SYSTEM_STEPS]
         with _user_bin_on_path(inputs.t.home):
-            return _run_steps(build_steps(inputs, packages, log), logger, log)
+            return _run_steps(steps, logger, log)
     except KeyboardInterrupt:
         return InstallResult(False, INTERRUPTED_EXIT_CODE, "Interrupted.", rollback_pending=not logger.dry_run)
     finally:

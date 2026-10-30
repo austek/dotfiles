@@ -65,6 +65,16 @@ def _already_installed(ctx: SystemContext, filename: str) -> bool:
     return re.search(rf"^ii  {re.escape(package)}[: ]", listing, re.MULTILINE) is not None
 
 
+def missing_github_bins(ctx: SystemContext) -> list[str]:
+    listing = ctx.dotfiles_dir / "packages" / "github_bins.txt"
+    if not listing.is_file():
+        return []
+    return [
+        filename for _, repo, version, filename in _bin_entries(listing)
+        if repo and version and filename and not _already_installed(ctx, filename)
+    ]
+
+
 def _install_deb(ctx: SystemContext, repo: str, version: str, filename: str, temp_dir: Path) -> None:
     logger = ctx.t.logger
     url = f"https://github.com/{repo}/releases/download/v{version}/{filename}"
