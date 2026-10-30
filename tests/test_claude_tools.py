@@ -120,6 +120,17 @@ def test_serena_is_installed_initialised_and_registered(tmp_path, on_path):
     assert machine.ran("claude", "mcp", "add", "--scope", "user", "serena")
 
 
+@pytest.mark.parametrize(("pipx_version", "fetches"), [("1.4.3\n", False), ("1.5.0\n", True), ("1.8.0\n", True), ("", True)])
+def test_serena_fetches_a_missing_python_only_where_pipx_accepts_the_flag(tmp_path, on_path, pipx_version, fetches):
+    on_path.update({"pipx", "claude"})
+    machine = Machine({("pipx", "--version"): (0, pipx_version), ("claude", "mcp", "get"): (1, "")})
+    t, _ = make(tmp_path, machine)
+    ct.configure_serena(t, "personal")
+    install = next(c for c in machine.commands if c[:2] == ["pipx", "install"])
+    assert ("--fetch-missing-python" in install) is fetches
+    assert install[-2:] == ["serena-agent", "--pip-args=--pre"]
+
+
 def test_an_initialised_and_registered_serena_is_left_alone(tmp_path, on_path):
     on_path.update({"pipx", "serena", "claude"})
     config = tmp_path / ".serena/serena_config.yml"
