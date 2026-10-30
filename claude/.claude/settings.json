@@ -18,6 +18,11 @@
       "Bash(docker manifest inspect *)",
       "Bash(jobs *)",
       "Bash(mkdocs --version)",
+      "Bash(tmux list-sessions *)",
+      "Bash(tmux ls *)",
+      "Bash(tmux capture-pane *)",
+      "Bash(shellcheck *)",
+      "Bash(docker info)",
       "mcp__serena__*"
     ],
     "ask": [

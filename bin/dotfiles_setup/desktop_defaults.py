@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import pwd
 import re
 import shutil
 from pathlib import Path
@@ -20,6 +21,11 @@ def _config_dir(home: Path) -> Path:
     if configured.is_absolute() and configured.resolve().is_relative_to(home.resolve()):
         return configured.resolve()
     return home / ".config"
+
+
+def shell_change_pending() -> bool:
+    """Reads the passwd entry, which `usermod -s` updates at once; $SHELL only changes at the next login."""
+    return pwd.getpwuid(os.getuid()).pw_shell != (shutil.which("zsh") or "/usr/bin/zsh")
 
 
 def change_shell(t: Tooling) -> None:

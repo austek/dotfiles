@@ -3,7 +3,9 @@
   "extends": ["github>austek/renovate-config"],
   "packageRules": [
     { "matchDatasources": ["docker"], "matchPackageNames": ["ubuntu"], "allowedVersions": "/^\\d{2}\\.04$/" },
-    { "matchDatasources": ["custom.antigravity-ide"], "minimumReleaseAgeBehaviour": "timestamp-optional" }
+    { "matchDatasources": ["custom.antigravity-ide"], "minimumReleaseAgeBehaviour": "timestamp-optional" },
+    { "matchDepNames": ["astral-sh/uv"], "groupName": "uv" },
+    { "matchFileNames": ["bin/dotfiles_setup/claude_tools.py"], "matchDepNames": ["python"], "allowedVersions": "<3.15" }
   ],
   "customDatasources": {
     "antigravity-ide": {
@@ -13,6 +15,14 @@
     }
   },
   "customManagers": [
+    {
+      "customType": "regex",
+      "description": "uv installer script pinned to a release in an astral.sh URL",
+      "managerFilePatterns": ["/^bin/dotfiles_setup/.+\\.py$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": ["https://astral\\.sh/uv/(?<currentValue>\\d[^/\\s\"]*)/install\\.sh"],
+      "depNameTemplate": "astral-sh/uv",
+      "datasourceTemplate": "github-releases"
+    },
     {
       "customType": "regex",
       "description": "Installer scripts pinned to a tag in a raw.githubusercontent.com URL",
@@ -67,6 +77,27 @@
       "description": "Python version passed to setup-uv",
       "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
       "matchStrings": ["python-version: '(?<currentValue>[\\d.]+)'"],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "python-version",
+      "versioningTemplate": "python"
+    },
+    {
+      "customType": "regex",
+      "description": "Python version SonarQube analyses the code as",
+      "managerFilePatterns": ["/^sonar-project\\.properties$/"],
+      "matchStrings": ["sonar\\.python\\.version=(?<currentValue>\\d+\\.\\d+)"],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "python-version",
+      "versioningTemplate": "python"
+    },
+    {
+      "customType": "regex",
+      "description": "Python interpreter pipx installs serena-agent with (command and the manual-install hint)",
+      "managerFilePatterns": ["/^bin/dotfiles_setup/claude_tools\\.py$/"],
+      "matchStrings": [
+        "\"--python\", \"(?<currentValue>\\d+\\.\\d+)\"",
+        "--python (?<currentValue>\\d+\\.\\d+) (?:--fetch-missing-python )?serena"
+      ],
       "depNameTemplate": "python",
       "datasourceTemplate": "python-version",
       "versioningTemplate": "python"
