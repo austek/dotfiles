@@ -8,11 +8,13 @@ from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 
 
-def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n"):
+def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n", system="always"):
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
     t =tools.Tooling(Logger(dry_run=dry_run, verbosity=1), home, run=lambda *a, **k: SimpleNamespace(returncode=0))
-    return flow.FlowInputs(t, tmp_path / "repo", "work", frozenset(packages.split()), None, False, "T1", euid=euid)
+    return flow.FlowInputs(
+        t, tmp_path / "repo", "work", frozenset(packages.split()), None, False, "T1", euid=euid, system=system,
+    )
 
 
 @pytest.fixture
@@ -143,6 +145,52 @@ def test_the_steps_receive_the_resolved_package_names(tmp_path, no_sudo, monkeyp
     monkeypatch.setattr(flow, "build_steps", build)
     flow.run_install(inputs(tmp_path, packages="vim\ngit\n"))
     assert seen["packages"] == frozenset({"vim", "git"})
+
+
+def _recorded_steps(monkeypatch):
+    ran = []
+    steps = [(name, lambda name=name: ran.append(name)) for name in ("install_packages", "configure_dotfiles")]
+    monkeypatch.setattr(flow, "build_steps", lambda *a: steps)
+    return ran
+
+
+def _no_sudo_prompt(monkeypatch):
+    monkeypatch.setattr(flow.SudoSession, "start", lambda self: pytest.fail("sudo must not be requested"))
+
+
+def test_auto_skips_the_system_steps_and_the_sudo_prompt_when_nothing_is_pending(tmp_path, monkeypatch):
+    ran = _recorded_steps(monkeypatch)
+    _no_sudo_prompt(monkeypatch)
+    monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: [])
+    assert flow.run_install(inputs(tmp_path, system="auto")).succeeded
+    assert ran == ["configure_dotfiles"]
+
+
+def test_auto_runs_the_system_steps_when_the_check_finds_work(tmp_path, no_sudo, monkeypatch):
+    ran = _recorded_steps(monkeypatch)
+    monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: ["2 apt package(s) not installed"])
+    assert flow.run_install(inputs(tmp_path, system="auto")).succeeded
+    assert ran == ["install_packages", "configure_dotfiles"]
+
+
+def test_always_runs_the_system_steps_without_checking(tmp_path, no_sudo, monkeypatch):
+    ran = _recorded_steps(monkeypatch)
+    monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: pytest.fail("no check when forced"))
+    assert flow.run_install(inputs(tmp_path, system="always")).succeeded
+    assert ran == ["install_packages", "configure_dotfiles"]
+
+
+def test_never_skips_the_system_steps_without_checking_or_prompting(tmp_path, monkeypatch):
+    ran = _recorded_steps(monkeypatch)
+    _no_sudo_prompt(monkeypatch)
+    monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: pytest.fail("no check when skipped"))
+    assert flow.run_install(inputs(tmp_path, system="never")).succeeded
+    assert ran == ["configure_dotfiles"]
+
+
+def test_every_root_step_is_a_known_step_name(tmp_path):
+    names = {name for name, _ in flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))}
+    assert flow.SYSTEM_STEPS <= names
 
 
 def test_the_banner_differs_for_a_dry_run(tmp_path, capsys):

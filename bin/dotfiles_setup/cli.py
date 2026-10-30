@@ -91,6 +91,16 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Overwrite ~/.claude/settings.json even if it was edited since the last install (the old file is kept as .bak-<timestamp>).",
     )
+    system_g = install_p.add_mutually_exclusive_group()
+    system_g.add_argument(
+        "--system", dest="system", action="store_const", const="always",
+        help="Always run the sudo steps (apt, snapd, apt sources, docker group, login shell).",
+    )
+    system_g.add_argument(
+        "--no-system", dest="system", action="store_const", const="never",
+        help="Skip the sudo steps and run only the user-level ones.",
+    )
+    install_p.set_defaults(system="auto")
 
 
 def _add_verbosity_flags(parser: argparse.ArgumentParser) -> None:
@@ -364,10 +374,10 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
     return rollback.RollbackContext(t, rollback.RollbackLog.for_home(t.home), plan.dotfiles_dir, plan.overlay_root)
 
 
-def _flow_inputs(logger: Logger, env: Env, plan: _Install, force: bool) -> install_flow.FlowInputs:
+def _flow_inputs(logger: Logger, env: Env, plan: _Install, args: argparse.Namespace) -> install_flow.FlowInputs:
     return install_flow.FlowInputs(
         _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.packages, plan.overlay_root,
-        force, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(),
+        args.force, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(), system=args.system,
     )
 
 
@@ -375,7 +385,7 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset)
     # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
     _write_claude_settings(logger, claude_settings, env)
-    result = install_flow.run_install(_flow_inputs(logger, env, plan, args.force))
+    result = install_flow.run_install(_flow_inputs(logger, env, plan, args))
     if not result.succeeded:
         _log_install_failure(logger, result)
         if result.rollback_pending:
