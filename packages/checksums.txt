@@ -1,7 +1,7 @@
 # Format: <sha256>  <url>
 # A download whose URL is not listed here, or whose content differs, is refused.
-# After bumping a version in github_bins.txt, record the new URL's digest:
-#   curl -fsSL <url> | sha256sum
+# After a version bump, or an upstream change to a moving URL, run `mise run pin` (`mise run pin-check` only
+# reports), then review and commit the diff: it records what each URL serves now.
 56b539a509eb2d6357cf4f575ed38c089f0e4880c95f79a70196b54f14954908  https://github.com/derailed/k9s/releases/download/v0.51.0/k9s_linux_amd64.deb
 c0f3213a3b9ccdf88b005eb91c406c1c0186fbdc3115385907d8cced6313cf41  https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_amd64.deb
 
