@@ -22,6 +22,21 @@ assert_symlink_into_repo() {
     [[ $(readlink -f "$link") == "$HOME/.dotfiles/"* ]] || fail "$link does not resolve into ~/.dotfiles"
 }
 
+source_host() {
+    grep -m1 '^URIs:' "$1" | sed -E 's|^URIs:[[:space:]]*https?://([^/[:space:]]+).*|\1|'
+}
+
+assert_source_installed() {
+    local installed=$1 tracked=$2
+    [[ -e "$installed" ]] || fail "$installed is missing although its package is selected"
+    if [[ -L "$installed" ]]; then
+        [[ $(readlink -f "$installed") == "$tracked" ]] || fail "$installed does not link to the checkout"
+    else
+        # Google Chrome's postinst replaces the stowed symlink with its own file for the same repository.
+        [[ $(source_host "$installed") == "$(source_host "$tracked")" ]] || fail "$installed points at a different host than the checkout"
+    fi
+}
+
 assert_apt_sources_follow_the_preset() {
     local sources_dir=/etc/apt/sources.list.d
     local tracked_dir="$HOME/.dotfiles/apt$sources_dir"
@@ -31,8 +46,7 @@ assert_apt_sources_follow_the_preset() {
         file=${pair#*:}
         [[ -f "$tracked_dir/$file" ]] || fail "tracked source $file is missing from the checkout"
         if grep -qx "$package" "$forked"; then
-            [[ -L "$sources_dir/$file" ]] || fail "$file is not linked although '$package' is selected"
-            [[ $(readlink -f "$sources_dir/$file") == "$tracked_dir/$file" ]] || fail "$file does not link to the checkout"
+            assert_source_installed "$sources_dir/$file" "$tracked_dir/$file"
         else
             [[ ! -e "$sources_dir/$file" && ! -L "$sources_dir/$file" ]] || fail "$file is linked although '$package' is not selected"
         fi
