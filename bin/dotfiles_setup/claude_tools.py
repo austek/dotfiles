@@ -11,8 +11,8 @@ from dotfiles_setup.tooling import Tooling, dry_run_all
 from dotfiles_setup.vendor_installers import run_vendor_script
 
 RTK_INSTALL_URL = "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh"
-SERENA_INSTALL = ["pipx", "install", "--python", "3.13", "--fetch-missing-python", "serena-agent", "--pip-args=--pre"]
-SERENA_INSTALL_TEXT = 'pipx install --python 3.13 --fetch-missing-python serena-agent --pip-args="--pre"'
+SERENA_INSTALL = ["pipx", "install", "--python", "3.14", "--fetch-missing-python", "serena-agent", "--pip-args=--pre"]
+SERENA_INSTALL_TEXT = 'pipx install --python 3.14 --fetch-missing-python serena-agent --pip-args="--pre"'
 PIPX_FETCH_MISSING_PYTHON_MIN = (1, 5)
 JDTLS_ENABLED = '"annotationProcessing": {"enabled": True}'
 JDTLS_DISABLED = '"annotationProcessing": {"enabled": False}'
