@@ -97,6 +97,7 @@ def main(argv: Sequence[str] | None = None, path: Path = DEFAULT_PATH, fetch: Fe
     _report(pins)
     stale, failed = [p for p in pins if p.stale], [p for p in pins if p.error]
     if not args.check and stale:
-        path.write_text(new_text)
+        with path.open("w") as handle:
+            handle.write(new_text)
         print(f"Re-recorded {len(stale)} digest(s). Review `git diff {path}`: this trusts what the URLs serve now.")
     return 1 if failed or (args.check and stale) else 0
