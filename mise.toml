@@ -44,6 +44,14 @@ description = "Install a preset twice in a container and assert the result"
 usage = 'arg "<preset>" default="homelab" help="work, personal or homelab"'
 run = 'docker compose -f e2e/compose.yaml run --rm --build "${usage_preset}"'
 
+[tasks.pin]
+description = "Re-record stale digests in packages/checksums.txt (extra args filter by URL); review the git diff"
+run = "python3 -I scripts/pin_checksums.py"
+
+[tasks.pin-check]
+description = "Report stale digests in packages/checksums.txt without changing it"
+run = "python3 -I scripts/pin_checksums.py --check"
+
 [tasks.check-python]
 description = "The Python CLI job: lint, test, smoke-test and the completions checks"
 depends = ["lint-python", "test", "smoke", "completions"]
