@@ -115,7 +115,7 @@ def test_serena_is_installed_initialised_and_registered(tmp_path, on_path):
     machine = Machine({("claude", "mcp", "get"): (1, "")})
     t, _ = make(tmp_path, machine)
     ct.configure_serena(t, "personal")
-    assert machine.ran("pipx", "install", "--python", "3.13", "--fetch-missing-python", "serena-agent", "--pip-args=--pre")
+    assert machine.ran(*ct.SERENA_INSTALL)
     assert machine.ran("serena", "init")
     assert machine.ran("claude", "mcp", "add", "--scope", "user", "serena")
 
