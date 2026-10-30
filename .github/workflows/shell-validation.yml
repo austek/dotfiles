@@ -25,20 +25,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install shellcheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
+      - name: Install the pinned tools
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: '2026.10.24'
+          install_args: shellcheck
 
-      - name: Run shell script validation
-        run: |
-          chmod +x scripts/validate-shell.sh
-          ./scripts/validate-shell.sh
-
-      - name: Check for machine-specific paths
-        run: |
-          chmod +x scripts/validate-no-machine-paths.sh
-          ./scripts/validate-no-machine-paths.sh
+      - name: Validate shell scripts and check for machine-specific paths
+        run: mise run lint-shell
 
   python:
     name: Validate Python CLI
@@ -51,40 +45,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: '0.13.6'
-          python-version: '3.15'
-          enable-cache: true
-
-      - name: Install dev dependencies
-        run: uv sync --dev --locked --no-build
-
-      - name: Lint with ruff
-        run: uv run --locked --no-build ruff check .
-
-      - name: Install zsh and shellcheck
+      - name: Install zsh
         run: |
           sudo apt-get update
-          sudo apt-get install -y zsh shellcheck
+          sudo apt-get install -y zsh
 
-      - name: Run pytest with coverage
-        run: uv run --locked --no-build pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=75 -v
+      - name: Install the pinned tools
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: '2026.10.24'
 
-      - name: Smoke-test the CLI entry points
-        run: |
-          ./bin/dotfiles-setup install --preset work --dry-run
-          ./bin/dotfiles-backup --help
-
-      - name: Syntax-check zsh completions
-        run: |
-          zsh -n zsh/.config/zsh/completions/_dotfiles-setup
-          zsh -n zsh/.config/zsh/completions/_dotfiles-backup
-
-      - name: Syntax-check and lint bash completions
-        run: |
-          bash -n bash/.local/share/bash-completion/completions/dotfiles-setup
-          bash -n bash/.local/share/bash-completion/completions/dotfiles-backup
-          shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dotfiles-setup
-          shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dotfiles-backup
+      - name: Lint, test, smoke-test and check the completions
+        run: mise run check-python

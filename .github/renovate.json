@@ -4,7 +4,7 @@
   "packageRules": [
     { "matchDatasources": ["docker"], "matchPackageNames": ["ubuntu"], "allowedVersions": "/^\\d{2}\\.04$/" },
     { "matchDatasources": ["custom.antigravity-ide"], "minimumReleaseAgeBehaviour": "timestamp-optional" },
-    { "matchDepNames": ["astral-sh/uv"], "groupName": "uv" },
+    { "matchDepNames": ["astral-sh/uv", "uv"], "groupName": "uv" },
     { "matchFileNames": ["bin/dotfiles_setup/claude_tools.py"], "matchDepNames": ["python"], "allowedVersions": "<3.15" }
   ],
   "customDatasources": {

@@ -1,0 +1,53 @@
+[tools]
+python = "3.15"
+shellcheck = "0.11.0"
+uv = "0.13.6"
+
+[env]
+UV_NO_BUILD = "1"
+
+[tasks.sync]
+description = "Install the dev dependencies from uv.lock"
+run = "uv sync --dev --locked"
+
+[tasks.lint-shell]
+description = "shellcheck every shell script and check for machine-specific home paths"
+run = ["bash scripts/validate-shell.sh", "bash scripts/validate-no-machine-paths.sh"]
+
+[tasks.lint-python]
+description = "ruff"
+depends = ["sync"]
+run = "uv run --locked ruff check ."
+
+[tasks.test]
+description = "pytest with the coverage gate"
+depends = ["sync"]
+run = "uv run --locked pytest --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=75 -v"
+
+[tasks.smoke]
+description = "Run the CLI entry points"
+run = ["./bin/dotfiles-setup install --preset work --dry-run", "./bin/dotfiles-backup --help"]
+
+[tasks.completions]
+description = "Syntax-check the zsh and bash completions"
+run = [
+  "zsh -n zsh/.config/zsh/completions/_dotfiles-setup",
+  "zsh -n zsh/.config/zsh/completions/_dotfiles-backup",
+  "bash -n bash/.local/share/bash-completion/completions/dotfiles-setup",
+  "bash -n bash/.local/share/bash-completion/completions/dotfiles-backup",
+  "shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dotfiles-setup",
+  "shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dotfiles-backup",
+]
+
+[tasks.e2e]
+description = "Install a preset twice in a container and assert the result"
+usage = 'arg "<preset>" default="homelab" help="work, personal or homelab"'
+run = 'docker compose -f e2e/compose.yaml run --rm --build "${usage_preset}"'
+
+[tasks.check-python]
+description = "The Python CLI job: lint, test, smoke-test and the completions checks"
+depends = ["lint-python", "test", "smoke", "completions"]
+
+[tasks.ci]
+description = "Everything the pull-request checks run, except the container e2e"
+depends = ["lint-shell", "check-python"]

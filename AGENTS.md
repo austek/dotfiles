@@ -87,6 +87,11 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - `install` splits into a user stage and a system stage. The system stage is the steps in `install_flow.SYSTEM_STEPS` (apt, snapd, apt sources, GitHub `.deb`s, docker group, login shell, default terminal); only it needs sudo. By default `system_check.system_stage_reasons` decides, read-only, whether it has anything left to do and the sudo prompt is skipped when it does not. `--system` forces the stage, `--no-system` skips it. A new sudo step must be added to `SYSTEM_STEPS`, and to `system_check` if its state can be checked without root.
 - Steps that change the system record what they did in `~/.dotfiles-setup-rollback.log` (`RollbackLog.track`); a failed install offers to undo them via `rollback.py`. A new step that touches system state must record its undo entry there.
 
+### Development Tasks
+- `mise.toml` pins the dev tools (`python`, `uv`, `shellcheck`) and defines the tasks CI runs: `mise run lint-shell`, `lint-python`, `test`, `smoke`, `completions`, `check-python`, `ci`, and `e2e <preset>` for the container install. CI calls these tasks, so a local `mise run ci` reproduces it.
+- `mise` is a developer and CI dependency only. `dotfiles-setup` must keep working on a bare machine without it, and the machine's own tools are still installed by `dotfiles-setup`, not `mise`.
+- Renovate bumps the `mise.toml` pins; `uv` is grouped with the installer URL in `vendor_installers.py`, whose digest in `packages/checksums.txt` is re-recorded by hand.
+
 ### Saving Changes
 - Use the provided `dotfiles-backup save` command to save changes.
 - This helper script automatically stages changes, commits them with a standard message, pushes the current branch (creating `backup/<timestamp>` when on `main`), and opens a PR if none exists. `main` is protected (PR + CI required); never push to it directly.
