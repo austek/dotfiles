@@ -85,10 +85,38 @@ def test_check_passes_when_every_digest_is_current(tmp_path):
     assert pc.main(["--check"], path, serving(**{URL_A: b"a", URL_B: b"b"})) == 0
 
 
-@pytest.mark.parametrize("line", ["", "# only a comment", "not-a-digest  https://example.test/x"])
-def test_lines_that_are_not_digest_entries_are_never_touched(line):
+@pytest.mark.parametrize("line", ["", "   ", "# only a comment", "  # an indented comment"])
+def test_blank_and_comment_lines_are_never_touched_or_reported(line):
     text = f"{line}\n"
     assert pc.pin_text(text, [], serving()) == (text, [])
+
+
+@pytest.mark.parametrize("line", ["not-a-digest  https://example.test/x", f"{digest(b'x').upper()}  https://example.test/x"])
+def test_a_malformed_entry_is_reported_as_an_error_and_left_untouched(line):
+    text = f"{line}\n"
+    new_text, pins = pc.pin_text(text, [], serving())
+    assert new_text == text
+    assert [(p.url, bool(p.error)) for p in pins] == [(line, True)]
+
+
+def test_check_fails_on_a_malformed_entry_even_when_every_digest_is_current(tmp_path, capsys):
+    path = tmp_path / "checksums.txt"
+    path.write_text(f"{digest(b'a')}  {URL_A}\noops  {URL_B}\n")
+    assert pc.main(["--check"], path, serving(**{URL_A: b"a"})) == 1
+    assert f"ERROR  oops  {URL_B}" in capsys.readouterr().out
+
+
+def test_a_filter_also_limits_which_malformed_entries_are_reported():
+    text = f"{digest(b'a')}  {URL_A}\noops  {URL_B}\n"
+    _, pins = pc.pin_text(text, ["a/install"], serving(**{URL_A: b"a"}))
+    assert [p.url for p in pins] == [URL_A]
+
+
+def test_an_indented_entry_is_checked_and_rewritten_like_the_loader_reads_it():
+    text = f"  {digest(b'old')}  {URL_A}\n"
+    new_text, pins = pc.pin_text(text, [], serving(**{URL_A: b"new"}))
+    assert new_text == f"  {digest(b'new')}  {URL_A}\n"
+    assert [p.stale for p in pins] == [True]
 
 
 def test_the_real_checksums_file_parses_into_entries():

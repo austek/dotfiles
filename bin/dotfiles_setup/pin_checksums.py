@@ -14,7 +14,7 @@ from dotfiles_setup.checksums import FILE_NAME
 from dotfiles_setup.tooling import fetch_bytes_https
 
 DEFAULT_PATH = Path(__file__).resolve().parents[2] / "packages" / FILE_NAME
-_LINE = re.compile(r"^(?P<digest>[0-9a-f]{64})\s+(?P<url>\S+)")
+_LINE = re.compile(r"^\s*(?P<digest>[0-9a-f]{64})\s+(?P<url>\S+)")
 
 Fetch = Callable[[str], bytes]
 
@@ -42,17 +42,32 @@ def _wanted(url: str, filters: Sequence[str]) -> bool:
     return not filters or any(part in url for part in filters)
 
 
+def _malformed(line: str, filters: Sequence[str]) -> Pin | None:
+    """The loader ignores such a line, so the installer would later refuse its URL as having no digest."""
+    entry = line.partition("#")[0].strip()
+    if not entry or not _wanted(entry, filters):
+        return None
+    return Pin(entry, "", None, "not a '<sha256>  <url>' entry")
+
+
+def _pin_line(line: str, filters: Sequence[str], fetch: Fetch) -> tuple[str, Pin | None]:
+    match = _LINE.match(line)
+    if match is None:
+        return line, _malformed(line, filters)
+    if not _wanted(match["url"], filters):
+        return line, None
+    pin = _measure(match["url"], match["digest"], fetch)
+    return (line.replace(pin.recorded, pin.actual, 1) if pin.stale and pin.actual else line), pin
+
+
 def pin_text(text: str, filters: Sequence[str], fetch: Fetch) -> tuple[str, list[Pin]]:
     pins: list[Pin] = []
     lines: list[str] = []
     for line in text.splitlines(keepends=True):
-        match = _LINE.match(line)
-        if match is None or not _wanted(match["url"], filters):
-            lines.append(line)
-            continue
-        pin = _measure(match["url"], match["digest"], fetch)
-        pins.append(pin)
-        lines.append(line.replace(pin.recorded, pin.actual, 1) if pin.stale and pin.actual else line)
+        new_line, pin = _pin_line(line, filters, fetch)
+        lines.append(new_line)
+        if pin is not None:
+            pins.append(pin)
     return "".join(lines), pins
 
 
