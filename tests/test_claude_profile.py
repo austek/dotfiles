@@ -46,6 +46,18 @@ def test_the_generated_profile_files_and_their_empty_directory_are_removed(tmp_p
     assert not profiles.exists()
 
 
+def test_a_symlinked_profile_directory_is_left_in_place(tmp_path):
+    t, home = make(tmp_path)
+    real = tmp_path / "real-profiles"
+    write(real / "claude_work.json", "{}")
+    link = home / ".config/dotfiles/claude-profiles"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(real)
+    cp.retire_claude_profile(t)
+    assert link.is_symlink()
+    assert not (real / "claude_work.json").exists()
+
+
 def test_a_profile_directory_holding_other_files_is_kept(tmp_path):
     t, home = make(tmp_path)
     profiles = home / ".config/dotfiles/claude-profiles"

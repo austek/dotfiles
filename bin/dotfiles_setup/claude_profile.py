@@ -29,7 +29,7 @@ def _remove_profiles(profile_dir: Path) -> list[Path]:
     removed = [profile_dir / name for name in GENERATED_PROFILES if (profile_dir / name).is_file()]
     for profile in removed:
         profile.unlink()
-    if profile_dir.is_dir() and not any(profile_dir.iterdir()):
+    if profile_dir.is_dir() and not profile_dir.is_symlink() and not any(profile_dir.iterdir()):
         profile_dir.rmdir()
     return removed
 
