@@ -13,6 +13,7 @@ from dotfiles_setup.vendor_installers import run_vendor_script
 RTK_INSTALL_URL = "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh"
 SERENA_INSTALL = ["pipx", "install", "--python", "3.13", "--fetch-missing-python", "serena-agent", "--pip-args=--pre"]
 SERENA_INSTALL_TEXT = 'pipx install --python 3.13 --fetch-missing-python serena-agent --pip-args="--pre"'
+PIPX_FETCH_MISSING_PYTHON_MIN = (1, 5)
 JDTLS_ENABLED = '"annotationProcessing": {"enabled": True}'
 JDTLS_DISABLED = '"annotationProcessing": {"enabled": False}'
 CAVEMAN_INSTALL = ["npm", "install", "-g", "--ignore-scripts", "@caveman-ai/cli"]
@@ -78,12 +79,21 @@ def _report_cozempic(t: Tooling) -> None:
         t.logger.success(f"cozempic CLI installed ({_version_of(t, found)}).")
 
 
+def _serena_install_argv(t: Tooling) -> list[str]:
+    """pipx rejects --fetch-missing-python before 1.5; an unreadable version keeps the flag."""
+    out = t.run(["pipx", "--version"], capture_output=True, text=True).stdout or ""
+    version = re.match(r"(\d+)\.(\d+)", out.strip())
+    if version and (int(version[1]), int(version[2])) < PIPX_FETCH_MISSING_PYTHON_MIN:
+        return [arg for arg in SERENA_INSTALL if arg != "--fetch-missing-python"]
+    return SERENA_INSTALL
+
+
 def _ensure_serena_cli(t: Tooling) -> bool:
     if shutil.which("serena") is not None:
         t.logger.success(f"Serena CLI already installed ({_version_of(t, 'serena', first_line=True)}).")
     elif not dry_run_all(t, f"Would install Serena via: {SERENA_INSTALL_TEXT}"):
         t.logger.info("Serena CLI not found; installing...")
-        if t.run(SERENA_INSTALL).returncode != 0:
+        if t.run(_serena_install_argv(t)).returncode != 0:
             t.logger.error(f"Failed to install serena-agent via pipx. Install it manually: {SERENA_INSTALL_TEXT}")
             return False
         t.logger.success("Serena CLI installed.")
