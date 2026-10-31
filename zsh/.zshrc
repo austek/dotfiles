@@ -73,6 +73,8 @@ path_append "$HOME/.krew/bin"
 path_append "/usr/local/go/bin"
 # --- END PATH ---
 
+alias claude='claude-tmux main claude'
+
 # --- LOAD SECRET/MANUAL OVERRIDES ---
 # Optional shell-only overrides (aliases, functions). Env-var secrets belong in ~/.config/dotfiles/secrets.env.
 # It is NOT in the git repo.
