@@ -21,7 +21,10 @@ _dotfiles_setup_completions() {
             elif [[ "$cur" == --preset=* ]]; then
                 COMPREPLY=($(compgen -P "--preset=" -W "$(_dotfiles_setup_presets)" -- "${cur#--preset=}"))
             else
-                COMPREPLY=($(compgen -W "--preset --dry-run -v --verbose -vv -vvv --reconfigure --force --accept-drift -h --help" -- "$cur"))
+                local flags="--preset --dry-run -v --verbose -vv -vvv --reconfigure --force --accept-drift -h --help"
+                [[ " ${COMP_WORDS[*]} " != *" --no-system "* ]] && flags+=" --system"
+                [[ " ${COMP_WORDS[*]} " != *" --system "* ]] && flags+=" --no-system"
+                COMPREPLY=($(compgen -W "$flags" -- "$cur"))
             fi
             ;;
         private)

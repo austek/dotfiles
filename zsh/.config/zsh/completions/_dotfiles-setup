@@ -28,6 +28,8 @@ case $state in
           '--reconfigure[re-prompt for git identity even if already configured]' \
           '--force[back up files that block stow and stow anyway]' \
           '--accept-drift[overwrite settings.json even if edited since last install]' \
+          '(--no-system)--system[always run the sudo steps]' \
+          '(--system)--no-system[skip the sudo steps]' \
           '(-h --help)'{-h,--help}'[show help message]'
         ;;
       private)
