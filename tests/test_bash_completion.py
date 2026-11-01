@@ -39,8 +39,17 @@ def test_completes_preset_when_bash_splits_the_equals_sign():
 def test_omits_the_opposite_system_flag_once_one_is_typed():
     after_system = _complete(["dotfiles-setup", "install", "--system", "--"], 3)
     after_no_system = _complete(["dotfiles-setup", "install", "--no-system", "--"], 3)
-    assert "--system" in after_system and "--no-system" not in after_system
-    assert "--no-system" in after_no_system and "--system" not in after_no_system
+    assert "--system" in after_system
+    assert "--no-system" not in after_system
+    assert "--no-system" in after_no_system
+    assert "--system" not in after_no_system
+
+
+def test_keeps_both_system_flags_when_the_text_sits_inside_one_quoted_word():
+    words = ["dotfiles-setup", "install", "--preset", "team --system notes", "--"]
+    offered = _complete(words, 4)
+    assert "--system" in offered
+    assert "--no-system" in offered
 
 
 def test_completes_nothing_unexpected_for_bare_dash():
