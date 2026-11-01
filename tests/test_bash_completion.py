@@ -36,6 +36,13 @@ def test_completes_preset_when_bash_splits_the_equals_sign():
     assert sorted(_complete(["dotfiles-setup", "install", "--preset", "="], 3)) == ["homelab", "personal", "work"]
 
 
+def test_omits_the_opposite_system_flag_once_one_is_typed():
+    after_system = _complete(["dotfiles-setup", "install", "--system", "--"], 3)
+    after_no_system = _complete(["dotfiles-setup", "install", "--no-system", "--"], 3)
+    assert "--system" in after_system and "--no-system" not in after_system
+    assert "--no-system" in after_no_system and "--system" not in after_no_system
+
+
 def test_completes_nothing_unexpected_for_bare_dash():
     completions = _complete(["dotfiles-setup", "install", "-"], 2)
     assert set(completions) == {"-v", "--verbose", "-vv", "-vvv", "-h", "--help", "--preset", "--dry-run", "--reconfigure", "--force", "--accept-drift", "--system", "--no-system"}
