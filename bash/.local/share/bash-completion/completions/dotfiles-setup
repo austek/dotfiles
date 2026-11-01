@@ -6,6 +6,18 @@ _dotfiles_setup_presets() {
     echo "${names:-work personal homelab}"
 }
 
+_dotfiles_setup_install_flags() {
+    local flags="--preset --dry-run -v --verbose -vv -vvv --reconfigure --force --accept-drift -h --help"
+    local word system=1 no_system=1
+    for word in "${COMP_WORDS[@]}"; do
+        [[ "$word" == "--system" ]] && no_system=0
+        [[ "$word" == "--no-system" ]] && system=0
+    done
+    (( system )) && flags+=" --system"
+    (( no_system )) && flags+=" --no-system"
+    echo "$flags"
+}
+
 _dotfiles_setup_completions() {
     local cur prev
     COMPREPLY=()
@@ -21,10 +33,7 @@ _dotfiles_setup_completions() {
             elif [[ "$cur" == --preset=* ]]; then
                 COMPREPLY=($(compgen -P "--preset=" -W "$(_dotfiles_setup_presets)" -- "${cur#--preset=}"))
             else
-                local flags="--preset --dry-run -v --verbose -vv -vvv --reconfigure --force --accept-drift -h --help"
-                [[ " ${COMP_WORDS[*]} " != *" --no-system "* ]] && flags+=" --system"
-                [[ " ${COMP_WORDS[*]} " != *" --system "* ]] && flags+=" --no-system"
-                COMPREPLY=($(compgen -W "$flags" -- "$cur"))
+                COMPREPLY=($(compgen -W "$(_dotfiles_setup_install_flags)" -- "$cur"))
             fi
             ;;
         private)
