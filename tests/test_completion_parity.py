@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from _completion import complete
-
 from dotfiles_setup.cli import build_arg_parser
 
 ZSH = (
@@ -37,7 +36,7 @@ def _options(parser: argparse.ArgumentParser) -> set[str]:
 
 def _zsh_block(command: str) -> str:
     name = command.split()[0]
-    match = re.search(rf"^      {name}\)\n(.*?)(?=^      \w+\)\n|\Z)", ZSH, re.S | re.M)
+    match = re.search(rf"^      {name}\)\n(.*?)(?=^      \w+\)\n|\Z)", ZSH, re.DOTALL | re.MULTILINE)
     assert match, f"zsh completion has no block for '{name}'"
     return match.group(1)
 
