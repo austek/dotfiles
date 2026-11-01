@@ -1,13 +1,15 @@
 import argparse
+import re
 from pathlib import Path
 
 import pytest
+from _completion import complete
 
 from dotfiles_setup.cli import build_arg_parser
 
-ROOT = Path(__file__).resolve().parent.parent
-ZSH = (ROOT / "zsh/.config/zsh/completions/_dotfiles-setup").read_text(encoding="utf-8")
-BASH = (ROOT / "bash/.local/share/bash-completion/completions/dotfiles-setup").read_text(encoding="utf-8")
+ZSH = (
+    Path(__file__).resolve().parent.parent / "zsh/.config/zsh/completions/_dotfiles-setup"
+).read_text(encoding="utf-8")
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
@@ -33,10 +35,29 @@ def _options(parser: argparse.ArgumentParser) -> set[str]:
     return {opt for action in parser._actions for opt in action.option_strings}
 
 
+def _zsh_block(command: str) -> str:
+    name = command.split()[0]
+    match = re.search(rf"^      {name}\)\n(.*?)(?=^      \w+\)\n|\Z)", ZSH, re.S | re.M)
+    assert match, f"zsh completion has no block for '{name}'"
+    return match.group(1)
+
+
+def _zsh_declares(block: str, option: str) -> bool:
+    return re.search(rf"(?<![\w-]){re.escape(option)}[,}}]?'?\[", block) is not None or (
+        re.search(rf"[{{,]{re.escape(option)}[,}}]", block) is not None
+    )
+
+
 @pytest.mark.parametrize("command", sorted(_leaf_parsers()))
-def test_every_parser_option_is_completed(command: str):
-    options = _options(_leaf_parsers()[command])
-    missing_bash = {opt for opt in options if f"{opt} " not in BASH and f"{opt}\"" not in BASH}
-    missing_zsh = {opt for opt in options if opt not in ZSH}
-    assert not missing_bash, f"bash completion lacks {sorted(missing_bash)} for '{command}'"
-    assert not missing_zsh, f"zsh completion lacks {sorted(missing_zsh)} for '{command}'"
+def test_bash_completes_every_parser_option(command: str):
+    words = ["dotfiles-setup", *command.split(), "-"]
+    offered = set(complete("dotfiles-setup", "_dotfiles_setup_completions", words, len(words) - 1))
+    missing = _options(_leaf_parsers()[command]) - offered
+    assert not missing, f"bash completion lacks {sorted(missing)} for '{command}'"
+
+
+@pytest.mark.parametrize("command", sorted(_leaf_parsers()))
+def test_zsh_declares_every_parser_option(command: str):
+    block = _zsh_block(command)
+    missing = {opt for opt in _options(_leaf_parsers()[command]) if not _zsh_declares(block, opt)}
+    assert not missing, f"zsh completion lacks {sorted(missing)} for '{command}'"
