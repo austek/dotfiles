@@ -1,5 +1,6 @@
 """Commit dotfiles changes to a branch and open a pull request.
 
+`save` also backs up the private overlay when it is a separate git repo.
 `save` never pushes to main. It stays on the backup branch because stowed configs symlink into this checkout."""
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from dotfiles_setup.overlay import find_overlay_root
 from git_ops import (
     RunFn,
     claude_settings_changed,
@@ -84,11 +86,27 @@ def _save_steps(dotfiles_dir: Path, branch: str, run: RunFn) -> list[list[str]]:
     return steps
 
 
+def _private_git_root(public_root: Path) -> Path | None:
+    root = find_overlay_root()
+    is_separate_repo = root is not None and (root / ".git").exists() and root.resolve() != public_root.resolve()
+    return root if is_separate_repo else None
+
+
 def _run_save(run: RunFn = subprocess.run, now: Callable[[], datetime] = datetime.now) -> int:
-    dotfiles_dir = repo_root()
-    error = _preflight_error(dotfiles_dir, run)
-    if error:
-        return _abort(error)
+    public_root = repo_root()
+    codes = [_save_repo(public_root, run, now, _preflight_error(public_root, run))]
+    private_root = _private_git_root(public_root)
+    if private_root is not None:
+        print(f"Backing up private overlay: {private_root}")
+        codes.append(_save_repo(private_root, run, now, None))
+    return max(codes)
+
+
+def _save_repo(
+    dotfiles_dir: Path, run: RunFn, now: Callable[[], datetime], preflight_error: str | None
+) -> int:
+    if preflight_error:
+        return _abort(preflight_error)
     if not has_changes(dotfiles_dir, run=run):
         print("Nothing to back up.")
         return 0
