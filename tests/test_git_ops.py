@@ -22,6 +22,11 @@ def test_has_changes_false_for_blank_or_none_output():
     assert git_ops.has_changes(Path("/r"), run=_runner(None)) is False
 
 
+def test_status_failed_reflects_exit_status():
+    assert git_ops.status_failed(Path("/r"), run=_runner(returncode=128)) is True
+    assert git_ops.status_failed(Path("/r"), run=_runner(returncode=0)) is False
+
+
 def test_claude_settings_changed_scopes_status_to_settings_file():
     calls = []
     assert git_ops.claude_settings_changed(Path("/r"), run=_runner(" M x", calls=calls)) is True

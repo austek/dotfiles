@@ -5,6 +5,83 @@ import pytest
 from dotfiles_backup import build_arg_parser, main
 
 
+@pytest.fixture(autouse=True)
+def no_overlay(monkeypatch, tmp_path):
+    monkeypatch.setenv("DOTFILES_PRIVATE_ROOT", str(tmp_path / "absent"))
+
+
+@pytest.fixture
+def private_repo(monkeypatch, tmp_path):
+    root = tmp_path / "private"
+    (root / ".git").mkdir(parents=True)
+    monkeypatch.setenv("DOTFILES_PRIVATE_ROOT", str(root))
+    return root
+
+
+def test_backs_up_private_overlay_in_its_own_repo(private_repo):
+    calls = []
+
+    def run(argv, cwd=None, **kwargs):
+        calls.append((argv, cwd))
+        return fake_run()(argv, cwd=cwd, **kwargs)
+
+    assert main(["save"], run=run, now=fixed_now) == 0
+    private = [argv for argv, cwd in calls if cwd == private_repo]
+    assert ["git", "commit", "-m", "chore: update configs and package lists"] in private
+    assert ["gh", "pr", "create", "--base", "main", "--fill"] in private
+    assert not any("validate-no-machine-paths.sh" in argv[0] for argv in private)
+
+
+def test_private_backup_runs_after_public_failure(private_repo, capsys):
+    cwds = []
+
+    def run(argv, cwd=None, **kwargs):
+        cwds.append(cwd)
+        return fake_run(fail=["git", "commit"] if cwd != private_repo else None)(argv, cwd=cwd, **kwargs)
+
+    assert main(["save"], run=run, now=fixed_now) == 1
+    assert private_repo in cwds
+
+
+def test_private_backup_runs_after_public_exception(private_repo, capsys):
+    cwds = []
+
+    def run(argv, cwd=None, **kwargs):
+        cwds.append(cwd)
+        if cwd != private_repo and argv[:2] == ["git", "commit"]:
+            raise FileNotFoundError("git")
+        return fake_run()(argv, cwd=cwd, **kwargs)
+
+    assert main(["save"], run=run, now=fixed_now) == 1
+    assert private_repo in cwds
+    assert "failed" in capsys.readouterr().err
+
+
+def test_git_status_failure_aborts_instead_of_reporting_clean(capsys):
+    def run(argv, cwd=None, **kwargs):
+        code = 128 if argv[:2] == ["git", "status"] and "--" not in argv else 0
+        return subprocess.CompletedProcess(argv, code, stdout="")
+
+    assert main(["save"], run=run, now=fixed_now) == 1
+    captured = capsys.readouterr()
+    assert "git status" in captured.err
+    assert "Nothing to back up" not in captured.out
+
+
+def test_overlay_without_git_dir_is_skipped(monkeypatch, tmp_path):
+    root = tmp_path / "bare"
+    root.mkdir()
+    monkeypatch.setenv("DOTFILES_PRIVATE_ROOT", str(root))
+    cwds = []
+
+    def run(argv, cwd=None, **kwargs):
+        cwds.append(cwd)
+        return fake_run()(argv, cwd=cwd, **kwargs)
+
+    assert main(["save"], run=run, now=fixed_now) == 0
+    assert root not in cwds
+
+
 def test_aborts_when_machine_paths_invalid(capsys):
     def run(argv, cwd=None, **kwargs):
         if "validate-no-machine-paths.sh" in argv[0]:

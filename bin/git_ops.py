@@ -22,6 +22,10 @@ def claude_settings_changed(repo: Path, run: RunFn = subprocess.run) -> bool:
     return bool(_git_output(repo, ["git", "status", "--porcelain", "--", SETTINGS_PATH], run))
 
 
+def status_failed(repo: Path, run: RunFn = subprocess.run) -> bool:
+    return run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).returncode != 0
+
+
 def has_changes(repo: Path, run: RunFn = subprocess.run) -> bool:
     return bool(_git_output(repo, ["git", "status", "--porcelain"], run))
 
