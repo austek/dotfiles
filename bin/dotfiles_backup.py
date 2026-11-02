@@ -19,6 +19,7 @@ from git_ops import (
     current_branch,
     has_changes,
     pr_exists,
+    status_failed,
 )
 
 DEFAULT_BRANCH = "main"
@@ -94,12 +95,19 @@ def _private_git_root(public_root: Path) -> Path | None:
 
 def _run_save(run: RunFn = subprocess.run, now: Callable[[], datetime] = datetime.now) -> int:
     public_root = repo_root()
-    codes = [_save_repo(public_root, run, now, _preflight_error(public_root, run))]
+    codes = [_guarded(public_root, lambda: _save_repo(public_root, run, now, _preflight_error(public_root, run)))]
     private_root = _private_git_root(public_root)
     if private_root is not None:
         print(f"Backing up private overlay: {private_root}")
-        codes.append(_save_repo(private_root, run, now, None))
+        codes.append(_guarded(private_root, lambda: _save_repo(private_root, run, now, None)))
     return max(codes)
+
+
+def _guarded(repo: Path, save: Callable[[], int]) -> int:
+    try:
+        return save()
+    except (OSError, subprocess.SubprocessError) as exc:
+        return _abort(f"Aborting: backup of {repo} failed: {exc}")
 
 
 def _save_repo(
@@ -107,6 +115,8 @@ def _save_repo(
 ) -> int:
     if preflight_error:
         return _abort(preflight_error)
+    if status_failed(dotfiles_dir, run=run):
+        return _abort("Aborting: `git status` failed.")
     if not has_changes(dotfiles_dir, run=run):
         print("Nothing to back up.")
         return 0

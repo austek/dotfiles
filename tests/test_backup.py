@@ -43,6 +43,31 @@ def test_private_backup_runs_after_public_failure(private_repo, capsys):
     assert private_repo in cwds
 
 
+def test_private_backup_runs_after_public_exception(private_repo, capsys):
+    cwds = []
+
+    def run(argv, cwd=None, **kwargs):
+        cwds.append(cwd)
+        if cwd != private_repo and argv[:2] == ["git", "commit"]:
+            raise FileNotFoundError("git")
+        return fake_run()(argv, cwd=cwd, **kwargs)
+
+    assert main(["save"], run=run, now=fixed_now) == 1
+    assert private_repo in cwds
+    assert "failed" in capsys.readouterr().err
+
+
+def test_git_status_failure_aborts_instead_of_reporting_clean(capsys):
+    def run(argv, cwd=None, **kwargs):
+        code = 128 if argv[:2] == ["git", "status"] and "--" not in argv else 0
+        return subprocess.CompletedProcess(argv, code, stdout="")
+
+    assert main(["save"], run=run, now=fixed_now) == 1
+    captured = capsys.readouterr()
+    assert "git status" in captured.err
+    assert "Nothing to back up" not in captured.out
+
+
 def test_overlay_without_git_dir_is_skipped(monkeypatch, tmp_path):
     root = tmp_path / "bare"
     root.mkdir()
