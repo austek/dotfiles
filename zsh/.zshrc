@@ -74,6 +74,7 @@ path_append "/usr/local/go/bin"
 # --- END PATH ---
 
 alias claude='claude-tmux main claude'
+alias claude-chrome='CLAUDE_CONFIG_DIR=~/.claude-chrome claude --chrome'
 
 # --- LOAD SECRET/MANUAL OVERRIDES ---
 # Optional shell-only overrides (aliases, functions). Env-var secrets belong in ~/.config/dotfiles/secrets.env.
