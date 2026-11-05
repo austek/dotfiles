@@ -62,6 +62,12 @@
       "Bash(git push *:master*)",
       "Bash(git push *refs/heads/main*)",
       "Bash(git push *refs/heads/master*)",
+      "Bash(rtk git push * main*)",
+      "Bash(rtk git push * master*)",
+      "Bash(rtk git push *:main*)",
+      "Bash(rtk git push *:master*)",
+      "Bash(rtk git push *refs/heads/main*)",
+      "Bash(rtk git push *refs/heads/master*)",
       "Bash(rm -rf /)",
       "Bash(rm -rf ~/*)"
     ],

@@ -37,7 +37,7 @@ def unit_name(preset_name: str) -> str:
 def _launch_command(preset_name: str) -> str:
     tmux = session_name(preset_name)
     return (
-        f'tmux has-session -t {tmux} 2>/dev/null || exec tmux new-session -d -s {tmux} -c "%h/Workspace" '
+        f'tmux has-session -t ={tmux} 2>/dev/null || exec tmux new-session -d -s {tmux} -c "%h/Workspace" '
         f"{LAUNCHER} {foothold_name(preset_name)}"
     )
 
@@ -56,10 +56,10 @@ def _service_section(preset_name: str) -> tuple[str, ...]:
         "EnvironmentFile=-%h/.config/dotfiles/secrets.env",
         # The link gains carrier before DNS and routes work; Remote Control fails session creation if it starts earlier.
         f"ExecStartPre=/usr/bin/env curl -s --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 -o /dev/null {NETWORK_PROBE_URL}",
-        # Ends the old tmux session so the launcher's has-session guard starts a fresh one; after the probe, so an outage keeps it.
-        # Runs under systemd, not in the pane, so a restart issued from inside the session completes.
-        f"ExecStartPre=-/usr/bin/env tmux kill-session -t ={session_name(preset_name)}",
         f"ExecStart=/bin/sh -c '{_launch_command(preset_name)}'",
+        # Runs only on stop or restart, never on a plain start. Under systemd, not in the pane, so a restart issued
+        # from inside the session still completes.
+        f"ExecStop=-/usr/bin/env tmux kill-session -t ={session_name(preset_name)}",
     )
 
 
@@ -125,6 +125,17 @@ def _rewrite_if_stale(unit: Path, preset_name: str, logger: Logger) -> None:
         logger.info(f"Rewrote stale {unit.name}.")
 
 
+def _network_up(logger: Logger, run) -> bool:
+    probe = ("curl", "-s", "--max-time", "5", "-o", "/dev/null", NETWORK_PROBE_URL)
+    return _run_command(probe, logger, run)
+
+
+def _reload_and_restart(unit: Path, preset_name: str, logger: Logger, run) -> bool:
+    _rewrite_if_stale(unit, preset_name, logger)
+    commands = (("systemctl", "--user", "daemon-reload"), ("systemctl", "--user", "restart", unit.name))
+    return all(_run_command(argv, logger, run) for argv in commands)
+
+
 def restart_foothold(
     logger: Logger, preset_name: str, unit_dir: Path = UNIT_DIR, run=subprocess.run,
 ) -> bool:
@@ -139,9 +150,7 @@ def restart_foothold(
     if logger.dry_run_notice(f"Would rewrite {unit.name} if stale, then restart it."):
         return True
     try:
-        _rewrite_if_stale(unit, preset_name, logger)
-        commands = (("systemctl", "--user", "daemon-reload"), ("systemctl", "--user", "restart", unit.name))
-        restarted = all(_run_command(argv, logger, run) for argv in commands)
+        restarted = _network_up(logger, run) and _reload_and_restart(unit, preset_name, logger, run)
     except OSError as exc:
         logger.warn(f"Could not restart {unit.name}: {exc}")
         return False

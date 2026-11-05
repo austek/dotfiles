@@ -12,12 +12,13 @@ def tools_present(monkeypatch):
     monkeypatch.setattr("dotfiles_setup.foothold.shutil.which", lambda tool: f"/usr/bin/{tool}")
 
 
-def _recording_run(returncode=0, stderr=""):
+def _recording_run(returncode=0, stderr="", fail_on=None):
     calls = []
 
     def run(argv, **_):
         calls.append(tuple(argv))
-        return subprocess.CompletedProcess(argv, returncode, stdout="", stderr=stderr)
+        code = returncode if fail_on in (None, argv[0]) else 0
+        return subprocess.CompletedProcess(argv, code, stdout="", stderr=stderr)
 
     return run, calls
 
@@ -86,20 +87,23 @@ def _restart(tmp_path, preset="homelab", dry_run=False, run=None):
     return foothold.restart_foothold(Logger(dry_run=dry_run), preset, unit_dir=tmp_path, run=run)
 
 
-def test_restart_reloads_then_restarts_the_unit_without_touching_tmux(tmp_path):
+PROBE = ("curl", "-s", "--max-time", "5", "-o", "/dev/null", foothold.NETWORK_PROBE_URL)
+RELOAD = ("systemctl", "--user", "daemon-reload")
+RESTART = ("systemctl", "--user", "restart", "claude-foothold-homelab.service")
+
+
+def test_restart_probes_the_network_then_reloads_and_restarts_without_touching_tmux(tmp_path):
     _installed_unit(tmp_path)
     run, calls = _recording_run()
     assert _restart(tmp_path, run=run) is True
-    assert calls == [
-        ("systemctl", "--user", "daemon-reload"),
-        ("systemctl", "--user", "restart", "claude-foothold-homelab.service"),
-    ]
+    assert calls == [PROBE, RELOAD, RESTART]
 
 
-def test_rendered_unit_ends_a_stale_session_only_after_the_network_probe():
+def test_rendered_unit_ends_the_session_only_on_stop_never_on_start():
     unit = foothold.render_unit("personal")
-    kill = "ExecStartPre=-/usr/bin/env tmux kill-session -t =claude-foothold-personal"
-    assert unit.index("ExecStartPre=/usr/bin/env curl") < unit.index(kill) < unit.index("ExecStart=")
+    assert "ExecStop=-/usr/bin/env tmux kill-session -t =claude-foothold-personal" in unit
+    assert "ExecStartPre=-" not in unit
+    assert "has-session -t =claude-foothold-personal" in unit
 
 
 def test_restart_rewrites_a_stale_unit_and_reloads_before_restarting(tmp_path):
@@ -107,18 +111,23 @@ def test_restart_rewrites_a_stale_unit_and_reloads_before_restarting(tmp_path):
     run, calls = _recording_run()
     assert _restart(tmp_path, run=run) is True
     assert unit.read_text() == foothold.render_unit("homelab")
-    assert calls == [
-        ("systemctl", "--user", "daemon-reload"),
-        ("systemctl", "--user", "restart", "claude-foothold-homelab.service"),
-    ]
+    assert calls == [PROBE, RELOAD, RESTART]
 
 
 @pytest.mark.parametrize("content", ["stale", None])
 def test_restart_does_not_restart_when_the_reload_fails(tmp_path, content):
     _installed_unit(tmp_path, content=content)
-    run, calls = _recording_run(returncode=1)
+    run, calls = _recording_run(returncode=1, fail_on="systemctl")
     assert _restart(tmp_path, run=run) is False
-    assert calls == [("systemctl", "--user", "daemon-reload")]
+    assert calls == [PROBE, RELOAD]
+
+
+def test_restart_leaves_the_unit_and_session_alone_when_the_network_is_down(tmp_path):
+    unit = _installed_unit(tmp_path, content="stale")
+    run, calls = _recording_run(returncode=1, fail_on="curl")
+    assert _restart(tmp_path, run=run) is False
+    assert calls == [PROBE]
+    assert unit.read_text() == "stale"
 
 
 def test_restart_warns_instead_of_raising_when_systemctl_cannot_launch(tmp_path, capsys):
@@ -147,7 +156,7 @@ def test_restart_dry_run_runs_nothing(tmp_path):
 
 def test_restart_reports_failure_when_systemctl_fails(tmp_path, capsys):
     _installed_unit(tmp_path)
-    assert _restart(tmp_path, run=_recording_run(returncode=1, stderr="no bus")[0]) is False
+    assert _restart(tmp_path, run=_recording_run(returncode=1, stderr="no bus", fail_on="systemctl")[0]) is False
     assert "no bus" in capsys.readouterr().out
 
 

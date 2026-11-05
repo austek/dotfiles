@@ -37,6 +37,9 @@ def test_no_gh_api_rule_auto_approves_a_wildcard_endpoint():
     "git push origin HEAD:master",
     "git push origin HEAD:refs/heads/main",
     "git push origin refs/heads/master",
+    "rtk git push origin main",
+    "rtk git push origin HEAD:main",
+    "rtk git push origin HEAD:refs/heads/master",
 ])
 def test_pushes_to_a_protected_branch_are_denied(command):
     assert any(fnmatch.fnmatchcase(command, rule) for rule in _bash_rules("deny"))
