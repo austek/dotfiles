@@ -86,17 +86,20 @@ def _restart(tmp_path, preset="homelab", dry_run=False, run=None):
     return foothold.restart_foothold(Logger(dry_run=dry_run), preset, unit_dir=tmp_path, run=run)
 
 
-def test_restart_only_restarts_the_unit_so_it_survives_ending_its_own_session(tmp_path):
+def test_restart_reloads_then_restarts_the_unit_without_touching_tmux(tmp_path):
     _installed_unit(tmp_path)
     run, calls = _recording_run()
     assert _restart(tmp_path, run=run) is True
-    assert calls == [("systemctl", "--user", "restart", "claude-foothold-homelab.service")]
+    assert calls == [
+        ("systemctl", "--user", "daemon-reload"),
+        ("systemctl", "--user", "restart", "claude-foothold-homelab.service"),
+    ]
 
 
-def test_rendered_unit_ends_a_stale_session_before_launching_a_new_one():
+def test_rendered_unit_ends_a_stale_session_only_after_the_network_probe():
     unit = foothold.render_unit("personal")
     kill = "ExecStartPre=-/usr/bin/env tmux kill-session -t =claude-foothold-personal"
-    assert unit.index(kill) < unit.index("ExecStart=")
+    assert unit.index("ExecStartPre=/usr/bin/env curl") < unit.index(kill) < unit.index("ExecStart=")
 
 
 def test_restart_rewrites_a_stale_unit_and_reloads_before_restarting(tmp_path):
@@ -110,8 +113,9 @@ def test_restart_rewrites_a_stale_unit_and_reloads_before_restarting(tmp_path):
     ]
 
 
-def test_restart_does_not_restart_when_the_reload_fails(tmp_path):
-    _installed_unit(tmp_path, content="stale")
+@pytest.mark.parametrize("content", ["stale", None])
+def test_restart_does_not_restart_when_the_reload_fails(tmp_path, content):
+    _installed_unit(tmp_path, content=content)
     run, calls = _recording_run(returncode=1)
     assert _restart(tmp_path, run=run) is False
     assert calls == [("systemctl", "--user", "daemon-reload")]
