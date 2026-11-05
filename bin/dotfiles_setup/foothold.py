@@ -109,7 +109,7 @@ def retire_foothold(
         return
     try:
         _run_command(("systemctl", "--user", "disable", "--now", unit.name), logger, run)
-        run(("tmux", "kill-session", "-t", session_name(preset_name)), capture_output=True, stdin=subprocess.DEVNULL)
+        run(("tmux", "kill-session", "-t", f"={session_name(preset_name)}"), capture_output=True, stdin=subprocess.DEVNULL)
         unit.unlink()
         _run_command(("systemctl", "--user", "daemon-reload"), logger, run)
     except OSError as exc:

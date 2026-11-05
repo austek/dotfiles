@@ -243,7 +243,7 @@ def test_retire_disables_ends_the_session_and_removes_the_unit(tmp_path):
     foothold.retire_foothold(Logger(dry_run=False), "work", unit_dir=tmp_path, run=run)
     assert calls == [
         ("systemctl", "--user", "disable", "--now", "claude-foothold-work.service"),
-        ("tmux", "kill-session", "-t", "claude-foothold-work"),
+        ("tmux", "kill-session", "-t", "=claude-foothold-work"),
         ("systemctl", "--user", "daemon-reload"),
     ]
     assert not (tmp_path / "claude-foothold-work.service").exists()
