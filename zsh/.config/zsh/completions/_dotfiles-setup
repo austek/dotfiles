@@ -4,6 +4,7 @@ local -a commands presets
 commands=(
   'install:install packages and dotfiles for a machine profile'
   'private:manage the optional private overlay repo'
+  'foothold:manage the Claude remote foothold of this machine'
 )
 presets=( ${${(f)"$(print -l -- $HOME/.dotfiles/presets/*.json(N:t:r))"}:-work personal homelab} )
 
@@ -41,6 +42,16 @@ case $state in
             '--dest[clone destination]:path:_files -/' \
             '--dry-run[show what would be done without executing commands]' \
             '(-v --verbose)'{-v,--verbose}'[confirm what was cloned and where]' \
+            '(-h --help)'{-h,--help}'[show help message]'
+        fi
+        ;;
+      foothold)
+        if (( CURRENT == 2 )); then
+          _values 'foothold-command' 'restart[kill the tmux session and restart the foothold unit]'
+        else
+          _arguments \
+            '--dry-run[show what would be done without executing commands]' \
+            '(-v --verbose)'{-v,--verbose}'[confirm what was restarted]' \
             '(-h --help)'{-h,--help}'[show help message]'
         fi
         ;;

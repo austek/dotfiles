@@ -12,12 +12,13 @@ def tools_present(monkeypatch):
     monkeypatch.setattr("dotfiles_setup.foothold.shutil.which", lambda tool: f"/usr/bin/{tool}")
 
 
-def _recording_run(returncode=0, stderr=""):
+def _recording_run(returncode=0, stderr="", fail_on=None):
     calls = []
 
     def run(argv, **_):
         calls.append(tuple(argv))
-        return subprocess.CompletedProcess(argv, returncode, stdout="", stderr=stderr)
+        code = returncode if fail_on in (None, argv[0]) else 0
+        return subprocess.CompletedProcess(argv, code, stdout="", stderr=stderr)
 
     return run, calls
 
@@ -73,6 +74,90 @@ def test_rendered_unit_launches_claude_through_the_launcher():
     unit = foothold.render_unit("personal")
     assert "%h/.dotfiles/bin/claude-foothold-launch" in unit
     assert "claude --remote-control" not in unit
+
+
+def _installed_unit(tmp_path, preset="homelab", content=None):
+    unit = tmp_path / foothold.unit_name(preset)
+    unit.write_text(foothold.render_unit(preset) if content is None else content)
+    return unit
+
+
+def _restart(tmp_path, preset="homelab", dry_run=False, run=None):
+    run = run or _recording_run()[0]
+    return foothold.restart_foothold(Logger(dry_run=dry_run), preset, unit_dir=tmp_path, run=run)
+
+
+PROBE = ("curl", "-s", "--max-time", "5", "-o", "/dev/null", foothold.NETWORK_PROBE_URL)
+RELOAD = ("systemctl", "--user", "daemon-reload")
+RESTART = ("systemctl", "--user", "restart", "claude-foothold-homelab.service")
+
+
+def test_restart_probes_the_network_then_reloads_and_restarts_without_touching_tmux(tmp_path):
+    _installed_unit(tmp_path)
+    run, calls = _recording_run()
+    assert _restart(tmp_path, run=run) is True
+    assert calls == [PROBE, RELOAD, RESTART]
+
+
+def test_rendered_unit_ends_the_session_only_on_stop_never_on_start():
+    unit = foothold.render_unit("personal")
+    assert "ExecStop=-/usr/bin/env tmux kill-session -t =claude-foothold-personal" in unit
+    assert "ExecStartPre=-" not in unit
+    assert "has-session -t =claude-foothold-personal" in unit
+
+
+def test_restart_rewrites_a_stale_unit_and_reloads_before_restarting(tmp_path):
+    unit = _installed_unit(tmp_path, content="[Service]\nExecStart=old\n")
+    run, calls = _recording_run()
+    assert _restart(tmp_path, run=run) is True
+    assert unit.read_text() == foothold.render_unit("homelab")
+    assert calls == [PROBE, RELOAD, RESTART]
+
+
+@pytest.mark.parametrize("content", ["stale", None])
+def test_restart_does_not_restart_when_the_reload_fails(tmp_path, content):
+    _installed_unit(tmp_path, content=content)
+    run, calls = _recording_run(returncode=1, fail_on="systemctl")
+    assert _restart(tmp_path, run=run) is False
+    assert calls == [PROBE, RELOAD]
+
+
+def test_restart_leaves_the_unit_and_session_alone_when_the_network_is_down(tmp_path):
+    unit = _installed_unit(tmp_path, content="stale")
+    run, calls = _recording_run(returncode=1, fail_on="curl")
+    assert _restart(tmp_path, run=run) is False
+    assert calls == [PROBE]
+    assert unit.read_text() == "stale"
+
+
+def test_restart_warns_instead_of_raising_when_systemctl_cannot_launch(tmp_path, capsys):
+    _installed_unit(tmp_path)
+
+    def run(argv, **_):
+        raise PermissionError("denied")
+
+    assert _restart(tmp_path, run=run) is False
+    assert "Could not restart" in capsys.readouterr().out
+
+
+def test_restart_without_an_installed_unit_warns_and_runs_nothing(tmp_path, capsys):
+    run, calls = _recording_run()
+    assert _restart(tmp_path, run=run) is False
+    assert calls == []
+    assert "dotfiles-setup install" in capsys.readouterr().out
+
+
+def test_restart_dry_run_runs_nothing(tmp_path):
+    _installed_unit(tmp_path)
+    run, calls = _recording_run()
+    assert _restart(tmp_path, dry_run=True, run=run) is True
+    assert calls == []
+
+
+def test_restart_reports_failure_when_systemctl_fails(tmp_path, capsys):
+    _installed_unit(tmp_path)
+    assert _restart(tmp_path, run=_recording_run(returncode=1, stderr="no bus", fail_on="systemctl")[0]) is False
+    assert "no bus" in capsys.readouterr().out
 
 
 def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o600):
@@ -158,7 +243,7 @@ def test_retire_disables_ends_the_session_and_removes_the_unit(tmp_path):
     foothold.retire_foothold(Logger(dry_run=False), "work", unit_dir=tmp_path, run=run)
     assert calls == [
         ("systemctl", "--user", "disable", "--now", "claude-foothold-work.service"),
-        ("tmux", "kill-session", "-t", "claude-foothold-work"),
+        ("tmux", "kill-session", "-t", "=claude-foothold-work"),
         ("systemctl", "--user", "daemon-reload"),
     ]
     assert not (tmp_path / "claude-foothold-work.service").exists()

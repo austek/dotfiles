@@ -3,7 +3,33 @@
     "COZEMPIC_NO_AUTO_UPDATE": "1"
   },
   "permissions": {
+    "additionalDirectories": [
+      "/tmp",
+      "~/Workspace"
+    ],
     "allow": [
+      "Bash(awk *)",
+      "Bash(cat *)",
+      "Bash(cd *)",
+      "Bash(command *)",
+      "Bash(cp *)",
+      "Bash(gh *)",
+      "Bash(git *)",
+      "Bash(mkdir *)",
+      "Bash(mv *)",
+      "Bash(mvn *)",
+      "Bash(pip* *)",
+      "Bash(pytest *)",
+      "Bash(python* *)",
+      "Bash(rtk *)",
+      "Bash(sonar *)",
+      "Bash(sonar-scanner *)",
+      "Bash(touch *)",
+      "Bash(uv *)",
+      "Edit",
+      "mcp__claude-in-chrome__*",
+      "mcp__idea__*",
+      "mcp__sonarqube__*",
       "Bash(grep *)",
       "Bash(head *)",
       "Bash(jq *)",
@@ -28,7 +54,33 @@
     "ask": [
       "Bash(rg *--pre*)"
     ],
+    "deny": [
+      "Bash(gh repo delete*)",
+      "Bash(git push * main*)",
+      "Bash(git push * master*)",
+      "Bash(git push *:main*)",
+      "Bash(git push *:master*)",
+      "Bash(git push *refs/heads/main*)",
+      "Bash(git push *refs/heads/master*)",
+      "Bash(rtk git push * main*)",
+      "Bash(rtk git push * master*)",
+      "Bash(rtk git push *:main*)",
+      "Bash(rtk git push *:master*)",
+      "Bash(rtk git push *refs/heads/main*)",
+      "Bash(rtk git push *refs/heads/master*)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~/*)"
+    ],
     "defaultMode": "auto"
+  },
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "Organization: personal projects under the austek GitHub account, plus the ZirekHQ, hominux and ebbwise GitHub orgs, which I maintain",
+      "Primary use of Claude Code: software development — dotfiles, NVDA/TTS tooling (ZirekHQ), the Java library under hominux, and health-tracking apps (ebbwise)",
+      "Source control: github.com/austek (personal), github.com/ZirekHQ, github.com/hominux, github.com/ebbwise — every repo under these four namespaces is mine to push to and open PRs against",
+      "Repository visibility: repos under ZirekHQ and hominux are public OSS; treat pushes there as publishing and only include that repo's own work. Repos under ebbwise are private and may handle health data: never copy their content into public repos, issues or PRs"
+    ]
   },
   "model": "sonnet",
   "hooks": {

@@ -594,6 +594,39 @@ def test_main_private_clone_honors_dest_override(tmp_path):
     assert calls[0][-1] == str(dest)
 
 
+def _save_preset(tmp_path, preset_name):
+    state.save_state(state.MachineState(
+        preset_name=preset_name, backend="apt", package_file="x", applied_package_names=(),
+        overlay_root=None, created_at="t", updated_at="t",
+    ), state.state_file(tmp_path))
+
+
+def test_foothold_requires_subcommand():
+    parser = build_arg_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["foothold"])
+
+
+def test_main_foothold_restart_restarts_the_saved_presets_foothold(tmp_path, monkeypatch):
+    _save_preset(tmp_path, "work")
+    restarted = []
+    monkeypatch.setattr(
+        "dotfiles_setup.cli.foothold.restart_foothold", lambda logger, preset, run: restarted.append(preset) or True
+    )
+    assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 0
+    assert restarted == ["work"]
+
+
+def test_main_foothold_restart_fails_when_the_restart_fails(tmp_path, monkeypatch):
+    _save_preset(tmp_path, "work")
+    monkeypatch.setattr("dotfiles_setup.cli.foothold.restart_foothold", lambda logger, preset, run: False)
+    assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 1
+
+
+def test_main_foothold_restart_without_a_saved_preset_exits_2(tmp_path):
+    assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 2
+
+
 def test_install_uses_injected_clock_and_paths(isolated_dotfiles, tmp_path):
     dotfiles_dir, _ = isolated_dotfiles
     clock_value = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)

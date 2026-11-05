@@ -37,7 +37,7 @@ def unit_name(preset_name: str) -> str:
 def _launch_command(preset_name: str) -> str:
     tmux = session_name(preset_name)
     return (
-        f'tmux has-session -t {tmux} 2>/dev/null || exec tmux new-session -d -s {tmux} -c "%h/Workspace" '
+        f'tmux has-session -t ={tmux} 2>/dev/null || exec tmux new-session -d -s {tmux} -c "%h/Workspace" '
         f"{LAUNCHER} {foothold_name(preset_name)}"
     )
 
@@ -57,6 +57,9 @@ def _service_section(preset_name: str) -> tuple[str, ...]:
         # The link gains carrier before DNS and routes work; Remote Control fails session creation if it starts earlier.
         f"ExecStartPre=/usr/bin/env curl -s --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 -o /dev/null {NETWORK_PROBE_URL}",
         f"ExecStart=/bin/sh -c '{_launch_command(preset_name)}'",
+        # Runs only on stop or restart, never on a plain start. Under systemd, not in the pane, so a restart issued
+        # from inside the session still completes.
+        f"ExecStop=-/usr/bin/env tmux kill-session -t ={session_name(preset_name)}",
     )
 
 
@@ -106,13 +109,54 @@ def retire_foothold(
         return
     try:
         _run_command(("systemctl", "--user", "disable", "--now", unit.name), logger, run)
-        run(("tmux", "kill-session", "-t", session_name(preset_name)), capture_output=True, stdin=subprocess.DEVNULL)
+        run(("tmux", "kill-session", "-t", f"={session_name(preset_name)}"), capture_output=True, stdin=subprocess.DEVNULL)
         unit.unlink()
         _run_command(("systemctl", "--user", "daemon-reload"), logger, run)
     except OSError as exc:
         logger.warn(f"Could not retire {foothold_name(preset_name)}: {exc}")
         return
     logger.info(f"Retired {unit.name}.")
+
+
+def _rewrite_if_stale(unit: Path, preset_name: str, logger: Logger) -> None:
+    rendered = render_unit(preset_name)
+    if unit.read_text(encoding="utf-8") != rendered:
+        _write_unit(unit, rendered)
+        logger.info(f"Rewrote stale {unit.name}.")
+
+
+def _network_up(logger: Logger, run) -> bool:
+    probe = ("curl", "-s", "--max-time", "5", "-o", "/dev/null", NETWORK_PROBE_URL)
+    return _run_command(probe, logger, run)
+
+
+def _reload_and_restart(unit: Path, preset_name: str, logger: Logger, run) -> bool:
+    _rewrite_if_stale(unit, preset_name, logger)
+    commands = (("systemctl", "--user", "daemon-reload"), ("systemctl", "--user", "restart", unit.name))
+    return all(_run_command(argv, logger, run) for argv in commands)
+
+
+def restart_foothold(
+    logger: Logger, preset_name: str, unit_dir: Path = UNIT_DIR, run=subprocess.run,
+) -> bool:
+    """Restarts the preset's unit in a fresh tmux session. Safe to call from inside the foothold session.
+
+    Returns False when the unit is missing or the restart fails; warns instead of raising.
+    """
+    unit = unit_dir / unit_name(preset_name)
+    if not unit.is_file():
+        logger.warn(f"{unit.name} is not installed; run `dotfiles-setup install` first.")
+        return False
+    if logger.dry_run_notice(f"Would rewrite {unit.name} if stale, then restart it."):
+        return True
+    try:
+        restarted = _network_up(logger, run) and _reload_and_restart(unit, preset_name, logger, run)
+    except OSError as exc:
+        logger.warn(f"Could not restart {unit.name}: {exc}")
+        return False
+    if restarted:
+        logger.info(f"Restarted {unit.name}; attach with `tmux attach -t {session_name(preset_name)}`.")
+    return restarted
 
 
 def install_foothold(logger: Logger, preset_name: str, unit_dir: Path = UNIT_DIR, run=subprocess.run) -> bool:

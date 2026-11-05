@@ -142,6 +142,25 @@ def _build_private_parser(sub: Any) -> None:
     _build_clone_parser(private_sub)
 
 
+def _build_restart_parser(foothold_sub: Any) -> None:
+    restart_p = foothold_sub.add_parser(
+        "restart", help="kill the foothold's tmux session and restart its systemd unit"
+    )
+    restart_p.add_argument("--dry-run", action="store_true", help=_DRY_RUN_HELP)
+    restart_p.add_argument(
+        "-v", "--verbose", nargs=0, action=_AddVerbosity, amount=1, help="Confirm what was restarted."
+    )
+    restart_p.set_defaults(verbosity=0)
+
+
+def _build_foothold_parser(sub: Any) -> None:
+    foothold_p = sub.add_parser(
+        "foothold", help="manage the Claude remote foothold of this machine's saved preset"
+    )
+    foothold_sub = foothold_p.add_subparsers(dest="foothold_command", metavar="foothold-command", required=True)
+    _build_restart_parser(foothold_sub)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dotfiles-setup",
@@ -152,6 +171,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="command")
     _build_install_parser(sub)
     _build_private_parser(sub)
+    _build_foothold_parser(sub)
     return parser
 
 
@@ -420,6 +440,15 @@ def _run_private_clone(args: argparse.Namespace, env: Env) -> int:
     return 0
 
 
+def _run_foothold_restart(args: argparse.Namespace, env: Env) -> int:
+    logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
+    saved = state.load_state(state.state_file(env.state_dir))
+    if saved is None:
+        logger.error("No preset saved on this machine; run 'dotfiles-setup install --preset <name>' first.")
+        return 2
+    return 0 if foothold.restart_foothold(logger, saved.preset_name, run=env.run) else 1
+
+
 def main(argv: list[str] | None = None, env: Env | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
@@ -434,6 +463,9 @@ def main(argv: list[str] | None = None, env: Env | None = None) -> int:
 
     if args.command == "private" and args.private_command == "clone":
         return _run_private_clone(args, env)
+
+    if args.command == "foothold" and args.foothold_command == "restart":
+        return _run_foothold_restart(args, env)
 
     return 1
 

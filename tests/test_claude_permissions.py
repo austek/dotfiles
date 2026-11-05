@@ -1,3 +1,4 @@
+import fnmatch
 import importlib.util
 import json
 from pathlib import Path
@@ -27,6 +28,26 @@ def test_commands_that_run_or_write_arbitrary_files_are_not_auto_approved(comman
 
 def test_no_gh_api_rule_auto_approves_a_wildcard_endpoint():
     assert not [r for r in _bash_rules("allow") if r.startswith("gh api")]
+
+
+@pytest.mark.parametrize("command", [
+    "git push origin main",
+    "git push origin master",
+    "git push origin HEAD:main",
+    "git push origin HEAD:master",
+    "git push origin HEAD:refs/heads/main",
+    "git push origin refs/heads/master",
+    "rtk git push origin main",
+    "rtk git push origin HEAD:main",
+    "rtk git push origin HEAD:refs/heads/master",
+])
+def test_pushes_to_a_protected_branch_are_denied(command):
+    assert any(fnmatch.fnmatchcase(command, rule) for rule in _bash_rules("deny"))
+
+
+@pytest.mark.parametrize("command", ["git push origin feature/main_menu_fix", "git push -u origin chore/x"])
+def test_pushes_to_other_branches_are_not_denied(command):
+    assert not any(fnmatch.fnmatchcase(command, rule) for rule in _bash_rules("deny"))
 
 
 @pytest.mark.parametrize("command", ["rg --pre ./x foo", "rg -n --pre=./x foo", "rg foo --pre ./x"])

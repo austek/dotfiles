@@ -47,8 +47,15 @@ _dotfiles_setup_completions() {
                 COMPREPLY=($(compgen -W "clone -h --help" -- "$cur"))
             fi
             ;;
+        foothold)
+            if [[ "${COMP_WORDS[2]}" == "restart" ]]; then
+                COMPREPLY=($(compgen -W "--dry-run -v --verbose -h --help" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "restart -h --help" -- "$cur"))
+            fi
+            ;;
         *)
-            COMPREPLY=($(compgen -W "install private -h --help" -- "$cur"))
+            COMPREPLY=($(compgen -W "install private foothold -h --help" -- "$cur"))
             ;;
     esac
 }
