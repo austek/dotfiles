@@ -75,6 +75,50 @@ def test_rendered_unit_launches_claude_through_the_launcher():
     assert "claude --remote-control" not in unit
 
 
+def _installed_unit(tmp_path, preset="homelab"):
+    unit = tmp_path / foothold.unit_name(preset)
+    unit.write_text("")
+    return unit
+
+
+def _restart(tmp_path, preset="homelab", dry_run=False, run=None):
+    run = run or _recording_run()[0]
+    return foothold.restart_foothold(Logger(dry_run=dry_run), preset, unit_dir=tmp_path, run=run)
+
+
+def test_restart_only_restarts_the_unit_so_it_survives_ending_its_own_session(tmp_path):
+    _installed_unit(tmp_path)
+    run, calls = _recording_run()
+    assert _restart(tmp_path, run=run) is True
+    assert calls == [("systemctl", "--user", "restart", "claude-foothold-homelab.service")]
+
+
+def test_rendered_unit_ends_a_stale_session_before_launching_a_new_one():
+    unit = foothold.render_unit("personal")
+    kill = "ExecStartPre=-/usr/bin/env tmux kill-session -t claude-foothold-personal"
+    assert unit.index(kill) < unit.index("ExecStart=")
+
+
+def test_restart_without_an_installed_unit_warns_and_runs_nothing(tmp_path, capsys):
+    run, calls = _recording_run()
+    assert _restart(tmp_path, run=run) is False
+    assert calls == []
+    assert "dotfiles-setup install" in capsys.readouterr().out
+
+
+def test_restart_dry_run_runs_nothing(tmp_path):
+    _installed_unit(tmp_path)
+    run, calls = _recording_run()
+    assert _restart(tmp_path, dry_run=True, run=run) is True
+    assert calls == []
+
+
+def test_restart_reports_failure_when_systemctl_fails(tmp_path, capsys):
+    _installed_unit(tmp_path)
+    assert _restart(tmp_path, run=_recording_run(returncode=1, stderr="no bus")[0]) is False
+    assert "no bus" in capsys.readouterr().out
+
+
 def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o600):
     home = tmp_path / "home"
     (home / ".config/dotfiles").mkdir(parents=True)
