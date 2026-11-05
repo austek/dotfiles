@@ -56,7 +56,7 @@ def _service_section(preset_name: str) -> tuple[str, ...]:
         "EnvironmentFile=-%h/.config/dotfiles/secrets.env",
         # Ends the old tmux session so the launcher's has-session guard starts a fresh one.
         # Runs under systemd, not in the pane, so a restart issued from inside the session completes.
-        f"ExecStartPre=-/usr/bin/env tmux kill-session -t {session_name(preset_name)}",
+        f"ExecStartPre=-/usr/bin/env tmux kill-session -t ={session_name(preset_name)}",
         # The link gains carrier before DNS and routes work; Remote Control fails session creation if it starts earlier.
         f"ExecStartPre=/usr/bin/env curl -s --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 -o /dev/null {NETWORK_PROBE_URL}",
         f"ExecStart=/bin/sh -c '{_launch_command(preset_name)}'",
@@ -118,6 +118,15 @@ def retire_foothold(
     logger.info(f"Retired {unit.name}.")
 
 
+def _refresh_unit(unit: Path, preset_name: str, logger: Logger, run) -> bool:
+    rendered = render_unit(preset_name)
+    if unit.read_text(encoding="utf-8") == rendered:
+        return True
+    _write_unit(unit, rendered)
+    logger.info(f"Rewrote stale {unit.name}.")
+    return _run_command(("systemctl", "--user", "daemon-reload"), logger, run)
+
+
 def restart_foothold(
     logger: Logger, preset_name: str, unit_dir: Path = UNIT_DIR, run=subprocess.run,
 ) -> bool:
@@ -129,9 +138,15 @@ def restart_foothold(
     if not unit.is_file():
         logger.warn(f"{unit.name} is not installed; run `dotfiles-setup install` first.")
         return False
-    if logger.dry_run_notice(f"Would restart {unit.name}."):
+    if logger.dry_run_notice(f"Would rewrite {unit.name} if stale, then restart it."):
         return True
-    restarted = _run_command(("systemctl", "--user", "restart", unit.name), logger, run)
+    try:
+        restarted = _refresh_unit(unit, preset_name, logger, run) and _run_command(
+            ("systemctl", "--user", "restart", unit.name), logger, run,
+        )
+    except OSError as exc:
+        logger.warn(f"Could not restart {unit.name}: {exc}")
+        return False
     if restarted:
         logger.info(f"Restarted {unit.name}; attach with `tmux attach -t {session_name(preset_name)}`.")
     return restarted

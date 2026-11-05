@@ -602,8 +602,9 @@ def _save_preset(tmp_path, preset_name):
 
 
 def test_foothold_requires_subcommand():
+    parser = build_arg_parser()
     with pytest.raises(SystemExit):
-        build_arg_parser().parse_args(["foothold"])
+        parser.parse_args(["foothold"])
 
 
 def test_main_foothold_restart_restarts_the_saved_presets_foothold(tmp_path, monkeypatch):

@@ -75,9 +75,9 @@ def test_rendered_unit_launches_claude_through_the_launcher():
     assert "claude --remote-control" not in unit
 
 
-def _installed_unit(tmp_path, preset="homelab"):
+def _installed_unit(tmp_path, preset="homelab", content=None):
     unit = tmp_path / foothold.unit_name(preset)
-    unit.write_text("")
+    unit.write_text(foothold.render_unit(preset) if content is None else content)
     return unit
 
 
@@ -95,8 +95,36 @@ def test_restart_only_restarts_the_unit_so_it_survives_ending_its_own_session(tm
 
 def test_rendered_unit_ends_a_stale_session_before_launching_a_new_one():
     unit = foothold.render_unit("personal")
-    kill = "ExecStartPre=-/usr/bin/env tmux kill-session -t claude-foothold-personal"
+    kill = "ExecStartPre=-/usr/bin/env tmux kill-session -t =claude-foothold-personal"
     assert unit.index(kill) < unit.index("ExecStart=")
+
+
+def test_restart_rewrites_a_stale_unit_and_reloads_before_restarting(tmp_path):
+    unit = _installed_unit(tmp_path, content="[Service]\nExecStart=old\n")
+    run, calls = _recording_run()
+    assert _restart(tmp_path, run=run) is True
+    assert unit.read_text() == foothold.render_unit("homelab")
+    assert calls == [
+        ("systemctl", "--user", "daemon-reload"),
+        ("systemctl", "--user", "restart", "claude-foothold-homelab.service"),
+    ]
+
+
+def test_restart_does_not_restart_when_the_reload_fails(tmp_path):
+    _installed_unit(tmp_path, content="stale")
+    run, calls = _recording_run(returncode=1)
+    assert _restart(tmp_path, run=run) is False
+    assert calls == [("systemctl", "--user", "daemon-reload")]
+
+
+def test_restart_warns_instead_of_raising_when_systemctl_cannot_launch(tmp_path, capsys):
+    _installed_unit(tmp_path)
+
+    def run(argv, **_):
+        raise PermissionError("denied")
+
+    assert _restart(tmp_path, run=run) is False
+    assert "Could not restart" in capsys.readouterr().out
 
 
 def test_restart_without_an_installed_unit_warns_and_runs_nothing(tmp_path, capsys):
