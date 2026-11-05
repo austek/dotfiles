@@ -66,10 +66,10 @@
   "autoMode": {
     "environment": [
       "$defaults",
-      "Organization: personal projects under the austek GitHub account, plus the ZirekHQ, compress4j, hominux and ebbwise GitHub orgs, which I maintain",
-      "Primary use of Claude Code: software development — dotfiles, NVDA/TTS tooling (ZirekHQ), and the compress4j Java library",
-      "Source control: github.com/austek (personal), github.com/ZirekHQ, github.com/compress4j, github.com/hominux, github.com/ebbwise — every repo under these five namespaces is mine to push to and open PRs against",
-      "Repository visibility: repos under ZirekHQ, compress4j, hominux and ebbwise are public OSS; treat pushes there as publishing and only include that repo's own work"
+      "Organization: personal projects under the austek GitHub account, plus the ZirekHQ, hominux and ebbwise GitHub orgs, which I maintain",
+      "Primary use of Claude Code: software development — dotfiles, NVDA/TTS tooling (ZirekHQ), the Java library under hominux, and health-tracking apps (ebbwise)",
+      "Source control: github.com/austek (personal), github.com/ZirekHQ, github.com/hominux, github.com/ebbwise — every repo under these four namespaces is mine to push to and open PRs against",
+      "Repository visibility: repos under ZirekHQ, hominux and ebbwise are public OSS; treat pushes there as publishing and only include that repo's own work"
     ]
   },
   "model": "sonnet",
