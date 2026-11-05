@@ -69,7 +69,7 @@
       "Organization: personal projects under the austek GitHub account, plus the ZirekHQ, hominux and ebbwise GitHub orgs, which I maintain",
       "Primary use of Claude Code: software development — dotfiles, NVDA/TTS tooling (ZirekHQ), the Java library under hominux, and health-tracking apps (ebbwise)",
       "Source control: github.com/austek (personal), github.com/ZirekHQ, github.com/hominux, github.com/ebbwise — every repo under these four namespaces is mine to push to and open PRs against",
-      "Repository visibility: repos under ZirekHQ, hominux and ebbwise are public OSS; treat pushes there as publishing and only include that repo's own work"
+      "Repository visibility: repos under ZirekHQ and hominux are public OSS; treat pushes there as publishing and only include that repo's own work. Repos under ebbwise are private and may handle health data: never copy their content into public repos, issues or PRs"
     ]
   },
   "model": "sonnet",
