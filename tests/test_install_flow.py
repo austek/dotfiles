@@ -2,6 +2,7 @@ import os
 from types import SimpleNamespace
 
 import pytest
+from dotfiles_setup import flatpak
 from dotfiles_setup import install_flow as flow
 from dotfiles_setup import tools
 from dotfiles_setup.log import Logger
@@ -40,6 +41,11 @@ class Machine:
 
     def index(self, *prefix):
         return next(i for i, c in enumerate(self.commands) if c[: len(prefix)] == list(prefix))
+
+
+@pytest.fixture(autouse=True)
+def has_flatpak(monkeypatch):
+    monkeypatch.setattr(flatpak.shutil, "which", lambda name: "/usr/bin/flatpak")
 
 
 def run_removal_steps(tmp_path, machine, dry_run=False, packages="vim flatpak:a.A"):
