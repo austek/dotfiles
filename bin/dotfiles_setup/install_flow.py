@@ -52,12 +52,6 @@ class FlowInputs:
     removed: list[str] = field(default_factory=list)
 
 
-def _skip_for_failed_install(t: Tooling, failed: list[str]) -> bool:
-    if failed:
-        t.logger.info("Skipping removals: a Flatpak install failed")
-    return bool(failed)
-
-
 def _announce(t: Tooling, kind: str, names: tuple[str, ...]) -> None:
     for name in names:
         t.logger.info(f"Would remove {kind} {name}")
@@ -65,7 +59,9 @@ def _announce(t: Tooling, kind: str, names: tuple[str, ...]) -> None:
 
 def _remove_flatpak_apps(inputs: FlowInputs, changes: RollbackLog, failed: list[str]) -> None:
     t = inputs.t
-    if _skip_for_failed_install(t, failed):
+    if failed:
+        if inputs.removals:
+            t.logger.warn("Skipping removals: a Flatpak install failed.")
         return
     split = removals.split_removals(inputs.removals)
     if t.logger.dry_run:
@@ -78,11 +74,9 @@ def _remove_flatpak_apps(inputs: FlowInputs, changes: RollbackLog, failed: list[
 
 def _remove_apt_packages(inputs: FlowInputs, ctx: SystemContext, failed: list[str]) -> None:
     t = inputs.t
-    if _skip_for_failed_install(t, failed):
+    if failed:
         return
     split = removals.split_removals(inputs.removals)
-    if split.manual:
-        t.logger.info(f"dropped, remove manually: {', '.join(split.manual)}")
     if t.logger.dry_run:
         _announce(t, "apt package", (*split.apt, *split.debs))
         return

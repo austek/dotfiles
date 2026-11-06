@@ -385,6 +385,7 @@ def _combined(
 class _Optouts:
     names: frozenset[str]
     created: frozenset[str] = frozenset()
+    fork_only: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -415,14 +416,15 @@ def _pending(
         logger.warn(f"Private overlay not found: skipping removals (last install used {missing}).")
         return ()
     created = {resolve(name) for name in loaded.created}
-    return tuple(name for name in package_sets.pending_removals(applied, wanted) if name not in created)
+    candidates = {*package_sets.pending_removals(applied, wanted), *loaded.fork_only}
+    return tuple(sorted(candidates - created))
 
 
 def _retire_other_presets(logger: Logger, package_file: Path, keep: str, backup: Path) -> None:
     retired = optouts.retire_other_presets(package_file.parent, keep, backup, dry_run=logger.dry_run)
     verb = "Would move" if logger.dry_run else "Moved"
     if retired:
-        logger.info(f"{verb} other presets' package files {', '.join(retired)} to {backup}.")
+        logger.warn(f"{verb} other presets' package files {', '.join(retired)} to {backup}.")
 
 
 def _load_optouts(
@@ -440,10 +442,10 @@ def _migrate_fork(logger: Logger, package_file: Path, combined: tuple[str, ...],
     unpinned = tuple(n for n in combined if not n.startswith(apt_packages.PIN_PREFIX))
     migrated = optouts.migrate(package_file, unpinned, backup, dry_run=logger.dry_run)
     verb = "Would migrate" if logger.dry_run else "Migrated"
-    logger.info(f"{verb} {package_file} to an opt-out file; backup in {backup}.")
+    logger.warn(f"{verb} {package_file} to an opt-out file; backup in {backup}.")
     if migrated.fork_only:
-        logger.info(f"Packages only in the old file: {', '.join(migrated.fork_only)}.")
-    return _Optouts(migrated.optouts, migrated.optouts)
+        logger.warn(f"Packages only in the old file: {', '.join(migrated.fork_only)}.")
+    return _Optouts(migrated.optouts, migrated.optouts, migrated.fork_only)
 
 
 def combine_package_names(
@@ -480,28 +482,47 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
     return rollback.RollbackContext(t, rollback.RollbackLog.for_home(t.home), plan.dotfiles_dir, plan.overlay_root)
 
 
-def _print_pending(logger: Logger, pending: Sequence[str]) -> None:
+def _uninstallable(pending: Sequence[str]) -> tuple[str, ...]:
     split = removals.split_removals(pending)
-    uninstallable = (*split.apt, *split.debs, *(f"{flatpak.PREFIX}{i}" for i in split.flatpak))
+    return (*split.apt, *split.debs, *(f"{flatpak.PREFIX}{i}" for i in split.flatpak))
+
+
+def _print_pending(logger: Logger, pending: Sequence[str]) -> None:
+    uninstallable = _uninstallable(pending)
     if uninstallable:
         logger.warn(f"No longer wanted, installed copies would be removed: {', '.join(uninstallable)}.")
-    if split.manual:
-        logger.warn(f"Entries dropped, remove manually: {', '.join(split.manual)}.")
+    manual = removals.split_removals(pending).manual
+    if manual:
+        logger.warn(f"Entries dropped, remove manually: {', '.join(manual)}.")
+
+
+def _answered_yes(ask: Callable[[str], str]) -> bool:
+    try:
+        return ask("Remove these packages? [y/N] ").strip().lower() in ("y", "yes")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
 
 
 def confirm_removals(
     logger: Logger, pending: Sequence[str], *, prune: bool, interactive: bool,
     ask: Callable[[str], str] = input,
 ) -> bool:
-    if not pending:
-        return False
     _print_pending(logger, pending)
+    if not _uninstallable(pending):
+        return False
     if prune:
         return True
     if not interactive:
         logger.warn("Removals skipped; pass --prune to apply.")
         return False
-    return ask("Remove these packages? [y/N] ").strip().lower() in ("y", "yes")
+    return _answered_yes(ask)
+
+
+def removal_candidates(t: tooling.Tooling, pending: Sequence[str]) -> tuple[str, ...]:
+    """The pending entries still installed, followed by the manual entries."""
+    present = removals.installed_only(t, removals.split_removals(pending))
+    return (*_entry_names(present), *present.manual)
 
 
 def _entry_names(split: removals.Split) -> tuple[str, ...]:
@@ -516,21 +537,22 @@ def applied_after_removals(
     return tuple(sorted(wanted | set(_entry_names(still_installed))))
 
 
-def _approved_removals(args: argparse.Namespace, logger: Logger, plan: _Install) -> tuple[str, ...]:
+def _approved_removals(args: argparse.Namespace, t: tooling.Tooling, plan: _Install) -> tuple[str, ...]:
+    candidates = removal_candidates(t, plan.pending) if plan.pending else ()
     if args.dry_run:
-        _print_pending(logger, plan.pending)
+        _print_pending(t.logger, candidates)
         return ()
     confirmed = confirm_removals(
-        logger, plan.pending, prune=args.prune, interactive=sys.stdin.isatty(),
+        t.logger, candidates, prune=args.prune, interactive=sys.stdin.isatty(),
     )
-    return plan.pending if confirmed else ()
+    return candidates if confirmed else ()
 
 
 def _flow_inputs(
-    logger: Logger, env: Env, plan: _Install, args: argparse.Namespace, approved: tuple[str, ...] = (),
+    t: tooling.Tooling, env: Env, plan: _Install, args: argparse.Namespace, approved: tuple[str, ...] = (),
 ) -> install_flow.FlowInputs:
     return install_flow.FlowInputs(
-        _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.wanted, plan.overlay_root,
+        t, plan.dotfiles_dir, plan.preset.name, plan.wanted, plan.overlay_root,
         args.force, plan.stamp, euid=env.euid(), system=args.system,
         upgrade=args.upgrade, removals=approved,
     )
@@ -540,7 +562,8 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset)
     # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
     _write_claude_settings(logger, claude_settings, env)
-    inputs = _flow_inputs(logger, env, plan, args, _approved_removals(args, logger, plan))
+    t = _tooling(logger, env)
+    inputs = _flow_inputs(t, env, plan, args, _approved_removals(args, t, plan))
     result = install_flow.run_install(inputs)
     if not result.succeeded:
         _log_install_failure(logger, result)

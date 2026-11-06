@@ -337,12 +337,22 @@ def test_dry_run_announces_pins_by_entry(tmp_path, capsys):
     assert "Would remove apt package github:derailed/k9s" in capsys.readouterr().out
 
 
-def test_manual_removals_are_logged_not_run(tmp_path, capsys):
+def test_flatpak_failure_warns_once_at_default_verbosity(tmp_path, capsys):
+    machine = Machine(failing=[("flatpak", "install")])
+    flow_inputs = inputs(tmp_path, run=machine, packages="flatpak:a.A", removals=("htop",))
+    quiet = flow.FlowInputs(**{**vars(flow_inputs), "t": tools.Tooling(Logger(dry_run=False), flow_inputs.t.home, run=machine)})
+    steps = dict(flow.build_steps(quiet, quiet.packages, RollbackLog(tmp_path / "log")))
+    for name in ("install_flatpaks", "remove_flatpaks", "remove_apt_packages"):
+        steps[name]()
+    assert capsys.readouterr().out.count("Skipping removals: a Flatpak install failed") == 1
+
+
+def test_manual_removals_are_left_to_the_prompt_and_not_run(tmp_path, capsys):
     machine = Machine()
     flow_inputs = inputs(tmp_path, run=machine, removals=("nvm",))
     steps = dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))
     steps["remove_apt_packages"]()
-    assert "dropped, remove manually: nvm" in capsys.readouterr().out
+    assert "remove manually" not in capsys.readouterr().out
     assert machine.commands == []
 
 

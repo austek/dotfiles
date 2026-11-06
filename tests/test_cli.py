@@ -964,6 +964,21 @@ def test_confirm_lists_manual_entries_separately(capsys):
     assert "sdkman" in out
 
 
+@pytest.mark.parametrize("error", [EOFError, KeyboardInterrupt])
+def test_confirm_treats_an_aborted_prompt_as_no(error):
+    def ask(prompt):
+        raise error
+
+    assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
+
+
+def test_confirm_with_only_manual_entries_lists_them_without_asking(capsys):
+    asked, ask = _ask("y")
+    assert not confirm_removals(Logger(dry_run=False), ("sdkman",), prune=False, interactive=True, ask=ask)
+    assert asked == []
+    assert "remove manually: sdkman" in capsys.readouterr().out
+
+
 def test_prune_flag_parses():
     assert build_arg_parser().parse_args(["install", "--prune"]).prune is True
     assert build_arg_parser().parse_args(["install"]).prune is False
@@ -1058,6 +1073,50 @@ def test_interactive_yes_approves_removals(isolated_dotfiles, flow_calls, monkey
     monkeypatch.setattr("sys.stdin", Tty("y\n"))
     assert main(["install", "--preset", "homelab"]) == 0
     assert flow_calls[0].removals == ("htop",)
+
+
+def test_migration_offers_installed_fork_only_packages(isolated_dotfiles, flow_calls, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    machine(monkeypatch, apt=("curl", "slack-desktop", "zsh"))
+    _write_optouts(tmp_path, "zsh\ncurl\nslack-desktop\nnever-installed\n")
+    _save_applied(("curl", "zsh"))
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert flow_calls[0].removals == ("slack-desktop",)
+
+
+def test_migration_messages_show_at_default_verbosity(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "zsh\nextra\n")
+    _write_optouts(tmp_path, "vim\n", name="work.txt")
+    _plan_for(tmp_path)
+    out = capsys.readouterr().out
+    assert "Migrated" in out
+    assert "work.txt" in out
+    assert "only in the old file: extra" in out
+
+
+def test_prompt_lists_only_installed_removals(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "vim", "zsh"))
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert flow_calls[0].removals == ("htop",)
+    assert "vim" not in capsys.readouterr().out
+
+
+def test_no_prompt_when_no_removal_is_installed(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    machine(monkeypatch)
+    _save_applied(("curl", "sdkman", "vim", "zsh"))
+    monkeypatch.setattr("sys.stdin", Tty("y\n"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("no prompt expected"))
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert flow_calls[0].removals == ()
+    out = capsys.readouterr().out
+    assert "vim" not in out
+    assert out.count("remove manually") == 1
 
 
 def test_dry_run_lists_removals_and_does_not_prompt(isolated_dotfiles, flow_calls, monkeypatch, capsys):
