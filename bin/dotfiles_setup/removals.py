@@ -1,4 +1,9 @@
-"""Removes apt packages and Flatpak apps the user opted out of, recording each removal for rollback."""
+"""Uninstalls approved entries that are no longer wanted.
+
+Entries are split by manager: apt packages, `.deb`-backed custom entries and GitHub pins are removed by
+dpkg name through a non-cascading `apt-get remove`, Flatpak apps through `flatpak uninstall --user`, and
+other vendor-script entries are left for manual removal. Each successful removal records an undo entry.
+"""
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
@@ -114,7 +119,10 @@ def _remove_listed(ctx: SystemContext, name: str, listed: frozenset[str], undo_a
 
 
 def remove_apt(ctx: SystemContext, names: Sequence[str], deb_names: frozenset[str] = frozenset()) -> list[str]:
-    """Removes each name after a clean simulation; `deb_names` have no apt source, so their undo is manual."""
+    """Removes each dpkg name whose simulation succeeds and removes nothing else; returns the names removed.
+
+    Each removal records `APT_REMOVED`, or `DEB_REMOVED` for `deb_names`, whose undo only warns.
+    """
     return [name for name in names if _remove_one_apt(ctx, name, "DEB_REMOVED" if name in deb_names else "APT_REMOVED")]
 
 

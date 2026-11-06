@@ -98,7 +98,7 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
     system_g = install_p.add_mutually_exclusive_group()
     system_g.add_argument(
         "--system", dest="system", action="store_const", const="always",
-        help="Always run the sudo steps (apt, snapd, apt sources, docker group, login shell).",
+        help="Always run the sudo steps (apt installs and removals, snapd, apt sources, docker group, login shell).",
     )
     system_g.add_argument(
         "--no-system", dest="system", action="store_const", const="never",
@@ -114,7 +114,7 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Uninstall installed packages the repo or overlay dropped, or that you opted out of, "
-            "without asking for confirmation."
+            "without asking for confirmation. apt removals run only in the system stage."
         ),
     )
     install_p.set_defaults(system="auto")
