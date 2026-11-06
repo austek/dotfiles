@@ -6,7 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from dotfiles_setup import apt_packages, optouts, overlay, state
+from dotfiles_setup import (
+    apt_packages,
+    optouts,
+    overlay,
+    package_sets,
+    settings_drift,
+    state,
+)
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.cli import (
@@ -29,6 +36,13 @@ from dotfiles_setup.tooling import Tooling
 def test_combine_package_names_resolves_overrides_and_merges_overlay(tmp_path):
     backend = AptBackend(dotfiles_dir=tmp_path, backend_overrides={"bat": "batcat"})
     assert combine_package_names(backend, ("bat", "git"), ("zsh", "git")) == ("batcat", "git", "zsh")
+
+
+def test_an_opted_out_overlay_name_is_resolved_like_a_preset_name(tmp_path):
+    backend = AptBackend(dotfiles_dir=tmp_path, backend_overrides={"batcat": "bat"})
+    combined = combine_package_names(backend, (), ("batcat",))
+    assert combined == ("bat",)
+    assert package_sets.wanted(combined, frozenset({"batcat"}), backend.resolve_name) == frozenset()
 
 
 def test_preset_is_optional_at_parse_time():
@@ -166,6 +180,7 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
         "backend_overrides": {},
         "claude_settings": "claude_homelab.json",
     }))
+    (dotfiles_dir / "presets" / "work.json").write_text(json.dumps({"package_files": ["apt_common.txt"]}))
     (dotfiles_dir / "packages" / "apt_common.txt").write_text("zsh\ncurl\n")
     (dotfiles_dir / "claude-profiles" / "claude_homelab.json").write_text("{}")
 
@@ -546,6 +561,55 @@ def test_a_failed_backup_move_reports_and_fails_without_a_traceback(isolated_dot
     assert "Traceback" not in out
     assert "Machine preset set" not in out
     assert state.load_state().preset_name == "homelab"
+
+
+def test_a_failed_migration_write_leaves_other_presets_files_in_place(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "zsh\nextra\n")
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+
+    def refuse(path, names, backup):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("dotfiles_setup.cli.optouts.write_migration", refuse)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert other.read_text() == "vim\n"
+
+
+def test_a_txt_file_that_names_no_preset_is_neither_listed_nor_moved(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "vim\n", name="work.txt")
+    notes = _write_optouts(tmp_path, "keep me\n", name="notes.txt")
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert notes.read_text() == "keep me\n"
+    assert "notes.txt" not in capsys.readouterr().out
+
+
+def test_without_state_a_legacy_forks_installed_fork_only_name_is_offered(isolated_dotfiles, flow_calls, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    machine(monkeypatch, apt=("extra",))
+    _write_optouts(tmp_path, "zsh\ncurl\nextra\n")
+    assert _plan_for(tmp_path).pending == ("extra",)
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert flow_calls[0].removals == ("extra",)
+
+
+def test_without_state_or_a_legacy_file_nothing_is_pending(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    assert _plan_for(tmp_path).pending == ()
+
+
+def test_a_failed_state_save_restores_from_this_runs_backup(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    earlier = optouts.backup_dir(Path.home() / ".local" / "state" / "dotfiles", "20260102030405") / "homelab.txt"
+    earlier.parent.mkdir(parents=True)
+    earlier.write_text("stale\n")
+    _refuse_state_saves(monkeypatch)
+    env = Env(clock=lambda: datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+    assert main(["install", "--preset", "homelab"], env) == 1
+    assert package_file.read_text() == "zsh\nextra\n"
+    assert earlier.read_text() == "stale\n"
 
 
 def test_optout_for_unlisted_package_warns_only(isolated_dotfiles, capsys):
@@ -1195,6 +1259,24 @@ def test_an_interrupt_at_the_prompt_exits_130_before_any_step(isolated_dotfiles,
     assert main(["install", "--preset", "homelab"]) == 130
     assert flow_calls == []
     assert state.load_state().applied_package_names == ("curl", "htop", "zsh")
+
+
+def test_an_interrupt_at_the_prompt_leaves_the_claude_settings_unwritten(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+
+    class InterruptedTty(io.StringIO):
+        def isatty(self):
+            return True
+
+        def readline(self, *args):
+            raise KeyboardInterrupt
+
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    monkeypatch.setattr("sys.stdin", InterruptedTty(""))
+    assert main(["install", "--preset", "homelab"]) == 130
+    assert not (tmp_path / "claude-home" / "settings.json").exists()
+    assert not settings_drift.baseline_path(tmp_path / "state").exists()
 
 
 def test_confirm_with_only_manual_entries_lists_them_without_asking(capsys):

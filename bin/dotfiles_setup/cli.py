@@ -367,7 +367,7 @@ def _plan(
     package_file = state.package_dir(env.state_dir) / f"{preset.name}.txt"
     stamp = env.clock().strftime("%Y%m%d%H%M%S")
     backup = optouts.backup_dir(Path.home() / ".local" / "state" / "dotfiles", stamp)
-    others = _other_presets(logger, package_file, preset.name, backup)
+    others = _other_presets(logger, package_file, preset.name, backup, env.dotfiles_dir / "presets")
     loaded = _load_optouts(logger, package_file, combined, backup, migrated=bool(prior and prior.optouts_migrated))
     for stale in package_sets.stale_optouts(loaded.names, combined, backend.resolve_name):
         logger.warn(f"Opt-out '{stale}' in {package_file} matches no package in {preset.name}.")
@@ -414,9 +414,7 @@ class _Prior:
 def _pending(
     logger: Logger, prior: _Prior, wanted: frozenset[str], loaded: _Optouts, resolve: Callable[[str], str],
 ) -> tuple[str, ...]:
-    applied = prior.applied()
-    if applied is None:
-        return ()
+    applied = prior.applied() or ()
     missing = prior.missing_overlay()
     if missing is not None:
         logger.warn(f"Private overlay not found: skipping removals (last install used {missing}).")
@@ -433,8 +431,10 @@ def _moved(logger: Logger, candidates: set[str], wanted: frozenset[str]) -> set[
     return set(moved)
 
 
-def _other_presets(logger: Logger, package_file: Path, keep: str, backup: Path) -> tuple[Path, ...]:
-    others = optouts.other_preset_files(package_file.parent, keep)
+def _other_presets(
+    logger: Logger, package_file: Path, keep: str, backup: Path, presets_dir: Path,
+) -> tuple[Path, ...]:
+    others = optouts.other_preset_files(package_file.parent, keep, presets.preset_names(presets_dir))
     verb = "Would move" if logger.dry_run else "Will move"
     if others:
         names = ", ".join(p.name for p in others)
@@ -466,7 +466,7 @@ def _migrate_fork(logger: Logger, package_file: Path, combined: tuple[str, ...],
 def combine_package_names(
     backend: Backend, logical_names: tuple[str, ...], overlay_names: tuple[str, ...]
 ) -> tuple[str, ...]:
-    return tuple(sorted({backend.resolve_name(n) for n in logical_names} | set(overlay_names)))
+    return tuple(sorted({backend.resolve_name(n) for n in (*logical_names, *overlay_names)}))
 
 
 @dataclass(frozen=True)
@@ -585,14 +585,14 @@ def _flow_inputs(
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset)
-    # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
-    _write_claude_settings(logger, claude_settings, env)
     t = _tooling(logger, env)
     match _approval(args, t, plan):
         case Err(error=message):
             logger.error(message)
             return install_flow.INTERRUPTED_EXIT_CODE
         case Ok(value=approved):
+            # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
+            _write_claude_settings(logger, claude_settings, env)
             return _run_flow(args, env, plan, claude_settings, _flow_inputs(t, env, plan, args, approved))
 
 
@@ -633,36 +633,37 @@ def _finish_install(
 
 def _persist(logger: Logger, env: Env, plan: _Install, inputs: install_flow.FlowInputs) -> bool:
     """Writes the migration, the state and the other presets' backups; False when any of them failed."""
-    migrated = _write_migration(logger, plan)
+    written = _write_migration(logger, plan)
     applied, overlay_root = _saved_applied(inputs, plan)
-    if not _state_saved(logger, env, plan, (applied, overlay_root), migrated=migrated):
+    if not _state_saved(logger, env, plan, (applied, overlay_root), written):
         return False
-    return _retire_other_presets(logger, plan) and migrated
+    return isinstance(written, Ok) and _retire_other_presets(logger, plan)
 
 
 def _state_saved(
-    logger: Logger, env: Env, plan: _Install, saved: tuple[tuple[str, ...], str | None], *, migrated: bool,
+    logger: Logger, env: Env, plan: _Install, saved: tuple[tuple[str, ...], str | None], written: Result[Path | None],
 ) -> bool:
     try:
-        _save_state(env, plan, *saved, migrated=migrated)
+        _save_state(env, plan, *saved, migrated=isinstance(written, Ok))
     except OSError as error:
         logger.error(f"Could not save the install state to {state.state_file(env.state_dir)}: {error}.")
-        if migrated and plan.loaded.from_legacy:
-            _undo_migration(logger, plan)
+        match written:
+            case Ok(value=Path() as backup_copy):
+                _undo_migration(logger, plan, backup_copy)
         return False
     return True
 
 
-def _undo_migration(logger: Logger, plan: _Install) -> None:
+def _undo_migration(logger: Logger, plan: _Install, backup_copy: Path) -> None:
     try:
-        optouts.restore_from_backup(plan.package_file, plan.backup)
+        optouts.restore_from_backup(plan.package_file, backup_copy)
     except OSError as error:
         logger.error(
             f"Could not restore {plan.package_file}: {error}. It now has a header line, so the next run reads it "
             "as plain opt-outs and will offer to remove the names the migration created."
         )
         return
-    logger.warn(f"Restored {plan.package_file} from {plan.backup}; the next install retries the migration.")
+    logger.warn(f"Restored {plan.package_file} from {backup_copy}; the next install retries the migration.")
 
 
 def _retire_other_presets(logger: Logger, plan: _Install) -> bool:
@@ -677,19 +678,20 @@ def _retire_other_presets(logger: Logger, plan: _Install) -> bool:
     return True
 
 
-def _write_migration(logger: Logger, plan: _Install) -> bool:
+def _write_migration(logger: Logger, plan: _Install) -> Result[Path | None]:
+    """Ok with the legacy file's backup copy, Ok(None) when nothing needed migrating, Err when the write failed."""
     if not plan.loaded.from_legacy:
-        return True
+        return Ok(None)
     try:
-        optouts.write_migration(plan.package_file, plan.loaded.names, plan.backup)
+        backup_copy = optouts.write_migration(plan.package_file, plan.loaded.names, plan.backup)
     except OSError as error:
         logger.error(
             f"Could not migrate {plan.package_file}: {error}. "
             "The file stays legacy; the next install retries the migration."
         )
-        return False
-    logger.warn(f"Migrated {plan.package_file} to an opt-out file; backup in {plan.backup}.")
-    return True
+        return Err(str(error))
+    logger.warn(f"Migrated {plan.package_file} to an opt-out file; backup in {backup_copy}.")
+    return Ok(backup_copy)
 
 
 def _saved_applied(inputs: install_flow.FlowInputs, plan: _Install) -> tuple[tuple[str, ...], str | None]:

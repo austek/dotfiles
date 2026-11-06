@@ -69,8 +69,28 @@ def test_migrate_dry_run_writes_nothing(tmp_path: Path):
 def test_other_preset_files_lists_without_moving(tmp_path: Path):
     (tmp_path / "work.txt").write_text("a\n")
     (tmp_path / "home.txt").write_text("b\n")
-    assert other_preset_files(tmp_path, "work") == (tmp_path / "home.txt",)
+    assert other_preset_files(tmp_path, "work", {"work", "home"}) == (tmp_path / "home.txt",)
     assert (tmp_path / "home.txt").exists()
+
+
+def test_other_preset_files_skips_a_txt_that_names_no_preset(tmp_path: Path):
+    (tmp_path / "homelab.txt").write_text("a\n")
+    (tmp_path / "work.txt").write_text("b\n")
+    (tmp_path / "notes.txt").write_text("c\n")
+    assert other_preset_files(tmp_path, "homelab", {"homelab", "work", "personal"}) == (tmp_path / "work.txt",)
+
+
+def test_migrations_with_the_same_backup_dir_keep_both_backups(tmp_path: Path):
+    fork = tmp_path / "work.txt"
+    backups = tmp_path / "bak"
+    fork.write_text("first\n")
+    first = write_migration(fork, frozenset({"vim"}), backups)
+    fork.write_text("second\n")
+    second = write_migration(fork, frozenset({"vim"}), backups)
+    assert first != second
+    assert (first.read_text(), second.read_text()) == ("first\n", "second\n")
+    restore_from_backup(fork, second)
+    assert fork.read_text() == "second\n"
 
 
 def test_move_to_backup_moves_not_deletes(tmp_path: Path):
@@ -99,8 +119,8 @@ def test_restore_from_backup_puts_the_legacy_file_back(tmp_path: Path):
     fork = tmp_path / "work.txt"
     fork.write_text(LEGACY)
     backups = tmp_path / "bak"
-    write_migration(fork, frozenset({"vim"}), backups)
-    restore_from_backup(fork, backups)
+    saved = write_migration(fork, frozenset({"vim"}), backups)
+    restore_from_backup(fork, saved)
     assert fork.read_text() == LEGACY
     assert is_legacy(fork)
 
