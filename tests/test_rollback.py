@@ -154,5 +154,25 @@ def test_nothing_is_offered_without_a_log(tmp_path):
     rollback.offer_rollback(context(tmp_path, Machine()), interactive=True, ask=refuse)
 
 
+def test_undo_reinstalls_removed_packages(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    ctx.log.track("APT_REMOVED:vim", dry_run=False)
+    ctx.log.track("FLATPAK_REMOVED:com.slack.Slack", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert machine.argvs() == [
+        ["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", "com.slack.Slack"],
+        ["sudo", "apt-get", "install", "-y", "vim"],
+    ]
+
+
+def test_a_failed_reinstall_only_warns(tmp_path):
+    machine = Machine(failing=[("sudo", "apt-get", "install")])
+    ctx = context(tmp_path, machine)
+    ctx.log.track("APT_REMOVED:vim", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not ctx.log.path.exists()
+
+
 def test_the_default_log_lives_in_home(tmp_path):
     assert rollback.RollbackLog.for_home(Path(tmp_path)).path == tmp_path / ".dotfiles-setup-rollback.log"

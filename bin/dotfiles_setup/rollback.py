@@ -98,6 +98,14 @@ def _undo(ctx: RollbackContext, entry: str) -> None:
         logger.info(f"Removing generated file: {data}")
         if not _run_quiet(ctx, ["sudo", "rm", "-f", data]):
             logger.warn(f"Failed to remove {data}")
+    elif action == "APT_REMOVED":
+        logger.info(f"Reinstalling removed package: {data}")
+        if not _run_quiet(ctx, ["sudo", "apt-get", "install", "-y", data]):
+            logger.warn(f"Failed to reinstall {data}")
+    elif action == "FLATPAK_REMOVED":
+        logger.info(f"Reinstalling removed Flatpak app: {data}")
+        if not _run_quiet(ctx, ["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", data]):
+            logger.warn(f"Failed to reinstall {data}")
     else:
         logger.warn(f"Unknown rollback action: {action}")
 
