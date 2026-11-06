@@ -385,7 +385,8 @@ def _retire_other_presets(logger: Logger, package_file: Path, keep: str, backup:
 def _load_optouts(logger: Logger, package_file: Path, combined: tuple[str, ...], backup: Path) -> frozenset[str]:
     if not optouts.is_legacy(package_file):
         return optouts.read_optouts(package_file)
-    migrated = optouts.migrate(package_file, combined, backup, dry_run=logger.dry_run)
+    unpinned = tuple(n for n in combined if not n.startswith(apt_packages.PIN_PREFIX))
+    migrated = optouts.migrate(package_file, unpinned, backup, dry_run=logger.dry_run)
     verb = "Would migrate" if logger.dry_run else "Migrated"
     logger.info(f"{verb} {package_file} to an opt-out file; backup in {backup}.")
     if migrated.fork_only:

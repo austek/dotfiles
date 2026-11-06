@@ -231,6 +231,18 @@ def test_optout_of_pin_skips_install_and_removes_it(isolated_dotfiles):
     assert apt_packages.pending_github_bins(ctx) == []
 
 
+def test_migration_does_not_opt_out_pins(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_pins(tmp_path)
+    package_file = _write_optouts(tmp_path, "zsh\ncurl\n")
+    plan = _plan_for(tmp_path)
+    assert "github:derailed/k9s" not in package_file.read_text()
+    assert "github:derailed/k9s" in plan.wanted
+    no_dpkg = Tooling(Logger(dry_run=False), tmp_path, run=lambda *a, **k: SimpleNamespace(returncode=0, stdout=""))
+    ctx = SystemContext(no_dpkg, plan.dotfiles_dir, plan.wanted, RollbackLog(tmp_path / "log"))
+    assert apt_packages.pending_github_bins(ctx) == ["k9s_linux_amd64.deb"]
+
+
 def test_applied_reports_pin_entries(tmp_path, monkeypatch):
     t = _tooling(tmp_path, monkeypatch, apt=("k9s",))
     applied = applied_after_removals(t, frozenset({"zsh"}), ("github:derailed/k9s",), [])
