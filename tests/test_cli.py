@@ -182,13 +182,13 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
     return dotfiles_dir, tmp_path
 
 
-def _plan_for(tmp_path, prior=None, applied_preset="homelab", overlay_root=None):
+def _plan_for(tmp_path, prior=None, applied_preset="homelab", overlay_root=None, names=("zsh", "curl"), dry_run=False):
     env = Env(
         state_dir=tmp_path / "state", dotfiles_dir=tmp_path / "dotfiles",
         clock=lambda: datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
     )
     preset = Preset("homelab", "test", ("apt_common.txt",), {}, None)
-    return _plan(Logger(dry_run=False), env, preset, ("zsh", "curl"), overlay_root, prior)
+    return _plan(Logger(dry_run=dry_run), env, preset, names, overlay_root, prior)
 
 
 def _write_optouts(tmp_path, text, name="homelab.txt"):
@@ -241,6 +241,19 @@ def test_migration_does_not_opt_out_pins(isolated_dotfiles):
     no_dpkg = Tooling(Logger(dry_run=False), tmp_path, run=lambda *a, **k: SimpleNamespace(returncode=0, stdout=""))
     ctx = SystemContext(no_dpkg, plan.dotfiles_dir, plan.wanted, RollbackLog(tmp_path / "log"))
     assert apt_packages.pending_github_bins(ctx) == ["k9s_linux_amd64.deb"]
+
+
+def test_a_pin_moved_to_apt_is_kept_and_not_pending(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    plan = _plan_for(tmp_path, _prior("homelab", ("curl", "github:derailed/k9s", "zsh")), names=("zsh", "curl", "k9s"))
+    assert plan.pending == ()
+    assert "github:derailed/k9s moved to another manager; keeping k9s" in capsys.readouterr().out
+
+
+def test_an_apt_package_moved_to_a_pin_is_kept_and_not_pending(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_pins(tmp_path)
+    assert _plan_for(tmp_path, _prior("homelab", ("curl", "k9s", "zsh"))).pending == ()
 
 
 def test_applied_reports_pin_entries(tmp_path, monkeypatch):
@@ -327,11 +340,21 @@ def test_missing_overlay_skips_all_removals(isolated_dotfiles, capsys):
     assert "overlay not found: skipping removals" in capsys.readouterr().out.lower()
 
 
-def test_moved_overlay_skips_all_removals(isolated_dotfiles, capsys):
+def test_overlay_at_a_new_path_keeps_removals(isolated_dotfiles, capsys):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     prior = _prior("homelab", ("curl", "extra", "zsh"), overlay_root=str(tmp_path / "private"))
-    assert _plan_for(tmp_path, prior, overlay_root=tmp_path / "elsewhere").pending == ()
-    assert "overlay not found: skipping removals" in capsys.readouterr().out.lower()
+    assert _plan_for(tmp_path, prior, overlay_root=tmp_path / "elsewhere").pending == ("extra",)
+    assert "overlay not found" not in capsys.readouterr().out.lower()
+
+
+def test_overlay_at_a_new_path_is_saved(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    moved = tmp_path / "elsewhere"
+    moved.mkdir()
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: moved)
+    state.save_state(_prior("homelab", ("curl", "zsh"), overlay_root=str(tmp_path / "private")), state.state_file())
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert state.load_state().overlay_root == str(moved)
 
 
 def test_same_overlay_keeps_removals(isolated_dotfiles):
@@ -366,11 +389,37 @@ def test_successful_install_writes_the_migration_once(isolated_dotfiles):
     assert [b.read_text() for b in backups] == ["zsh\nextra\n"]
 
 
-def test_plan_retires_other_presets_files(isolated_dotfiles):
+def test_plan_leaves_other_presets_files_in_place(isolated_dotfiles, capsys):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     other = _write_optouts(tmp_path, "vim\n", name="work.txt")
     _plan_for(tmp_path)
+    assert other.exists()
+    assert "Will move" in capsys.readouterr().out
+
+
+def test_dry_run_plan_moves_no_other_presets_file(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    _plan_for(tmp_path, dry_run=True)
+    assert other.exists()
+    assert "Would move" in capsys.readouterr().out
+
+
+def test_failed_run_leaves_other_presets_files_in_place(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    fail_flow(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert other.exists()
+
+
+def test_successful_run_moves_other_presets_files_to_the_backup(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    assert main(["install", "--preset", "homelab"]) == 0
     assert not other.exists()
+    backups = list((Path.home() / ".local" / "state" / "dotfiles" / "package-backups").glob("*/work.txt"))
+    assert [b.read_text() for b in backups] == ["vim\n"]
 
 
 def test_optout_for_unlisted_package_warns_only(isolated_dotfiles, capsys):

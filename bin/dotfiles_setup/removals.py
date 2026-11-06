@@ -1,7 +1,7 @@
 """Removes apt packages and Flatpak apps the user opted out of, recording each removal for rollback."""
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from dotfiles_setup import flatpak
@@ -41,6 +41,18 @@ def split_removals(pending: Sequence[str]) -> Split:
         manual=tuple(n for n in pending if n in CUSTOM_INSTALL_PACKAGES - DPKG_BACKED_CUSTOM),
         debs=tuple(n for n in pending if _is_deb_entry(n)),
     )
+
+
+def dpkg_names(entries: Iterable[str]) -> frozenset[str]:
+    """The dpkg packages that the apt, `.deb`-backed custom and pin entries among `entries` install."""
+    split = split_removals(tuple(entries))
+    return frozenset({*split.apt, *(dpkg_name(entry) for entry in split.debs)})
+
+
+def moved_entries(candidates: Iterable[str], wanted: Iterable[str]) -> tuple[str, ...]:
+    """The candidates whose dpkg package a wanted entry still installs."""
+    covered = dpkg_names(wanted)
+    return tuple(entry for entry in sorted(candidates) if dpkg_names((entry,)) & covered)
 
 
 def entries_for(split: Split, removed: Sequence[str]) -> list[str]:

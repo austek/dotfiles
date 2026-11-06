@@ -82,7 +82,8 @@ def _remove_apt_packages(inputs: FlowInputs, ctx: SystemContext, failed: list[st
         return
     present = removals.installed_only(t, split)
     deb_names = frozenset(removals.dpkg_name(entry) for entry in present.debs)
-    gone = removals.remove_apt(ctx, present.apt, deb_names)
+    covered = removals.dpkg_names(inputs.packages)
+    gone = removals.remove_apt(ctx, [name for name in present.apt if name not in covered], deb_names)
     inputs.removed.extend(removals.entries_for(present, gone))
 
 

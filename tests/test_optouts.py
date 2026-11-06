@@ -5,8 +5,9 @@ from dotfiles_setup.optouts import (
     backup_dir,
     is_legacy,
     migrate,
+    move_to_backup,
+    other_preset_files,
     read_optouts,
-    retire_other_presets,
 )
 
 LEGACY = "bat\njq\ngit\n# --- added by reconcile ---\nextra\n"
@@ -62,22 +63,19 @@ def test_migrate_dry_run_writes_nothing(tmp_path: Path):
     assert not backups.exists()
 
 
-def test_retire_other_presets_moves_not_deletes(tmp_path: Path):
+def test_other_preset_files_lists_without_moving(tmp_path: Path):
     (tmp_path / "work.txt").write_text("a\n")
     (tmp_path / "home.txt").write_text("b\n")
+    assert other_preset_files(tmp_path, "work") == (tmp_path / "home.txt",)
+    assert (tmp_path / "home.txt").exists()
+
+
+def test_move_to_backup_moves_not_deletes(tmp_path: Path):
+    (tmp_path / "home.txt").write_text("b\n")
     backups = tmp_path / "bak"
-    moved = retire_other_presets(tmp_path, "work", backups, dry_run=False)
-    assert moved == ("home.txt",)
-    assert (tmp_path / "work.txt").exists()
+    move_to_backup((tmp_path / "home.txt",), backups)
     assert not (tmp_path / "home.txt").exists()
     assert (backups / "home.txt").read_text() == "b\n"
-
-
-def test_retire_dry_run_moves_nothing(tmp_path: Path):
-    (tmp_path / "home.txt").write_text("b\n")
-    moved = retire_other_presets(tmp_path, "work", tmp_path / "bak", dry_run=True)
-    assert moved == ("home.txt",)
-    assert (tmp_path / "home.txt").exists()
 
 
 def test_backup_dir_layout(tmp_path: Path):

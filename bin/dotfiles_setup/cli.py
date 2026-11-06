@@ -365,7 +365,7 @@ def _plan(
     package_file = state.package_dir(env.state_dir) / f"{preset.name}.txt"
     stamp = env.clock().strftime("%Y%m%d%H%M%S")
     backup = optouts.backup_dir(Path.home() / ".local" / "state" / "dotfiles", stamp)
-    _retire_other_presets(logger, package_file, preset.name, backup)
+    others = _other_presets(logger, package_file, preset.name, backup)
     loaded = _load_optouts(logger, package_file, combined, backup, migrated=bool(prior and prior.optouts_migrated))
     for stale in package_sets.stale_optouts(loaded.names, combined, backend.resolve_name):
         logger.warn(f"Opt-out '{stale}' in {package_file} matches no package in {preset.name}.")
@@ -373,7 +373,7 @@ def _plan(
     pending = _pending(logger, _Prior(prior, preset.name, overlay_root), wanted, loaded, backend.resolve_name)
     return _Install(
         preset, backend, combined, package_file, wanted, pending, overlay_root, env.dotfiles_dir, prior, stamp,
-        loaded, backup,
+        loaded, backup, others,
     )
 
 
@@ -406,8 +406,7 @@ class _Prior:
 
     def missing_overlay(self) -> str | None:
         saved = self.state.overlay_root if self.state else None
-        current = str(self.overlay_root) if self.overlay_root else None
-        return saved if saved is not None and saved != current else None
+        return saved if self.overlay_root is None else None
 
 
 def _pending(
@@ -421,15 +420,24 @@ def _pending(
         logger.warn(f"Private overlay not found: skipping removals (last install used {missing}).")
         return ()
     created = {resolve(name) for name in loaded.created}
-    candidates = {*package_sets.pending_removals(applied, wanted), *loaded.fork_only}
-    return tuple(sorted(candidates - created))
+    candidates = {*package_sets.pending_removals(applied, wanted), *loaded.fork_only} - created
+    return tuple(sorted(candidates - _moved(logger, candidates, wanted)))
 
 
-def _retire_other_presets(logger: Logger, package_file: Path, keep: str, backup: Path) -> None:
-    retired = optouts.retire_other_presets(package_file.parent, keep, backup, dry_run=logger.dry_run)
-    verb = "Would move" if logger.dry_run else "Moved"
-    if retired:
-        logger.warn(f"{verb} other presets' package files {', '.join(retired)} to {backup}.")
+def _moved(logger: Logger, candidates: set[str], wanted: frozenset[str]) -> set[str]:
+    moved = removals.moved_entries(candidates, wanted)
+    for entry in moved:
+        logger.warn(f"{entry} moved to another manager; keeping {removals.dpkg_name(entry)}.")
+    return set(moved)
+
+
+def _other_presets(logger: Logger, package_file: Path, keep: str, backup: Path) -> tuple[Path, ...]:
+    others = optouts.other_preset_files(package_file.parent, keep)
+    verb = "Would move" if logger.dry_run else "Will move"
+    if others:
+        names = ", ".join(p.name for p in others)
+        logger.warn(f"{verb} other presets' package files {names} to {backup} after a successful install.")
+    return others
 
 
 def _load_optouts(
@@ -473,6 +481,7 @@ class _Install:
     stamp: str
     loaded: _Optouts
     backup: Path
+    other_presets: tuple[Path, ...] = ()
 
 
 def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
@@ -589,10 +598,17 @@ def _finish_install(
     _sync_foothold(logger, plan.preset, plan.prior)
     install_flow.print_completion_banner(logger)
     if not args.dry_run:
+        _retire_other_presets(logger, plan)
         _write_migration(logger, plan)
         applied, overlay_root = _saved_applied(inputs, plan)
         _save_state(env, plan, applied, overlay_root)
     logger.success(f"Machine preset set to '{plan.preset.name}'.")
+
+
+def _retire_other_presets(logger: Logger, plan: _Install) -> None:
+    if plan.other_presets:
+        optouts.move_to_backup(plan.other_presets, plan.backup)
+        logger.warn(f"Moved other presets' package files {', '.join(p.name for p in plan.other_presets)} to {plan.backup}.")
 
 
 def _write_migration(logger: Logger, plan: _Install) -> None:

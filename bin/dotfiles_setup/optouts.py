@@ -55,12 +55,12 @@ def migrate(
     return result
 
 
-def retire_other_presets(
-    package_dir: Path, keep: str, backup: Path, *, dry_run: bool
-) -> tuple[str, ...]:
-    others = sorted(p for p in package_dir.glob("*.txt") if p.stem != keep)
-    if others and not dry_run:
+def other_preset_files(package_dir: Path, keep: str) -> tuple[Path, ...]:
+    return tuple(sorted(p for p in package_dir.glob("*.txt") if p.stem != keep))
+
+
+def move_to_backup(files: Sequence[Path], backup: Path) -> None:
+    if files:
         backup.mkdir(parents=True, exist_ok=True)
-        for p in others:
-            shutil.move(str(p), backup / p.name)
-    return tuple(p.name for p in others)
+    for p in files:
+        shutil.move(str(p), backup / p.name)

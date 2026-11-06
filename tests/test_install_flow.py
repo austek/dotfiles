@@ -322,6 +322,15 @@ def test_removed_reports_entry_names(tmp_path):
     assert not any("github:derailed/k9s" in c for c in machine.commands)
 
 
+def test_apt_removal_skips_a_dpkg_name_a_wanted_entry_covers(tmp_path):
+    machine = Machine(installed="k9s")
+    flow_inputs = inputs(tmp_path, run=machine, packages="k9s", removals=("github:derailed/k9s",))
+    dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))["remove_apt_packages"]()
+    assert not machine.ran("apt-get")
+    assert not machine.ran("sudo")
+    assert flow_inputs.removed == []
+
+
 def test_removed_pin_tracks_a_deb_undo_entry(tmp_path):
     machine = Machine(installed="k9s")
     flow_inputs = inputs(tmp_path, run=machine, removals=("github:derailed/k9s",))
