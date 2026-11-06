@@ -111,6 +111,7 @@ fi
 
 if [[ -r $HOME/.nvm ]]; then
     export NVM_DIR="$HOME/.nvm"
+    export NVM_SYMLINK_CURRENT=true
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
     [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 fi
