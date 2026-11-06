@@ -1,3 +1,5 @@
+import json
+
 from dotfiles_setup.state import (
     MachineState,
     load_state,
@@ -83,6 +85,23 @@ def test_round_trips_optional_overlay_root_when_set(tmp_path):
     )
     loaded = load_state(state_file)
     assert loaded.overlay_root == "/home/user/.dotfiles-private"
+
+
+def test_load_state_defaults_optouts_migrated_for_an_older_state_file(tmp_path):
+    state_file = tmp_path / "state.json"
+    save_state(_sample_state(), state_file)
+    data = json.loads(state_file.read_text())
+    del data["optouts_migrated"]
+    state_file.write_text(json.dumps(data))
+    loaded = load_state(state_file)
+    assert loaded is not None
+    assert loaded.optouts_migrated is False
+
+
+def test_optouts_migrated_round_trips(tmp_path):
+    state_file = tmp_path / "state.json"
+    save_state(_sample_state(optouts_migrated=True), state_file)
+    assert load_state(state_file).optouts_migrated is True
 
 
 def test_applied_package_names_round_trips_as_a_tuple(tmp_path):

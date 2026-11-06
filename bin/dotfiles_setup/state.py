@@ -29,6 +29,7 @@ class MachineState:
     overlay_root: str | None
     created_at: str
     updated_at: str
+    optouts_migrated: bool = False
 
 
 def load_state(path: Path | None = None) -> MachineState | None:

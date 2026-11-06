@@ -306,6 +306,7 @@ def _save_state(env: Env, plan: _Install, applied: tuple[str, ...]) -> None:
         overlay_root=str(plan.overlay_root) if plan.overlay_root else None,
         created_at=prior.created_at if prior else env.now_iso(),
         updated_at=env.now_iso(),
+        optouts_migrated=True,
     ), state.state_file(env.state_dir))
 
 
@@ -357,22 +358,64 @@ def _plan(
     overlay_root: Path | None, prior: state.MachineState | None,
 ) -> _Install:
     backend = env.backend_factory(env.dotfiles_dir, preset.backend_overrides.get("apt", {}))
-    overlay_names = overlay.overlay_package_names(overlay_root, preset.name)
-    pins = apt_packages.pin_entries(env.dotfiles_dir / "packages" / "github_bins.txt")
-    combined = tuple(sorted({*combine_package_names(backend, logical_names, overlay_names), *pins}))
+    combined = _combined(env, backend, logical_names, overlay_root, preset.name)
     package_file = state.package_dir(env.state_dir) / f"{preset.name}.txt"
     stamp = env.clock().strftime("%Y%m%d%H%M%S")
     backup = optouts.backup_dir(Path.home() / ".local" / "state" / "dotfiles", stamp)
     _retire_other_presets(logger, package_file, preset.name, backup)
-    optout_names = _load_optouts(logger, package_file, combined, backup)
-    for stale in package_sets.stale_optouts(optout_names, combined, backend.resolve_name):
+    loaded = _load_optouts(logger, package_file, combined, backup, migrated=bool(prior and prior.optouts_migrated))
+    for stale in package_sets.stale_optouts(loaded.names, combined, backend.resolve_name):
         logger.warn(f"Opt-out '{stale}' in {package_file} matches no package in {preset.name}.")
-    wanted = package_sets.wanted(combined, optout_names, backend.resolve_name)
-    applied = prior.applied_package_names if prior and prior.preset_name == preset.name else None
-    pending = package_sets.pending_removals(applied, wanted)
+    wanted = package_sets.wanted(combined, loaded.names, backend.resolve_name)
+    pending = _pending(logger, _Prior(prior, preset.name, overlay_root), wanted, loaded, backend.resolve_name)
     return _Install(
         preset, backend, combined, package_file, wanted, pending, overlay_root, env.dotfiles_dir, prior, stamp,
     )
+
+
+def _combined(
+    env: Env, backend: Backend, logical_names: tuple[str, ...], overlay_root: Path | None, preset_name: str,
+) -> tuple[str, ...]:
+    overlay_names = overlay.overlay_package_names(overlay_root, preset_name)
+    pins = apt_packages.pin_entries(env.dotfiles_dir / "packages" / "github_bins.txt")
+    return tuple(sorted({*combine_package_names(backend, logical_names, overlay_names), *pins}))
+
+
+@dataclass(frozen=True)
+class _Optouts:
+    names: frozenset[str]
+    created: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class _Prior:
+    state: state.MachineState | None
+    preset_name: str
+    overlay_root: Path | None
+
+    def applied(self) -> tuple[str, ...] | None:
+        if self.state is None or self.state.preset_name != self.preset_name:
+            return None
+        return self.state.applied_package_names
+
+    def missing_overlay(self) -> str | None:
+        saved = self.state.overlay_root if self.state else None
+        current = str(self.overlay_root) if self.overlay_root else None
+        return saved if saved is not None and saved != current else None
+
+
+def _pending(
+    logger: Logger, prior: _Prior, wanted: frozenset[str], loaded: _Optouts, resolve: Callable[[str], str],
+) -> tuple[str, ...]:
+    applied = prior.applied()
+    if applied is None:
+        return ()
+    missing = prior.missing_overlay()
+    if missing is not None:
+        logger.warn(f"Private overlay not found: skipping removals (last install used {missing}).")
+        return ()
+    created = {resolve(name) for name in loaded.created}
+    return tuple(name for name in package_sets.pending_removals(applied, wanted) if name not in created)
 
 
 def _retire_other_presets(logger: Logger, package_file: Path, keep: str, backup: Path) -> None:
@@ -382,16 +425,25 @@ def _retire_other_presets(logger: Logger, package_file: Path, keep: str, backup:
         logger.info(f"{verb} other presets' package files {', '.join(retired)} to {backup}.")
 
 
-def _load_optouts(logger: Logger, package_file: Path, combined: tuple[str, ...], backup: Path) -> frozenset[str]:
+def _load_optouts(
+    logger: Logger, package_file: Path, combined: tuple[str, ...], backup: Path, *, migrated: bool,
+) -> _Optouts:
     if not optouts.is_legacy(package_file):
-        return optouts.read_optouts(package_file)
+        return _Optouts(optouts.read_optouts(package_file))
+    if migrated:
+        logger.warn(f"{package_file} has no header line '{optouts.HEADER}'; reading it as opt-outs.")
+        return _Optouts(optouts.read_optouts(package_file))
+    return _migrate_fork(logger, package_file, combined, backup)
+
+
+def _migrate_fork(logger: Logger, package_file: Path, combined: tuple[str, ...], backup: Path) -> _Optouts:
     unpinned = tuple(n for n in combined if not n.startswith(apt_packages.PIN_PREFIX))
     migrated = optouts.migrate(package_file, unpinned, backup, dry_run=logger.dry_run)
     verb = "Would migrate" if logger.dry_run else "Migrated"
     logger.info(f"{verb} {package_file} to an opt-out file; backup in {backup}.")
     if migrated.fork_only:
         logger.info(f"Packages only in the old file: {', '.join(migrated.fork_only)}.")
-    return migrated.optouts
+    return _Optouts(migrated.optouts, migrated.optouts)
 
 
 def combine_package_names(

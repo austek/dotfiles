@@ -2,7 +2,7 @@ import os
 from types import SimpleNamespace
 
 import pytest
-from dotfiles_setup import flatpak, tools
+from dotfiles_setup import desktop_defaults, flatpak, system_steps, tools
 from dotfiles_setup import install_flow as flow
 from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
@@ -213,6 +213,33 @@ def test_auto_runs_the_system_steps_when_the_check_finds_work(tmp_path, no_sudo,
     monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: ["2 apt package(s) not installed"])
     assert flow.run_install(inputs(tmp_path, system="auto")).succeeded
     assert ran == ["install_packages", "configure_dotfiles"]
+
+
+@pytest.fixture
+def settled_machine(tmp_path, monkeypatch):
+    nosnap = tmp_path / "nosnap.pref"
+    nosnap.write_text("Package: snapd\n")
+    real_check = flow.system_stage_reasons
+    monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: real_check(ctx, nosnap))
+    monkeypatch.setattr(system_steps, "docker_group_pending", lambda ctx: False)
+    monkeypatch.setattr(desktop_defaults, "shell_change_pending", lambda: False)
+    return Machine(installed="htop vim")
+
+
+def test_auto_starts_the_system_stage_for_an_approved_installed_apt_removal(
+    tmp_path, no_sudo, monkeypatch, settled_machine,
+):
+    ran = _recorded_steps(monkeypatch)
+    flow_inputs = inputs(tmp_path, system="auto", run=settled_machine, removals=("htop",))
+    assert flow.run_install(flow_inputs).succeeded
+    assert ran == ["install_packages", "configure_dotfiles"]
+
+
+def test_auto_skips_the_system_stage_when_removals_were_declined(tmp_path, monkeypatch, settled_machine):
+    ran = _recorded_steps(monkeypatch)
+    _no_sudo_prompt(monkeypatch)
+    assert flow.run_install(inputs(tmp_path, system="auto", run=settled_machine)).succeeded
+    assert ran == ["configure_dotfiles"]
 
 
 def test_always_runs_the_system_steps_without_checking(tmp_path, no_sudo, monkeypatch):

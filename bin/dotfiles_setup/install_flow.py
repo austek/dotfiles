@@ -183,7 +183,7 @@ def run_install(inputs: FlowInputs) -> InstallResult:
     packages = inputs.packages
     logger.info(f"Found {len(packages)} unique packages to install.")
     log = _start_log(inputs, logger)
-    ctx = SystemContext(inputs.t, inputs.dotfiles_dir, packages, log)
+    ctx = SystemContext(inputs.t, inputs.dotfiles_dir, packages, log, inputs.removals)
     system = _system_stage_wanted(inputs, ctx)
     session = SudoSession(ctx)
     try:

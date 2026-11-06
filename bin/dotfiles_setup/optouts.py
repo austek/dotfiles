@@ -27,8 +27,7 @@ def read_optouts(path: Path) -> frozenset[str]:
 def is_legacy(path: Path) -> bool:
     if not path.is_file():
         return False
-    lines = (line.strip() for line in path.read_text().splitlines())
-    return next((line for line in lines if line), "") != HEADER
+    return all(line.strip() != HEADER for line in path.read_text().splitlines())
 
 
 def render(optouts: frozenset[str]) -> str:

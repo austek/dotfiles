@@ -35,6 +35,12 @@ def test_is_legacy_false_with_header_or_missing(tmp_path: Path):
     assert not is_legacy(tmp_path / "none.txt")
 
 
+def test_is_legacy_false_with_a_comment_above_the_header(tmp_path: Path):
+    f = tmp_path / "work.txt"
+    f.write_text(f"# my opt-outs\n{HEADER}\nbat\n")
+    assert not is_legacy(f)
+
+
 def test_migrate_converts_fork_to_optouts(tmp_path: Path):
     f = tmp_path / "work.txt"
     f.write_text(LEGACY)

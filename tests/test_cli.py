@@ -182,13 +182,13 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
     return dotfiles_dir, tmp_path
 
 
-def _plan_for(tmp_path, prior=None, applied_preset="homelab"):
+def _plan_for(tmp_path, prior=None, applied_preset="homelab", overlay_root=None):
     env = Env(
         state_dir=tmp_path / "state", dotfiles_dir=tmp_path / "dotfiles",
         clock=lambda: datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
     )
     preset = Preset("homelab", "test", ("apt_common.txt",), {}, None)
-    return _plan(Logger(dry_run=False), env, preset, ("zsh", "curl"), None, prior)
+    return _plan(Logger(dry_run=False), env, preset, ("zsh", "curl"), overlay_root, prior)
 
 
 def _write_optouts(tmp_path, text, name="homelab.txt"):
@@ -256,11 +256,66 @@ def test_plan_without_an_optout_file_wants_everything_and_creates_nothing(isolat
     assert not (tmp_path / "state" / "packages").exists()
 
 
-def _prior(preset_name, applied):
+def _prior(preset_name, applied, overlay_root=None, optouts_migrated=False):
     return state.MachineState(
         preset_name=preset_name, backend="apt", package_file="x", applied_package_names=applied,
-        overlay_root=None, created_at="t", updated_at="t",
+        overlay_root=overlay_root, created_at="t", updated_at="t", optouts_migrated=optouts_migrated,
     )
+
+
+def test_plan_reads_a_header_below_a_comment_as_optouts(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    text = f"# mine\n{optouts.HEADER}\ncurl\n"
+    package_file = _write_optouts(tmp_path, text)
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+    assert package_file.read_text() == text
+
+
+def test_plan_reads_a_headerless_file_as_optouts_once_migrated(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "curl\n")
+    prior = _prior("homelab", ("curl", "zsh"), optouts_migrated=True)
+    assert _plan_for(tmp_path, prior).wanted == frozenset({"zsh"})
+    assert package_file.read_text() == "curl\n"
+    assert "no header" in capsys.readouterr().out
+
+
+def test_plan_migrates_a_headerless_fork_on_an_unmigrated_machine(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\n")
+    assert _plan_for(tmp_path, _prior("homelab", ("zsh",))).wanted == frozenset({"zsh"})
+    assert package_file.read_text() == f"{optouts.HEADER}\ncurl\n"
+
+
+def test_migration_optouts_are_not_pending(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "zsh\n")
+    assert _plan_for(tmp_path, _prior("homelab", ("curl", "zsh"))).pending == ()
+
+
+def test_install_marks_the_optouts_migrated(isolated_dotfiles):
+    main(["install", "--preset", "homelab"])
+    assert state.load_state().optouts_migrated is True
+
+
+def test_missing_overlay_skips_all_removals(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    prior = _prior("homelab", ("curl", "extra", "zsh"), overlay_root=str(tmp_path / "private"))
+    assert _plan_for(tmp_path, prior).pending == ()
+    assert "overlay not found: skipping removals" in capsys.readouterr().out.lower()
+
+
+def test_moved_overlay_skips_all_removals(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    prior = _prior("homelab", ("curl", "extra", "zsh"), overlay_root=str(tmp_path / "private"))
+    assert _plan_for(tmp_path, prior, overlay_root=tmp_path / "elsewhere").pending == ()
+    assert "overlay not found: skipping removals" in capsys.readouterr().out.lower()
+
+
+def test_same_overlay_keeps_removals(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    prior = _prior("homelab", ("curl", "extra", "zsh"), overlay_root=str(tmp_path / "private"))
+    assert _plan_for(tmp_path, prior, overlay_root=tmp_path / "private").pending == ("extra",)
 
 
 def test_plan_pending_lists_dropped_packages(isolated_dotfiles):
@@ -1013,15 +1068,3 @@ def test_dry_run_lists_removals_and_does_not_prompt(isolated_dotfiles, flow_call
     assert flow_calls[0].removals == ()
     assert "htop" in capsys.readouterr().out
 
-
-def test_declined_run_does_not_request_system_stage(tmp_path, monkeypatch):
-    from dotfiles_setup import system_check as sc
-    from dotfiles_setup.rollback import RollbackLog
-    from dotfiles_setup.system_steps import SystemContext
-
-    t = _tooling(tmp_path, monkeypatch, apt=("htop", "zsh"))
-    (tmp_path / "repo" / "packages").mkdir(parents=True)
-    nosnap = tmp_path / "nosnap.pref"
-    nosnap.write_text("Package: snapd\n")
-    ctx = SystemContext(t, tmp_path / "repo", frozenset({"zsh"}), RollbackLog(tmp_path / "log"), ())
-    assert not any("remov" in reason for reason in sc.system_stage_reasons(ctx, nosnap))
