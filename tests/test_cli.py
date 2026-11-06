@@ -1241,8 +1241,10 @@ def test_confirm_treats_end_of_input_as_declined(capsys):
 
 
 def test_confirm_lets_an_interrupt_propagate():
+    logger = Logger(dry_run=False)
+    ask = _raise(KeyboardInterrupt)
     with pytest.raises(KeyboardInterrupt):
-        confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=_raise(KeyboardInterrupt))
+        confirm_removals(logger, ("htop",), prune=False, interactive=True, ask=ask)
 
 
 def test_an_interrupt_at_the_prompt_exits_130_before_any_step(isolated_dotfiles, flow_calls, monkeypatch):

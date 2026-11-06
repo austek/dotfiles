@@ -354,7 +354,9 @@ def test_dry_run_removals_run_no_command(tmp_path, capsys):
     assert machine.commands == []
     assert flow_inputs.removed == []
     out = capsys.readouterr().out
-    assert "Would remove" in out and "htop" in out and "b.B" in out
+    assert "Would remove" in out
+    assert "htop" in out
+    assert "b.B" in out
 
 
 def test_removed_reports_entry_names(tmp_path):

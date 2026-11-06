@@ -109,8 +109,10 @@ def test_a_failed_migration_write_leaves_the_legacy_file_whole(tmp_path: Path, m
         raise OSError("disk full")
 
     monkeypatch.setattr(Path, "replace", refuse)
+    backups = tmp_path / "bak"
+    kept = frozenset({"vim"})
     with pytest.raises(OSError):
-        write_migration(fork, frozenset({"vim"}), tmp_path / "bak")
+        write_migration(fork, kept, backups)
     assert fork.read_text() == LEGACY
     assert sorted(p.name for p in tmp_path.iterdir()) == ["bak", "work.txt"]
 

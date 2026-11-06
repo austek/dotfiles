@@ -24,12 +24,14 @@ assert_symlink_into_repo() {
 }
 
 applied() {
+    local package=$1
     python3 -I -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1]))["applied_package_names"] else 1)' \
-        "$state_json" "$1"
+        "$state_json" "$package"
 }
 
 dpkg_installed() {
-    [[ $(dpkg-query -W -f="\${db:Status-Abbrev}" "$1" 2>/dev/null) == ii* ]]
+    local package=$1
+    [[ $(dpkg-query -W -f="\${db:Status-Abbrev}" "$package" 2>/dev/null) == ii* ]]
 }
 
 source_host() {
