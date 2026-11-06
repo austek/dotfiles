@@ -112,7 +112,10 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
     install_p.add_argument(
         "--prune",
         action="store_true",
-        help="Uninstall packages the repo or overlay dropped, without asking for confirmation.",
+        help=(
+            "Uninstall installed packages the repo or overlay dropped, or that you opted out of, "
+            "without asking for confirmation."
+        ),
     )
     install_p.set_defaults(system="auto")
 

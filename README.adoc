@@ -68,7 +68,7 @@ the `~/.dotfiles-private` overlay when it is a git checkout, and fast-forwards e
 presets and package lists are current; a failed fetch or
 fast-forward (dirty tree, diverged branch) only warns. The first time you run it for a preset on this
 machine it prompts for your git name, email, and (optionally) an SSH signing key, and writes them to
-`~/.gitconfig.local`; it resolves the preset's package lists and forks the result to
+`~/.gitconfig.local`; it resolves the preset's package lists, minus your opt-outs in
 `~/.config/dotfiles/packages/<preset>.txt`; and it detects any `~/.dotfiles-private` overlay and layers
 it in (see "Presets and the Private Overlay" below for all three). It then runs the install steps itself
 to actually install packages, stow the dotfiles, and configure your Claude Code profile — which is where
@@ -76,7 +76,7 @@ the `sudo` password prompt and the rest of the guided process come from. If a st
 back the changes it recorded in `~/.dotfiles-setup-rollback.log` (stowed packages, backed-up and generated
 system files, docker group membership); packages themselves are not uninstalled.
 
-`dotfiles-setup install` also accepts `--dry-run`, `-v`/`-vv`/`-vvv` (verbosity), `--reconfigure` (re-prompt for the git identity), and `--accept-drift`.
+`dotfiles-setup install` also accepts `--dry-run`, `-v`/`-vv`/`-vvv` (verbosity), `--reconfigure` (re-prompt for the git identity), `--accept-drift`, and `--prune` (remove no-longer-wanted packages without the confirmation prompt).
 
 [NOTE]
 If stow fails because existing files block a symlink, re-run with `--force`. Each blocking file moves to
@@ -122,7 +122,7 @@ Instead, edit the package lists in the `~/.dotfiles/packages/` directory:
 * `apt_homelab.txt`
 * `github_bins.txt`
 
-Re-run `dotfiles-setup install --preset <name>` (the recommended command — see "Run the Setup Script" above) to pick up the change: it re-resolves the preset, appends any genuinely new package names to your machine's forked list at `~/.config/dotfiles/packages/<name>.txt`, and installs whatever's missing — see "Presets and the Private Overlay" below for exactly how that reconciliation works. Running `~/.dotfiles/bin/setup.sh` directly instead re-reads the package files fresh every time and skips that forked-file bookkeeping entirely.
+Re-run `dotfiles-setup install` to pick up the change: it installs what a list gained and, after a confirmation prompt, uninstalls what a list dropped. To skip a package on one machine only, add it to that machine's opt-out file instead — see "Presets and the Private Overlay" below.
 
 === Updating Configuration Files
 
@@ -163,9 +163,11 @@ Add a new skill there, not here.
 
 A *preset* is a manifest at `presets/<name>.json` that lists which package files (from `packages/`) to install, any backend-specific package-name overrides (e.g. for `apt`), and which `claude-profiles/*.json` file supplies Claude Code settings. This repo ships three — `work`, `personal`, `homelab` — and the set is extensible: drop in a new `presets/<name>.json` to add a machine type, no code changes required.
 
-Running `dotfiles-setup install --preset <name>` resolves the preset's package files into a flat package list and, the *first time* it runs for that preset on a machine, forks the result to `~/.config/dotfiles/packages/<name>.txt`. From that point on, the forked file is yours: hand-edit it to add or remove packages for this one machine, independently of what the preset says.
+Running `dotfiles-setup install --preset <name>` installs the preset's package files plus the overlay's extras, minus the names in `~/.config/dotfiles/packages/<name>.txt`. That file holds only your opt-outs for this machine, one name per line, under the header `# dotfiles-setup opt-outs v1`. It is yours to hand-edit; the install never regenerates it. A missing file means no opt-outs.
 
-Every later `dotfiles-setup install --preset <name>` re-resolves the preset and compares it against what it produced last time. Only package names the preset has genuinely gained since then get appended to your forked file; anything you deleted from it stays deleted, regardless of what else about the preset changed in the meantime. The forked file is never regenerated wholesale.
+The install records what it applied in `~/.config/dotfiles/state.json`. On the next run, a package that is no longer wanted and is still installed — because a list dropped it or you opted out of it — is listed and removed only after you confirm. `--prune` confirms without asking; a non-interactive run without it, or a declined prompt, removes nothing and asks again next time; `--dry-run` only lists. apt removals never cascade to other packages and never `autoremove`. Vendor-script installs (e.g. SDKMAN, nvm) are reported for manual removal. Any Flatpak install failure, or a saved overlay that is missing or moved, skips all removals for that run.
+
+Switching presets moves the other presets' opt-out files to `~/.local/state/dotfiles/package-backups/<timestamp>/`. A full package list from an older version of this repo is converted once to an opt-out file, with a backup in the same place; installed packages that only that old list named are offered for removal on that run.
 
 === The Private Overlay
 
@@ -180,7 +182,7 @@ This clones straight to `~/.dotfiles-private` (override with `--dest`) and refus
 
 * *Full git identity, no prompt* — if `~/.dotfiles-private/git/gitconfig.local` exists, `dotfiles-setup install` symlinks `~/.gitconfig.local` straight to it instead of interactively prompting for name/email/signing key. Use `~` (not an absolute `/home/<user>` path) for the signing key so the same private repo stays portable across your own machines.
 * *Work-remote override* — `~/.dotfiles-private/git/gitconfig-work` is conditionally included by `git/.gitconfig` on Collibra remotes (see "Git Configuration" above).
-* *Extra packages* — `~/.dotfiles-private/packages/<preset>_extra.txt` is unioned into the resolved package list for that preset before it's forked/reconciled into `~/.config/dotfiles/packages/<name>.txt`.
+* *Extra packages* — `~/.dotfiles-private/packages/<preset>_extra.txt` is unioned into the resolved package list for that preset; opt-outs in `~/.config/dotfiles/packages/<name>.txt` apply to these names too.
 * *Extra Claude settings* — `~/.dotfiles-private/claude-profiles/<preset>.json` is deep-merged into the generated `~/.claude/settings.json` last, over this repo's own `claude-profiles/<preset>.json`; lists union.
 * *Private stowed files* — after stowing this repo's own `.stow-packages`, `dotfiles-setup install` also reads `~/.dotfiles-private/.stow-packages` and stows those packages (unfolded, `stow --override='.*'`, from the private repo) onto `$HOME` too. `--override` lets a private file win over a public one at the same path, not just add new ones — e.g. a private `claude/.claude/CLAUDE.md` with org-specific instructions this machine's user isn't free to publish replaces this repo's generic one, while `claude/.claude/skills/*` (private-only skill directories) and `local/.local/bin/*` scripts just add alongside it. Packages that belong to one preset go in `~/.dotfiles-private/.stow-packages.<preset>` (e.g. `.stow-packages.work`): that preset stows them, and every other preset runs `stow --delete` on them so links from an earlier install disappear.
 
