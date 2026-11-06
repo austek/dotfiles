@@ -19,9 +19,16 @@ JDTLS_DISABLED = '"annotationProcessing": {"enabled": False}'
 CAVEMAN_INSTALL = ["npm", "install", "-g", "--ignore-scripts", "@caveman-ai/cli"]
 
 
+def _tool_env(binary: str) -> dict[str, str] | None:
+    """Stops cozempic's first-run init from writing its hooks into the generated settings.json."""
+    if Path(binary).name != "cozempic":
+        return None
+    return {**os.environ, "COZEMPIC_NO_GLOBAL_INIT": "1"}
+
+
 def _version_of(t: Tooling, binary: str, first_line: bool = False) -> str:
     try:
-        out = (t.run([binary, "--version"], capture_output=True, text=True).stdout or "").strip()
+        out = (t.run([binary, "--version"], capture_output=True, text=True, env=_tool_env(binary)).stdout or "").strip()
     except OSError:
         return ""
     return out.splitlines()[0] if first_line and out else out
