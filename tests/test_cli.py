@@ -1,19 +1,23 @@
 import json
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from dotfiles_setup import overlay, state
+from dotfiles_setup import optouts, overlay, state
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.cli import (
     Env,
+    _plan,
     _replace_settings_target,
     build_arg_parser,
     combine_package_names,
     main,
 )
+from dotfiles_setup.log import Logger
+from dotfiles_setup.presets import Preset
 
 
 def test_combine_package_names_resolves_overrides_and_merges_overlay(tmp_path):
@@ -172,12 +176,91 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
     return dotfiles_dir, tmp_path
 
 
-def test_install_creates_package_file_on_first_run(isolated_dotfiles):
+def _plan_for(tmp_path, prior=None, applied_preset="homelab"):
+    env = Env(
+        state_dir=tmp_path / "state", dotfiles_dir=tmp_path / "dotfiles",
+        clock=lambda: datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+    )
+    preset = Preset("homelab", "test", ("apt_common.txt",), {}, None)
+    return _plan(Logger(dry_run=False), env, preset, ("zsh", "curl"), None, prior)
+
+
+def _write_optouts(tmp_path, text, name="homelab.txt"):
+    package_file = tmp_path / "state" / "packages" / name
+    package_file.parent.mkdir(parents=True, exist_ok=True)
+    package_file.write_text(text)
+    return package_file
+
+
+def test_plan_excludes_optouts_from_wanted(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
-    assert main(["install", "--preset", "homelab"]) == 0
-    package_file = tmp_path / "state" / "packages" / "homelab.txt"
-    assert package_file.is_file()
-    assert set(package_file.read_text().split()) == {"zsh", "curl"}
+    _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+
+
+def test_plan_without_an_optout_file_wants_everything_and_creates_nothing(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh", "curl"})
+    assert not (tmp_path / "state" / "packages").exists()
+
+
+def _prior(preset_name, applied):
+    return state.MachineState(
+        preset_name=preset_name, backend="apt", package_file="x", applied_package_names=applied,
+        overlay_root=None, created_at="t", updated_at="t",
+    )
+
+
+def test_plan_pending_lists_dropped_packages(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    plan = _plan_for(tmp_path, _prior("homelab", ("curl", "slack-desktop", "zsh")))
+    assert plan.pending == ("slack-desktop",)
+
+
+def test_plan_ignores_applied_for_other_preset(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    plan = _plan_for(tmp_path, _prior("work", ("slack-desktop",)))
+    assert plan.pending == ()
+
+
+def test_plan_migrates_legacy_fork_once(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+    migrated = package_file.read_text()
+    assert migrated == f"{optouts.HEADER}\ncurl\n"
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+    assert package_file.read_text() == migrated
+    backups = list((Path.home() / ".local" / "state" / "dotfiles" / "package-backups").glob("*/homelab.txt"))
+    assert [b.read_text() for b in backups] == ["zsh\nextra\n"]
+
+
+def test_plan_retires_other_presets_files(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    _plan_for(tmp_path)
+    assert not other.exists()
+
+
+def test_optout_for_unlisted_package_warns_only(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, f"{optouts.HEADER}\nghost\n")
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh", "curl"})
+    assert "ghost" in capsys.readouterr().out
+
+
+def test_dry_run_does_not_migrate_a_legacy_file(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\n")
+    main(["install", "--preset", "homelab", "--dry-run"])
+    assert package_file.read_text() == "zsh\n"
+
+
+def test_install_saves_the_wanted_names_as_applied(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
+    main(["install", "--preset", "homelab"])
+    assert state.load_state().applied_package_names == ("zsh",)
 
 
 def test_install_persists_state(isolated_dotfiles):
@@ -187,13 +270,12 @@ def test_install_persists_state(isolated_dotfiles):
     assert saved.backend == "apt"
 
 
-def test_install_is_idempotent_on_rerun(isolated_dotfiles):
+def test_install_keeps_the_optout_file_on_rerun(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
     main(["install", "--preset", "homelab"])
-    package_file = tmp_path / "state" / "packages" / "homelab.txt"
-    package_file.write_text(package_file.read_text() + "ripgrep\n")
     main(["install", "--preset", "homelab"])
-    assert "ripgrep" in package_file.read_text()
+    assert package_file.read_text() == f"{optouts.HEADER}\ncurl\n"
 
 
 def fail_flow(monkeypatch, message="apt-get exploded"):
@@ -250,12 +332,10 @@ def test_dry_run_does_not_create_the_forked_package_file(isolated_dotfiles):
     assert not (state.package_dir() / "homelab.txt").exists()
 
 
-def test_dry_run_leaves_an_existing_forked_package_file_unchanged(isolated_dotfiles):
-    main(["install", "--preset", "homelab"])
-    package_file = state.package_dir() / "homelab.txt"
-    package_file.write_text("vim\n")
+def test_dry_run_leaves_an_existing_optout_file_unchanged(isolated_dotfiles):
+    package_file = _write_optouts(isolated_dotfiles[1], f"{optouts.HEADER}\nvim\n")
     main(["install", "--preset", "homelab", "--dry-run"])
-    assert package_file.read_text() == "vim\n"
+    assert package_file.read_text() == f"{optouts.HEADER}\nvim\n"
 
 
 def test_dry_run_hands_the_flow_the_packages_it_would_install(isolated_dotfiles, flow_calls):
@@ -638,7 +718,7 @@ def test_install_uses_injected_clock_and_paths(isolated_dotfiles, tmp_path):
     saved = state.load_state(tmp_path / "injected-state" / "state.json")
     assert saved.created_at == clock_value.isoformat()
     assert (tmp_path / "injected-claude" / "settings.json").is_file()
-    assert (tmp_path / "injected-state" / "packages" / "homelab.txt").is_file()
+    assert not (tmp_path / "injected-state" / "packages").exists()
 
 
 def test_install_builds_backend_through_injected_factory(isolated_dotfiles):
@@ -718,12 +798,12 @@ def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):
     assert not (tmp_path / "state" / "claude-profiles").exists()
 
 
-def test_switching_presets_forks_packages_and_regenerates_state(isolated_dotfiles, foothold_retirements):
+def test_switching_presets_retires_the_old_optout_file_and_regenerates_state(isolated_dotfiles, foothold_retirements):
     dotfiles_dir, tmp_path = isolated_dotfiles
     _add_preset(dotfiles_dir, "personal")
+    old = _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
     assert main(["install", "--preset", "homelab"]) == 0
     assert main(["install", "--preset", "personal"]) == 0
-    assert (tmp_path / "state" / "packages" / "homelab.txt").is_file()
-    assert (tmp_path / "state" / "packages" / "personal.txt").is_file()
+    assert not old.exists()
     assert state.load_state().preset_name == "personal"
     assert foothold_retirements == ["homelab"]

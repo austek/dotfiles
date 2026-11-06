@@ -17,10 +17,11 @@ from dotfiles_setup import (
     foothold,
     identity,
     install_flow,
+    optouts,
     overlay,
+    package_sets,
     presets,
     private,
-    reconcile,
     rollback,
     settings_drift,
     state,
@@ -287,13 +288,13 @@ def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | N
     return prior.preset_name
 
 
-def _save_state(env: Env, plan: _Install) -> None:
+def _save_state(env: Env, plan: _Install, applied: tuple[str, ...]) -> None:
     prior = plan.prior
     state.save_state(state.MachineState(
         preset_name=plan.preset.name,
         backend=plan.backend.name,
         package_file=str(plan.package_file),
-        applied_package_names=plan.combined,
+        applied_package_names=applied,
         overlay_root=str(plan.overlay_root) if plan.overlay_root else None,
         created_at=prior.created_at if prior else env.now_iso(),
         updated_at=env.now_iso(),
@@ -351,10 +352,36 @@ def _plan(
     overlay_names = overlay.overlay_package_names(overlay_root, preset.name)
     combined = combine_package_names(backend, logical_names, overlay_names)
     package_file = state.package_dir(env.state_dir) / f"{preset.name}.txt"
-    previous_names = prior.applied_package_names if prior and prior.preset_name == preset.name else None
-    packages = reconcile.effective_names(package_file, combined, previous_names)
-    _reconcile_packages(logger, package_file, combined, previous_names)
-    return _Install(preset, backend, combined, package_file, packages, overlay_root, env.dotfiles_dir, prior)
+    stamp = env.clock().strftime("%Y%m%d%H%M%S")
+    backup = optouts.backup_dir(Path.home() / ".local" / "state" / "dotfiles", stamp)
+    _retire_other_presets(logger, package_file, preset.name, backup)
+    optout_names = _load_optouts(logger, package_file, combined, backup)
+    for stale in package_sets.stale_optouts(optout_names, combined, backend.resolve_name):
+        logger.warn(f"Opt-out '{stale}' in {package_file} matches no package in {preset.name}.")
+    wanted = package_sets.wanted(combined, optout_names, backend.resolve_name)
+    applied = prior.applied_package_names if prior and prior.preset_name == preset.name else None
+    pending = package_sets.pending_removals(applied, wanted)
+    return _Install(
+        preset, backend, combined, package_file, wanted, pending, overlay_root, env.dotfiles_dir, prior, stamp,
+    )
+
+
+def _retire_other_presets(logger: Logger, package_file: Path, keep: str, backup: Path) -> None:
+    retired = optouts.retire_other_presets(package_file.parent, keep, backup, dry_run=logger.dry_run)
+    verb = "Would move" if logger.dry_run else "Moved"
+    if retired:
+        logger.info(f"{verb} other presets' package files {', '.join(retired)} to {backup}.")
+
+
+def _load_optouts(logger: Logger, package_file: Path, combined: tuple[str, ...], backup: Path) -> frozenset[str]:
+    if not optouts.is_legacy(package_file):
+        return optouts.read_optouts(package_file)
+    migrated = optouts.migrate(package_file, combined, backup, dry_run=logger.dry_run)
+    verb = "Would migrate" if logger.dry_run else "Migrated"
+    logger.info(f"{verb} {package_file} to an opt-out file; backup in {backup}.")
+    if migrated.fork_only:
+        logger.info(f"Packages only in the old file: {', '.join(migrated.fork_only)}.")
+    return migrated.optouts
 
 
 def combine_package_names(
@@ -363,26 +390,18 @@ def combine_package_names(
     return tuple(sorted({backend.resolve_name(n) for n in logical_names} | set(overlay_names)))
 
 
-def _reconcile_packages(
-    logger: Logger, package_file: Path, combined: tuple[str, ...], previous_names: tuple[str, ...] | None
-) -> None:
-    if logger.dry_run_notice(f"Would reconcile {package_file}."):
-        return
-    added, _ = reconcile.reconcile_package_file(package_file, combined, previous_names)
-    if added:
-        logger.info(f"Added {len(added)} new package(s) to {package_file}")
-
-
 @dataclass(frozen=True)
 class _Install:
     preset: Preset
     backend: Backend
     combined: tuple[str, ...]
     package_file: Path
-    packages: frozenset[str]
+    wanted: frozenset[str]
+    pending: tuple[str, ...]
     overlay_root: Path | None
     dotfiles_dir: Path
     prior: state.MachineState | None
+    stamp: str
 
 
 def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
@@ -401,8 +420,8 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
 
 def _flow_inputs(logger: Logger, env: Env, plan: _Install, args: argparse.Namespace) -> install_flow.FlowInputs:
     return install_flow.FlowInputs(
-        _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.packages, plan.overlay_root,
-        args.force, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(), system=args.system,
+        _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.wanted, plan.overlay_root,
+        args.force, plan.stamp, euid=env.euid(), system=args.system,
         upgrade=args.upgrade,
     )
 
@@ -428,7 +447,7 @@ def _finish_install(
     _sync_foothold(logger, plan.preset, plan.prior)
     install_flow.print_completion_banner(logger)
     if not args.dry_run:
-        _save_state(env, plan)
+        _save_state(env, plan, tuple(sorted(plan.wanted)))
     logger.success(f"Machine preset set to '{plan.preset.name}'.")
 
 
