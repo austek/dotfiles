@@ -9,6 +9,7 @@ from dotfiles_setup.optouts import (
     move_to_backup,
     other_preset_files,
     read_optouts,
+    restore_from_backup,
     write_migration,
 )
 
@@ -92,6 +93,16 @@ def test_a_failed_migration_write_leaves_the_legacy_file_whole(tmp_path: Path, m
         write_migration(fork, frozenset({"vim"}), tmp_path / "bak")
     assert fork.read_text() == LEGACY
     assert sorted(p.name for p in tmp_path.iterdir()) == ["bak", "work.txt"]
+
+
+def test_restore_from_backup_puts_the_legacy_file_back(tmp_path: Path):
+    fork = tmp_path / "work.txt"
+    fork.write_text(LEGACY)
+    backups = tmp_path / "bak"
+    write_migration(fork, frozenset({"vim"}), backups)
+    restore_from_backup(fork, backups)
+    assert fork.read_text() == LEGACY
+    assert is_legacy(fork)
 
 
 def test_backup_dir_layout(tmp_path: Path):

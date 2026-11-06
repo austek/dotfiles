@@ -51,6 +51,10 @@ def write_migration(path: Path, optouts: frozenset[str], backup: Path) -> None:
         staged.unlink(missing_ok=True)
 
 
+def restore_from_backup(path: Path, backup: Path) -> None:
+    shutil.copy2(backup / path.name, path)
+
+
 def migrate(
     path: Path, combined: Sequence[str], backup: Path, *, dry_run: bool
 ) -> MigrationResult:

@@ -632,18 +632,49 @@ def _finish_install(
 
 
 def _persist(logger: Logger, env: Env, plan: _Install, inputs: install_flow.FlowInputs) -> bool:
-    """Writes the migration, the state and the other presets' backups; False when the migration failed."""
+    """Writes the migration, the state and the other presets' backups; False when any of them failed."""
     migrated = _write_migration(logger, plan)
     applied, overlay_root = _saved_applied(inputs, plan)
-    _save_state(env, plan, applied, overlay_root, migrated=migrated)
-    _retire_other_presets(logger, plan)
-    return migrated
+    if not _state_saved(logger, env, plan, (applied, overlay_root), migrated=migrated):
+        return False
+    return _retire_other_presets(logger, plan) and migrated
 
 
-def _retire_other_presets(logger: Logger, plan: _Install) -> None:
-    if plan.other_presets:
+def _state_saved(
+    logger: Logger, env: Env, plan: _Install, saved: tuple[tuple[str, ...], str | None], *, migrated: bool,
+) -> bool:
+    try:
+        _save_state(env, plan, *saved, migrated=migrated)
+    except OSError as error:
+        logger.error(f"Could not save the install state to {state.state_file(env.state_dir)}: {error}.")
+        if migrated and plan.loaded.from_legacy:
+            _undo_migration(logger, plan)
+        return False
+    return True
+
+
+def _undo_migration(logger: Logger, plan: _Install) -> None:
+    try:
+        optouts.restore_from_backup(plan.package_file, plan.backup)
+    except OSError as error:
+        logger.error(
+            f"Could not restore {plan.package_file}: {error}. It now has a header line, so the next run reads it "
+            "as plain opt-outs and will offer to remove the names the migration created."
+        )
+        return
+    logger.warn(f"Restored {plan.package_file} from {plan.backup}; the next install retries the migration.")
+
+
+def _retire_other_presets(logger: Logger, plan: _Install) -> bool:
+    if not plan.other_presets:
+        return True
+    try:
         optouts.move_to_backup(plan.other_presets, plan.backup)
-        logger.warn(f"Moved other presets' package files {', '.join(p.name for p in plan.other_presets)} to {plan.backup}.")
+    except OSError as error:
+        logger.error(f"Could not move {', '.join(map(str, plan.other_presets))} to {plan.backup}: {error}.")
+        return False
+    logger.warn(f"Moved other presets' package files {', '.join(p.name for p in plan.other_presets)} to {plan.backup}.")
+    return True
 
 
 def _write_migration(logger: Logger, plan: _Install) -> bool:

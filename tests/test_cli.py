@@ -466,6 +466,88 @@ def test_successful_run_moves_other_presets_files_to_the_backup(isolated_dotfile
     assert [b.read_text() for b in backups] == ["vim\n"]
 
 
+def _refuse_state_saves(monkeypatch):
+    refusing = [True]
+    real = state.save_state
+
+    def save(machine_state, path):
+        if refusing[0]:
+            raise OSError("read-only file system")
+        real(machine_state, path)
+
+    monkeypatch.setattr("dotfiles_setup.cli.state.save_state", save)
+    return refusing
+
+
+def _output(capsys):
+    captured = capsys.readouterr()
+    return captured.out + captured.err
+
+
+def test_a_failed_state_save_restores_the_legacy_file_and_fails_the_run(isolated_dotfiles, monkeypatch, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    _save_applied(("curl", "zsh"))
+    before = state.load_state()
+    _refuse_state_saves(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    out = _output(capsys)
+    assert f"Could not save the install state to {state.state_file()}: read-only file system" in out
+    assert "retries the migration" in out
+    assert "Traceback" not in out
+    assert "Machine preset set" not in out
+    assert package_file.read_text() == "zsh\nextra\n"
+    assert state.load_state() == before
+
+
+def test_a_retry_after_a_failed_state_save_migrates_identically(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    refusing = _refuse_state_saves(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    refusing[0] = False
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert package_file.read_text() == f"{optouts.HEADER}\ncurl\n"
+    assert state.load_state().optouts_migrated is True
+
+
+def test_a_failed_restore_after_a_failed_state_save_explains_the_headered_file(
+    isolated_dotfiles, monkeypatch, capsys,
+):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    _refuse_state_saves(monkeypatch)
+
+    def refuse(path, backup):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("dotfiles_setup.cli.optouts.restore_from_backup", refuse)
+    assert main(["install", "--preset", "homelab"]) == 1
+    out = _output(capsys)
+    assert f"Could not restore {package_file}: permission denied" in out
+    assert "now has a header" in out
+    assert "offer to remove" in out
+    assert "Traceback" not in out
+
+
+def test_a_failed_backup_move_reports_and_fails_without_a_traceback(isolated_dotfiles, monkeypatch, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+
+    def refuse(files, backup):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr("dotfiles_setup.cli.optouts.move_to_backup", refuse)
+    assert main(["install", "--preset", "homelab"]) == 1
+    out = _output(capsys)
+    assert f"Could not move {other} to " in out
+    assert "package-backups" in out
+    assert "no space left on device" in out
+    assert "Traceback" not in out
+    assert "Machine preset set" not in out
+    assert state.load_state().preset_name == "homelab"
+
+
 def test_optout_for_unlisted_package_warns_only(isolated_dotfiles, capsys):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     _write_optouts(tmp_path, f"{optouts.HEADER}\nghost\n")
