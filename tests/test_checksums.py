@@ -77,7 +77,7 @@ def bins_context(tmp_path, machine, table):
     (repo / "packages").mkdir(parents=True)
     (repo / "packages" / "github_bins.txt").write_text(BINS)
     return system_steps.SystemContext(
-        tooling(tmp_path, machine, table), repo, frozenset(), RollbackLog(tmp_path / "rollback.log"),
+        tooling(tmp_path, machine, table), repo, frozenset({"github:owner/tool"}), RollbackLog(tmp_path / "rollback.log"),
     )
 
 

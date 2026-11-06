@@ -31,6 +31,9 @@ class Machine:
     def ran(self, *prefix):
         return any(c[: len(prefix)] == list(prefix) for c in self.commands)
 
+    def index(self, *prefix):
+        return next(i for i, c in enumerate(self.commands) if c[: len(prefix)] == list(prefix))
+
 
 class Capture(Logger):
     def __init__(self):
@@ -51,8 +54,8 @@ def system_context(tmp_path, machine, logger=None):
 
 
 def test_split_routes_by_prefix_and_custom():
-    split = removals.split_removals(["vim", "flatpak:com.slack.Slack", "slack-desktop", "htop"])
-    assert split == removals.Split(apt=("vim", "htop"), flatpak=("com.slack.Slack",), manual=("slack-desktop",))
+    split = removals.split_removals(["vim", "flatpak:com.slack.Slack", "sdkman", "htop"])
+    assert split == removals.Split(apt=("vim", "htop"), flatpak=("com.slack.Slack",), manual=("sdkman",))
 
 
 def test_installed_only_filters_apt_and_flatpak(tmp_path):
@@ -60,6 +63,67 @@ def test_installed_only_filters_apt_and_flatpak(tmp_path):
     split = removals.Split(apt=("vim", "emacs"), flatpak=("com.a.A", "com.b.B"), manual=("x",))
     kept = removals.installed_only(tooling(tmp_path, machine), split)
     assert kept == removals.Split(apt=("vim",), flatpak=("com.a.A",), manual=("x",))
+
+
+def test_dpkg_name_uses_repo_basename():
+    assert removals.dpkg_name("github:derailed/k9s") == "k9s"
+    assert removals.dpkg_name("vim") == "vim"
+    assert removals.dpkg_name("slack-desktop") == "slack-desktop"
+
+
+def test_split_routes_debs_pins_and_manual_custom_entries():
+    split = removals.split_removals(["slack-desktop", "github:derailed/k9s", "nvm", "zoom", "vim"])
+    assert split.apt == ("vim",)
+    assert split.debs == ("slack-desktop", "github:derailed/k9s", "zoom")
+    assert split.manual == ("nvm",)
+
+
+def test_installed_custom_deb_is_removed_like_apt(tmp_path):
+    machine = Machine(installed_apt=["slack-desktop"], simulations={"slack-desktop": "Remv slack-desktop [4]\n"})
+    split = removals.split_removals(["slack-desktop"])
+    kept = removals.installed_only(tooling(tmp_path, machine), split)
+    assert kept.apt == ("slack-desktop",)
+    ctx = system_context(tmp_path, machine)
+    assert removals.remove_apt(ctx, kept.apt, deb_names=frozenset(kept.apt)) == ["slack-desktop"]
+    assert machine.index("apt-get", "-s", "remove") < machine.index("sudo", "apt-get", "remove")
+    assert ctx.changes.entries() == ["DEB_REMOVED:slack-desktop"]
+
+
+def test_uninstalled_dpkg_backed_custom_entry_is_dropped_silently(tmp_path):
+    machine = Machine(installed_apt=["vim"])
+    kept = removals.installed_only(tooling(tmp_path, machine), removals.split_removals(["zoom", "vim"]))
+    assert kept.apt == ("vim",)
+    assert kept.debs == ()
+    assert kept.manual == ()
+
+
+def test_other_custom_entries_stay_manual_even_when_dpkg_has_the_name(tmp_path):
+    machine = Machine(installed_apt=["nvm"])
+    kept = removals.installed_only(tooling(tmp_path, machine), removals.split_removals(["nvm"]))
+    assert kept == removals.Split(apt=(), flatpak=(), manual=("nvm",))
+
+
+def test_pin_with_a_differing_dpkg_name_is_dropped_silently(tmp_path):
+    machine = Machine(installed_apt=["other"])
+    split = removals.split_removals(["github:derailed/k9s"])
+    kept = removals.installed_only(tooling(tmp_path, machine), split)
+    assert kept == removals.Split(apt=(), flatpak=(), manual=())
+
+
+def test_dropped_pin_removes_its_package(tmp_path):
+    machine = Machine(installed_apt=["k9s"], simulations={"k9s": "Remv k9s [0.51]\n"})
+    split = removals.split_removals(["github:derailed/k9s"])
+    kept = removals.installed_only(tooling(tmp_path, machine), split)
+    assert kept.apt == ("k9s",)
+    ctx = system_context(tmp_path, machine)
+    assert removals.remove_apt(ctx, kept.apt, deb_names=frozenset(kept.apt)) == ["k9s"]
+    assert ctx.changes.entries() == ["DEB_REMOVED:k9s"]
+    assert removals.entries_for(kept, ["k9s"]) == ["github:derailed/k9s"]
+
+
+def test_entries_for_leaves_plain_apt_names_alone():
+    split = removals.Split(apt=("vim", "k9s"), flatpak=(), manual=(), debs=("github:derailed/k9s",))
+    assert removals.entries_for(split, ["vim", "k9s"]) == ["vim", "github:derailed/k9s"]
 
 
 def test_remove_apt_runs_after_clean_simulation(tmp_path):

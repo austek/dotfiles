@@ -84,9 +84,12 @@ def _remove_apt_packages(inputs: FlowInputs, ctx: SystemContext, failed: list[st
     if split.manual:
         t.logger.info(f"dropped, remove manually: {', '.join(split.manual)}")
     if t.logger.dry_run:
-        _announce(t, "apt package", split.apt)
+        _announce(t, "apt package", (*split.apt, *split.debs))
         return
-    inputs.removed.extend(removals.remove_apt(ctx, removals.installed_only(t, split).apt))
+    present = removals.installed_only(t, split)
+    deb_names = frozenset(removals.dpkg_name(entry) for entry in present.debs)
+    gone = removals.remove_apt(ctx, present.apt, deb_names)
+    inputs.removed.extend(removals.entries_for(present, gone))
 
 
 def _upgrade_steps(inputs: FlowInputs, ctx: SystemContext) -> list[Step]:

@@ -20,14 +20,16 @@ def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n", system="always"
 
 
 class Machine:
-    def __init__(self, failing=()):
+    def __init__(self, failing=(), installed="htop"):
         self.commands = []
         self.failing = tuple(failing)
+        self.installed = installed.split()
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
         if argv[0] == "dpkg-query":
-            return SimpleNamespace(returncode=0, stdout="ii  htop\n", stderr="")
+            listing = "".join(f"ii  {name}\n" for name in self.installed)
+            return SimpleNamespace(returncode=0, stdout=listing, stderr="")
         if argv[:3] == ["apt-get", "-s", "remove"]:
             return SimpleNamespace(returncode=0, stdout=f"Remv {argv[-1]} [1]\n", stderr="")
         if argv[:3] == ["flatpak", "info", "--user"]:
@@ -281,6 +283,31 @@ def test_dry_run_removals_run_no_command(tmp_path, capsys):
     assert flow_inputs.removed == []
     out = capsys.readouterr().out
     assert "Would remove" in out and "htop" in out and "b.B" in out
+
+
+def test_removed_reports_entry_names(tmp_path):
+    machine = Machine(installed="k9s slack-desktop htop")
+    entries = ("github:derailed/k9s", "slack-desktop", "htop")
+    flow_inputs = inputs(tmp_path, run=machine, removals=entries)
+    steps = dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))
+    steps["remove_apt_packages"]()
+    assert flow_inputs.removed == ["htop", "github:derailed/k9s", "slack-desktop"]
+    assert not any("github:derailed/k9s" in c for c in machine.commands)
+
+
+def test_removed_pin_tracks_a_deb_undo_entry(tmp_path):
+    machine = Machine(installed="k9s")
+    flow_inputs = inputs(tmp_path, run=machine, removals=("github:derailed/k9s",))
+    log = RollbackLog(tmp_path / "log")
+    dict(flow.build_steps(flow_inputs, flow_inputs.packages, log))["remove_apt_packages"]()
+    assert log.entries() == ["DEB_REMOVED:k9s"]
+
+
+def test_dry_run_announces_pins_by_entry(tmp_path, capsys):
+    flow_inputs = inputs(tmp_path, dry_run=True, removals=("github:derailed/k9s",))
+    steps = dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))
+    steps["remove_apt_packages"]()
+    assert "Would remove apt package github:derailed/k9s" in capsys.readouterr().out
 
 
 def test_manual_removals_are_logged_not_run(tmp_path, capsys):

@@ -5,7 +5,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from dotfiles_setup import flatpak
-from dotfiles_setup.apt_packages import CUSTOM_INSTALL_PACKAGES, is_apt_package
+from dotfiles_setup.apt_packages import (
+    CUSTOM_INSTALL_PACKAGES,
+    DPKG_BACKED_CUSTOM,
+    PIN_PREFIX,
+    is_apt_package,
+)
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.system_check import STATUS_FORMAT
 from dotfiles_setup.system_steps import SystemContext
@@ -17,14 +22,31 @@ class Split:
     apt: tuple[str, ...]
     flatpak: tuple[str, ...]
     manual: tuple[str, ...]
+    debs: tuple[str, ...] = ()
+
+
+def dpkg_name(entry: str) -> str:
+    """The dpkg package of an entry: a pin's repo basename, any other entry unchanged."""
+    return entry.rsplit("/", 1)[-1] if entry.startswith(PIN_PREFIX) else entry
+
+
+def _is_deb_entry(name: str) -> bool:
+    return name in DPKG_BACKED_CUSTOM or name.startswith(PIN_PREFIX)
 
 
 def split_removals(pending: Sequence[str]) -> Split:
     return Split(
         apt=tuple(n for n in pending if is_apt_package(n)),
         flatpak=tuple(n.removeprefix(flatpak.PREFIX) for n in pending if flatpak.is_flatpak_entry(n)),
-        manual=tuple(n for n in pending if n in CUSTOM_INSTALL_PACKAGES),
+        manual=tuple(n for n in pending if n in CUSTOM_INSTALL_PACKAGES - DPKG_BACKED_CUSTOM),
+        debs=tuple(n for n in pending if _is_deb_entry(n)),
     )
+
+
+def entries_for(split: Split, removed: Sequence[str]) -> list[str]:
+    """Maps removed dpkg names back to the entries that named them."""
+    by_dpkg = {dpkg_name(entry): entry for entry in split.debs}
+    return [by_dpkg.get(name, name) for name in removed]
 
 
 def _installed_apt(t: Tooling) -> set[str]:
@@ -37,11 +59,13 @@ def _flatpak_installed(t: Tooling, app_id: str) -> bool:
 
 
 def installed_only(t: Tooling, split: Split) -> Split:
-    present = _installed_apt(t) if split.apt else set()
+    present = _installed_apt(t) if split.apt or split.debs else set()
+    debs = tuple(e for e in split.debs if dpkg_name(e) in present)
     return Split(
-        apt=tuple(n for n in split.apt if n in present),
+        apt=(*(n for n in split.apt if n in present), *(dpkg_name(e) for e in debs)),
         flatpak=tuple(i for i in split.flatpak if _flatpak_installed(t, i)),
         manual=split.manual,
+        debs=debs,
     )
 
 
@@ -53,7 +77,7 @@ def _would_remove(ctx: SystemContext, name: str) -> set[str] | None:
     return listed if result.returncode == 0 and name in listed else None
 
 
-def _remove_one_apt(ctx: SystemContext, name: str) -> bool:
+def _remove_one_apt(ctx: SystemContext, name: str, undo_action: str) -> bool:
     listed = _would_remove(ctx, name)
     if listed is None:
         ctx.t.logger.warn(f"Skipping {name}: apt simulation failed.")
@@ -65,12 +89,13 @@ def _remove_one_apt(ctx: SystemContext, name: str) -> bool:
     if not ctx.quiet("sudo", "apt-get", "remove", "-y", name):
         ctx.t.logger.warn(f"Failed to remove {name}.")
         return False
-    ctx.track(f"APT_REMOVED:{name}")
+    ctx.track(f"{undo_action}:{name}")
     return True
 
 
-def remove_apt(ctx: SystemContext, names: Sequence[str]) -> list[str]:
-    return [name for name in names if _remove_one_apt(ctx, name)]
+def remove_apt(ctx: SystemContext, names: Sequence[str], deb_names: frozenset[str] = frozenset()) -> list[str]:
+    """Removes each name after a clean simulation; `deb_names` have no apt source, so their undo is manual."""
+    return [name for name in names if _remove_one_apt(ctx, name, "DEB_REMOVED" if name in deb_names else "APT_REMOVED")]
 
 
 def _remove_one_flatpak(t: Tooling, changes: RollbackLog, app_id: str) -> bool:

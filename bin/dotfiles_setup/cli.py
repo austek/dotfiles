@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from dotfiles_setup import (
+    apt_packages,
     checksums,
     claude_plugins,
     flatpak,
@@ -357,7 +358,8 @@ def _plan(
 ) -> _Install:
     backend = env.backend_factory(env.dotfiles_dir, preset.backend_overrides.get("apt", {}))
     overlay_names = overlay.overlay_package_names(overlay_root, preset.name)
-    combined = combine_package_names(backend, logical_names, overlay_names)
+    pins = apt_packages.pin_entries(env.dotfiles_dir / "packages" / "github_bins.txt")
+    combined = tuple(sorted({*combine_package_names(backend, logical_names, overlay_names), *pins}))
     package_file = state.package_dir(env.state_dir) / f"{preset.name}.txt"
     stamp = env.clock().strftime("%Y%m%d%H%M%S")
     backup = optouts.backup_dir(Path.home() / ".local" / "state" / "dotfiles", stamp)
@@ -427,7 +429,7 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
 
 def _print_pending(logger: Logger, pending: Sequence[str]) -> None:
     split = removals.split_removals(pending)
-    uninstallable = (*split.apt, *(f"{flatpak.PREFIX}{i}" for i in split.flatpak))
+    uninstallable = (*split.apt, *split.debs, *(f"{flatpak.PREFIX}{i}" for i in split.flatpak))
     if uninstallable:
         logger.warn(f"No longer wanted, installed copies would be removed: {', '.join(uninstallable)}.")
     if split.manual:
@@ -450,7 +452,7 @@ def confirm_removals(
 
 
 def _entry_names(split: removals.Split) -> tuple[str, ...]:
-    return (*split.apt, *(f"{flatpak.PREFIX}{app_id}" for app_id in split.flatpak))
+    return (*removals.entries_for(split, split.apt), *(f"{flatpak.PREFIX}{app_id}" for app_id in split.flatpak))
 
 
 def applied_after_removals(

@@ -166,6 +166,15 @@ def test_undo_reinstalls_removed_packages(tmp_path):
     ]
 
 
+def test_undo_of_a_removed_deb_warns_and_runs_nothing(tmp_path, capsys):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    ctx.log.track("DEB_REMOVED:k9s", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert machine.argvs() == []
+    assert "reinstall k9s manually" in capsys.readouterr().out
+
+
 def test_a_failed_reinstall_only_warns(tmp_path):
     machine = Machine(failing=[("sudo", "apt-get", "install")])
     ctx = context(tmp_path, machine)

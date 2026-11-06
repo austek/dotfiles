@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from dotfiles_setup import optouts, overlay, state
+from dotfiles_setup import apt_packages, optouts, overlay, state
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.cli import (
@@ -21,6 +21,8 @@ from dotfiles_setup.cli import (
 )
 from dotfiles_setup.log import Logger
 from dotfiles_setup.presets import Preset
+from dotfiles_setup.rollback import RollbackLog
+from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import Tooling
 
 
@@ -200,6 +202,40 @@ def test_plan_excludes_optouts_from_wanted(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
     assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+
+
+def _write_pins(tmp_path):
+    packages = tmp_path / "dotfiles" / "packages"
+    packages.mkdir(parents=True, exist_ok=True)
+    (packages / "github_bins.txt").write_text("derailed/k9s 0.51.0 k9s_linux_amd64.deb\n")
+
+
+def test_plan_includes_pin_entries_in_combined(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_pins(tmp_path)
+    plan = _plan_for(tmp_path)
+    assert "github:derailed/k9s" in plan.combined
+    assert "github:derailed/k9s" in plan.wanted
+
+
+def test_optout_of_pin_skips_install_and_removes_it(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_pins(tmp_path)
+    _write_optouts(tmp_path, f"{optouts.HEADER}\ngithub:derailed/k9s\n")
+    plan = _plan_for(tmp_path, _prior("homelab", ("curl", "github:derailed/k9s", "zsh")))
+    assert "github:derailed/k9s" not in plan.wanted
+    assert plan.pending == ("github:derailed/k9s",)
+    ctx = SystemContext(
+        Tooling(Logger(dry_run=False), tmp_path), plan.dotfiles_dir, plan.wanted, RollbackLog(tmp_path / "log"),
+    )
+    assert apt_packages.pending_github_bins(ctx) == []
+
+
+def test_applied_reports_pin_entries(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch, apt=("k9s",))
+    applied = applied_after_removals(t, frozenset({"zsh"}), ("github:derailed/k9s",), [])
+    assert applied == ("github:derailed/k9s", "zsh")
+    assert applied_after_removals(t, frozenset({"zsh"}), ("github:derailed/k9s",), ["github:derailed/k9s"]) == ("zsh",)
 
 
 def test_plan_without_an_optout_file_wants_everything_and_creates_nothing(isolated_dotfiles):
