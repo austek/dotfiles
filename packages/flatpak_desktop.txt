@@ -1,0 +1,2 @@
+# Flatpak apps for GUI machines (work, personal), installed user-level from Flathub as `flatpak:<app-id>`.
+flatpak:org.mozilla.firefox

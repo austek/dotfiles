@@ -16,7 +16,7 @@ def _installed_packages(ctx: SystemContext) -> set[str]:
 
 
 def _missing_apt_packages(ctx: SystemContext, installed: set[str]) -> str | None:
-    wanted = {p for p in ctx.packages if p not in apt_packages.CUSTOM_INSTALL_PACKAGES}
+    wanted = {p for p in ctx.packages if apt_packages.is_apt_package(p)}
     missing = sorted(wanted - installed)
     return f"{len(missing)} apt package(s) not installed ({', '.join(missing[:3])}...)" if missing else None
 
@@ -28,8 +28,8 @@ def _snapd_state(installed: set[str], nosnap: Path) -> str | None:
 
 
 def _missing_debs(ctx: SystemContext) -> str | None:
-    missing = apt_packages.missing_github_bins(ctx)
-    return f"{len(missing)} GitHub .deb package(s) not installed" if missing else None
+    missing = apt_packages.pending_github_bins(ctx)
+    return f"{len(missing)} GitHub .deb package(s) missing or outdated" if missing else None
 
 
 def system_stage_reasons(ctx: SystemContext, nosnap: Path = NOSNAP_PREFERENCE) -> list[str]:

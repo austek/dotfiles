@@ -1,0 +1,3 @@
+# Flatpak apps for the work preset, installed user-level from Flathub as `flatpak:<app-id>`.
+flatpak:com.slack.Slack
+flatpak:org.pgadmin.pgadmin4

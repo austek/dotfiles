@@ -1,7 +1,7 @@
 # Desktop-only packages (GUI machines: work, personal). Not installed on homelab.
 antigravity-ide
 code
-firefox
+flatpak
 ghostty
 gnome-shell-extension-gpaste
 gnome-shell-extension-manager

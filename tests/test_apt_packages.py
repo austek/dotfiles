@@ -9,15 +9,16 @@ from dotfiles_setup.rollback import RollbackLog
 
 
 class Machine:
-    def __init__(self, failing=(), dpkg=""):
+    def __init__(self, failing=(), dpkg="", simulated=""):
         self.commands = []
         self.failing = tuple(failing)
         self.dpkg = dpkg
+        self.simulated = simulated
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
         failed = any(argv[: len(p)] == list(p) for p in self.failing)
-        out = self.dpkg if argv[:2] == ["dpkg", "-l"] else ""
+        out = self.dpkg if argv[:2] == ["dpkg", "-l"] else self.simulated if argv[:2] == ["apt-get", "-s"] else ""
         return SimpleNamespace(returncode=1 if failed else 0, stdout=out, stderr="")
 
     def ran(self, *prefix):
@@ -115,6 +116,74 @@ def test_an_installed_package_is_skipped(tmp_path):
     write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
     ap.install_github_bins(ctx)
     assert downloads == []
+
+
+def test_an_installed_deb_at_another_version_is_reinstalled(tmp_path):
+    machine = Machine(dpkg="ii  tool  1.2.2  amd64  A tool\n")
+    downloads = []
+    ctx = make(tmp_path, machine, downloads=downloads)
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == ["tool_1.2.3_amd64.deb"]
+    ap.install_github_bins(ctx)
+    assert len(downloads) == 1
+
+
+@pytest.mark.parametrize("installed", ["1.2.3-1", "1:1.2.3", "1.2.3+dfsg"])
+def test_a_packaging_suffix_or_epoch_on_the_pinned_version_counts_as_current(tmp_path, installed):
+    ctx = make(tmp_path, Machine(dpkg=f"ii  tool  {installed}  amd64  A tool\n"))
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == []
+
+
+def test_a_pre_release_of_the_pinned_version_is_pending(tmp_path):
+    ctx = make(tmp_path, Machine(dpkg="ii  tool  1.2.3~rc1  amd64  A tool\n"))
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == ["tool_1.2.3_amd64.deb"]
+
+
+def test_a_failed_simulation_is_unknown_not_zero(tmp_path):
+    machine = Machine(failing=[("apt-get", "-s")])
+    assert ap.upgradable_count(make(tmp_path, machine)) is None
+
+
+def test_a_longer_version_sharing_the_pinned_prefix_is_not_current(tmp_path):
+    ctx = make(tmp_path, Machine(dpkg="ii  tool  1.2.30  amd64  A tool\n"))
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == ["tool_1.2.3_amd64.deb"]
+
+
+def test_upgrade_updates_the_lists_then_dist_upgrades(tmp_path):
+    machine = Machine()
+    assert ap.upgrade_packages(make(tmp_path, machine))
+    assert machine.commands == [
+        ["sudo", "apt-get", "update"],
+        [
+            "sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "dist-upgrade", "-y",
+            "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
+        ],
+    ]
+
+
+def test_a_failed_dist_upgrade_stops_the_run(tmp_path):
+    machine = Machine(failing=[("sudo", "DEBIAN_FRONTEND=noninteractive")])
+    assert not ap.upgrade_packages(make(tmp_path, machine))
+
+
+def test_upgrade_is_a_dry_run_notice_only(tmp_path):
+    machine = Machine()
+    assert ap.upgrade_packages(make(tmp_path, machine, dry_run=True))
+    assert machine.commands == []
+
+
+def test_the_upgradable_count_is_the_simulated_installs(tmp_path):
+    simulated = "Inst vim [1] (2 repo)\nConf vim (2 repo)\nInst git [1] (2 repo)\n"
+    assert ap.upgradable_count(make(tmp_path, Machine(simulated=simulated))) == 2
+
+
+def test_flatpak_entries_are_not_passed_to_apt(tmp_path):
+    machine = Machine()
+    ap.install_packages(make(tmp_path, machine, packages=["vim", "flatpak:com.slack.Slack"]), tmp_path / "sources")
+    assert machine.commands[-1][-1] == "vim"
 
 
 def test_a_package_whose_name_only_starts_the_same_is_not_mistaken_for_installed(tmp_path):
