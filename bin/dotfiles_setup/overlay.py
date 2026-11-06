@@ -63,7 +63,7 @@ def merge_settings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, A
     return _merge(base, overlay, union_lists=True)
 
 
-_HOME_REFERENCE = re.compile(r"\$\{HOME\}|\$HOME(?![A-Za-z0-9_])|^~(?=/|$)")
+_HOME_REFERENCE = re.compile(r"\$\{HOME\}|\$HOME(?!\w)|^~(?=/|$)", re.ASCII)
 
 
 def _expand_home(value: Any, home: Path) -> Any:
