@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from dotfiles_setup.optouts import (
     HEADER,
     backup_dir,
@@ -8,6 +9,7 @@ from dotfiles_setup.optouts import (
     move_to_backup,
     other_preset_files,
     read_optouts,
+    write_migration,
 )
 
 LEGACY = "bat\njq\ngit\n# --- added by reconcile ---\nextra\n"
@@ -76,6 +78,20 @@ def test_move_to_backup_moves_not_deletes(tmp_path: Path):
     move_to_backup((tmp_path / "home.txt",), backups)
     assert not (tmp_path / "home.txt").exists()
     assert (backups / "home.txt").read_text() == "b\n"
+
+
+def test_a_failed_migration_write_leaves_the_legacy_file_whole(tmp_path: Path, monkeypatch):
+    fork = tmp_path / "work.txt"
+    fork.write_text(LEGACY)
+
+    def refuse(self, target):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "replace", refuse)
+    with pytest.raises(OSError):
+        write_migration(fork, frozenset({"vim"}), tmp_path / "bak")
+    assert fork.read_text() == LEGACY
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["bak", "work.txt"]
 
 
 def test_backup_dir_layout(tmp_path: Path):

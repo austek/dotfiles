@@ -8,9 +8,13 @@ from dotfiles_setup.tooling import Tooling
 
 
 class Machine:
-    def __init__(self, simulations=None, failing=(), installed_apt=(), installed_flatpak=(), simulation_code=0):
+    def __init__(
+        self, simulations=None, failing=(), installed_apt=(), installed_flatpak=(), simulation_code=0,
+        simulation_stderr="",
+    ):
         self.commands = []
         self.simulation_code = simulation_code
+        self.simulation_stderr = simulation_stderr
         self.simulations = simulations or {}
         self.failing = tuple(failing)
         self.installed_apt = installed_apt
@@ -19,7 +23,9 @@ class Machine:
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
         if argv[:3] == ["apt-get", "-s", "remove"]:
-            return SimpleNamespace(returncode=self.simulation_code, stdout=self.simulations.get(argv[-1], ""), stderr="")
+            return SimpleNamespace(
+                returncode=self.simulation_code, stdout=self.simulations.get(argv[-1], ""), stderr=self.simulation_stderr,
+            )
         if argv[0] == "dpkg-query":
             listing = "".join(f"ii  {name}\n" for name in self.installed_apt)
             return SimpleNamespace(returncode=0, stdout=listing, stderr="")
@@ -152,13 +158,20 @@ def test_remove_apt_skips_when_simulation_fails(tmp_path):
     assert any("simulation failed" in warning for warning in logger.warnings)
 
 
+def test_simulation_failure_warning_names_the_exit_code_and_stderr(tmp_path):
+    machine = Machine(simulation_code=100, simulation_stderr="E: Unable to locate package vim\n")
+    logger = Capture()
+    removals.remove_apt(system_context(tmp_path, machine, logger), ["vim"])
+    assert logger.warnings == ["Skipping vim: apt simulation failed (exit 100: E: Unable to locate package vim)."]
+
+
 def test_remove_apt_skips_when_simulation_lists_nothing(tmp_path):
     machine = Machine(simulations={"vim": ""})
     logger = Capture()
     ctx = system_context(tmp_path, machine, logger)
     assert removals.remove_apt(ctx, ["vim"]) == []
     assert not machine.ran("sudo", "apt-get", "remove")
-    assert any("simulation failed" in warning for warning in logger.warnings)
+    assert logger.warnings == ["Skipping vim: apt simulation failed (it does not list vim)."]
 
 
 def test_remove_apt_tracks_undo(tmp_path):

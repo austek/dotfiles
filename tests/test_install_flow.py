@@ -67,7 +67,7 @@ def test_steps_run_in_the_order_the_shell_installer_used(tmp_path):
     assert [name for name, _ in steps] == [
         "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
         "install_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
-        "install_post_apt_tools",
+        "report_unremoved", "install_post_apt_tools",
         "enable_gpaste_extension",
         "install_github_bins", "configure_docker_group", "configure_dotfiles", "retire_claude_profile",
         "configure_claude_tools", "change_shell", "set_default_terminal",
@@ -242,6 +242,24 @@ def test_auto_skips_the_system_stage_when_removals_were_declined(tmp_path, monke
     assert ran == ["configure_dotfiles"]
 
 
+@pytest.mark.parametrize("system", ["never", "auto"])
+def test_apt_removals_without_the_system_stage_warn(tmp_path, monkeypatch, capsys, system):
+    _recorded_steps(monkeypatch)
+    _no_sudo_prompt(monkeypatch)
+    monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: [])
+    flow_inputs = inputs(tmp_path, system=system, removals=("github:derailed/k9s", "flatpak:b.B"))
+    assert flow.run_install(flow_inputs).succeeded
+    assert "apt removals skipped: system stage not run (use --system)" in capsys.readouterr().out
+    assert flow_inputs.removed == []
+
+
+def test_no_apt_removal_warning_for_flatpak_only_removals(tmp_path, monkeypatch, capsys):
+    _recorded_steps(monkeypatch)
+    flow_inputs = inputs(tmp_path, system="never", removals=("flatpak:b.B",))
+    assert flow.run_install(flow_inputs).succeeded
+    assert "apt removals skipped" not in capsys.readouterr().out
+
+
 def test_always_runs_the_system_steps_without_checking(tmp_path, no_sudo, monkeypatch):
     ran = _recorded_steps(monkeypatch)
     monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: pytest.fail("no check when forced"))
@@ -292,6 +310,33 @@ def test_removals_run_in_order_after_flatpak_install(tmp_path):
     apt_removal = machine.index("sudo", "apt-get", "remove", "-y", "htop")
     assert install < flatpak_removal < apt_removal
     assert flow_inputs.removed == ["flatpak:b.B", "htop"]
+
+
+def _run_removals_and_report(tmp_path, machine, removals, dry_run=False):
+    flow_inputs = inputs(tmp_path, dry_run=dry_run, run=machine, packages="vim flatpak:a.A", removals=removals)
+    steps = dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))
+    for name in ("install_flatpaks", "remove_flatpaks", "remove_apt_packages", "report_unremoved"):
+        steps[name]()
+    return flow_inputs
+
+
+def test_entries_left_after_the_removal_steps_are_reported_once(tmp_path, capsys):
+    machine = Machine(failing=[("sudo", "apt-get", "remove")])
+    _run_removals_and_report(tmp_path, machine, ("htop", "flatpak:b.B", "nvm"))
+    out = capsys.readouterr().out
+    assert out.count("not removed: htop; they will be offered again next run") == 1
+    assert "nvm" not in out.split("not removed:")[1]
+
+
+def test_nothing_is_reported_when_every_removal_succeeded(tmp_path, capsys):
+    _run_removals_and_report(tmp_path, Machine(), ("htop", "flatpak:b.B"))
+    assert "not removed" not in capsys.readouterr().out
+
+
+def test_report_unremoved_is_a_user_step_after_the_removals(tmp_path):
+    names = [name for name, _ in flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))]
+    assert names.index("report_unremoved") == names.index("remove_apt_packages") + 1
+    assert "report_unremoved" not in flow.SYSTEM_STEPS
 
 
 def test_flatpak_failure_skips_all_removals(tmp_path):

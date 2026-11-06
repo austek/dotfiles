@@ -87,6 +87,19 @@ def _remove_apt_packages(inputs: FlowInputs, ctx: SystemContext, failed: list[st
     inputs.removed.extend(removals.entries_for(present, gone))
 
 
+def _report_unremoved(inputs: FlowInputs) -> None:
+    manual = set(removals.split_removals(inputs.removals).manual)
+    left = [e for e in inputs.removals if e not in set(inputs.removed) and e not in manual]
+    if left and not inputs.t.logger.dry_run:
+        inputs.t.logger.warn(f"not removed: {', '.join(left)}; they will be offered again next run")
+
+
+def _warn_skipped_apt_removals(inputs: FlowInputs) -> None:
+    split = removals.split_removals(inputs.removals)
+    if split.apt or split.debs:
+        inputs.t.logger.warn("apt removals skipped: system stage not run (use --system)")
+
+
 def _upgrade_steps(inputs: FlowInputs, ctx: SystemContext) -> list[Step]:
     if inputs.upgrade:
         return [("upgrade_packages", lambda: apt_packages.upgrade_packages(ctx))]
@@ -112,6 +125,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("install_flatpaks", lambda: failed.extend(flatpak.install_flatpaks(t, packages, inputs.upgrade))),
         ("remove_flatpaks", lambda: _remove_flatpak_apps(inputs, changes, failed)),
         ("remove_apt_packages", lambda: _remove_apt_packages(inputs, ctx, failed)),
+        ("report_unremoved", lambda: _report_unremoved(inputs)),
         ("install_post_apt_tools", lambda: tools.install_post_apt_tools(t, packages)),
         ("enable_gpaste_extension", lambda: system_steps.enable_gpaste_extension(ctx)),
         ("install_github_bins", lambda: apt_packages.install_github_bins(ctx)),
@@ -170,6 +184,13 @@ def _system_stage_wanted(inputs: FlowInputs, ctx: SystemContext) -> bool:
     return False
 
 
+def _system_stage(inputs: FlowInputs, ctx: SystemContext) -> bool:
+    wanted = _system_stage_wanted(inputs, ctx)
+    if not wanted:
+        _warn_skipped_apt_removals(inputs)
+    return wanted
+
+
 def run_install(inputs: FlowInputs) -> InstallResult:
     logger = inputs.t.logger
     if inputs.euid == 0:
@@ -179,7 +200,7 @@ def run_install(inputs: FlowInputs) -> InstallResult:
     logger.info(f"Found {len(packages)} unique packages to install.")
     log = _start_log(inputs, logger)
     ctx = SystemContext(inputs.t, inputs.dotfiles_dir, packages, log, inputs.removals)
-    system = _system_stage_wanted(inputs, ctx)
+    system = _system_stage(inputs, ctx)
     session = SudoSession(ctx)
     try:
         if system and not session.start():

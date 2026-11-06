@@ -299,7 +299,9 @@ def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | N
     return prior.preset_name
 
 
-def _save_state(env: Env, plan: _Install, applied: tuple[str, ...], overlay_root: str | None) -> None:
+def _save_state(
+    env: Env, plan: _Install, applied: tuple[str, ...], overlay_root: str | None, *, migrated: bool,
+) -> None:
     prior = plan.prior
     state.save_state(state.MachineState(
         preset_name=plan.preset.name,
@@ -309,7 +311,7 @@ def _save_state(env: Env, plan: _Install, applied: tuple[str, ...], overlay_root
         overlay_root=overlay_root,
         created_at=prior.created_at if prior else env.now_iso(),
         updated_at=env.now_iso(),
-        optouts_migrated=True,
+        optouts_migrated=migrated,
     ), state.state_file(env.state_dir))
 
 
@@ -512,12 +514,19 @@ def _print_pending(logger: Logger, pending: Sequence[str]) -> None:
         logger.warn(f"Entries dropped, remove manually: {', '.join(manual)}.")
 
 
-def _answered_yes(ask: Callable[[str], str]) -> bool:
+def _answer(ask: Callable[[str], str]) -> str:
     try:
-        return ask("Remove these packages? [y/N] ").strip().lower() in ("y", "yes")
-    except (EOFError, KeyboardInterrupt):
+        return ask("Remove these packages? [y/N] ")
+    except EOFError:
         print()
-        return False
+        return ""
+
+
+def _answered_yes(logger: Logger, ask: Callable[[str], str]) -> bool:
+    if _answer(ask).strip().lower() in ("y", "yes"):
+        return True
+    logger.warn("Removals declined; they will be offered again next run.")
+    return False
 
 
 def confirm_removals(
@@ -532,7 +541,7 @@ def confirm_removals(
     if not interactive:
         logger.warn("Removals skipped; pass --prune to apply.")
         return False
-    return _answered_yes(ask)
+    return _answered_yes(logger, ask)
 
 
 def removal_candidates(t: tooling.Tooling, pending: Sequence[str]) -> tuple[str, ...]:
@@ -579,30 +588,56 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
     _write_claude_settings(logger, claude_settings, env)
     t = _tooling(logger, env)
-    inputs = _flow_inputs(t, env, plan, args, _approved_removals(args, t, plan))
+    match _approval(args, t, plan):
+        case Err(error=message):
+            logger.error(message)
+            return install_flow.INTERRUPTED_EXIT_CODE
+        case Ok(value=approved):
+            return _run_flow(args, env, plan, claude_settings, _flow_inputs(t, env, plan, args, approved))
+
+
+def _approval(args: argparse.Namespace, t: tooling.Tooling, plan: _Install) -> Result[tuple[str, ...]]:
+    try:
+        return Ok(_approved_removals(args, t, plan))
+    except KeyboardInterrupt:
+        print()
+        return Err("Interrupted before any install step.")
+
+
+def _run_flow(
+    args: argparse.Namespace, env: Env, plan: _Install, claude_settings: dict[str, Any],
+    inputs: install_flow.FlowInputs,
+) -> int:
+    logger = inputs.t.logger
     result = install_flow.run_install(inputs)
     if not result.succeeded:
         _log_install_failure(logger, result)
         if result.rollback_pending:
             rollback.offer_rollback(_rollback_context(logger, env, plan), interactive=sys.stdin.isatty())
         return result.returncode
-    _finish_install(args, logger, env, plan, claude_settings, inputs)
-    return 0
+    return _finish_install(args, logger, env, plan, claude_settings, inputs)
 
 
 def _finish_install(
     args: argparse.Namespace, logger: Logger, env: Env, plan: _Install, claude_settings: dict[str, Any],
     inputs: install_flow.FlowInputs,
-) -> None:
+) -> int:
     claude_plugins.update_claude_plugins(logger, claude_settings)
     _sync_foothold(logger, plan.preset, plan.prior)
+    if not (args.dry_run or _persist(logger, env, plan, inputs)):
+        return 1
     install_flow.print_completion_banner(logger)
-    if not args.dry_run:
-        _retire_other_presets(logger, plan)
-        _write_migration(logger, plan)
-        applied, overlay_root = _saved_applied(inputs, plan)
-        _save_state(env, plan, applied, overlay_root)
     logger.success(f"Machine preset set to '{plan.preset.name}'.")
+    return 0
+
+
+def _persist(logger: Logger, env: Env, plan: _Install, inputs: install_flow.FlowInputs) -> bool:
+    """Writes the migration, the state and the other presets' backups; False when the migration failed."""
+    migrated = _write_migration(logger, plan)
+    applied, overlay_root = _saved_applied(inputs, plan)
+    _save_state(env, plan, applied, overlay_root, migrated=migrated)
+    _retire_other_presets(logger, plan)
+    return migrated
 
 
 def _retire_other_presets(logger: Logger, plan: _Install) -> None:
@@ -611,10 +646,19 @@ def _retire_other_presets(logger: Logger, plan: _Install) -> None:
         logger.warn(f"Moved other presets' package files {', '.join(p.name for p in plan.other_presets)} to {plan.backup}.")
 
 
-def _write_migration(logger: Logger, plan: _Install) -> None:
-    if plan.loaded.from_legacy:
+def _write_migration(logger: Logger, plan: _Install) -> bool:
+    if not plan.loaded.from_legacy:
+        return True
+    try:
         optouts.write_migration(plan.package_file, plan.loaded.names, plan.backup)
-        logger.warn(f"Migrated {plan.package_file} to an opt-out file; backup in {plan.backup}.")
+    except OSError as error:
+        logger.error(
+            f"Could not migrate {plan.package_file}: {error}. "
+            "The file stays legacy; the next install retries the migration."
+        )
+        return False
+    logger.warn(f"Migrated {plan.package_file} to an opt-out file; backup in {plan.backup}.")
+    return True
 
 
 def _saved_applied(inputs: install_flow.FlowInputs, plan: _Install) -> tuple[tuple[str, ...], str | None]:

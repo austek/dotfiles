@@ -11,6 +11,7 @@ from dotfiles_setup.apt_packages import (
     PIN_PREFIX,
     is_apt_package,
 )
+from dotfiles_setup.result import Err, Ok, Result
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.system_check import STATUS_FORMAT
 from dotfiles_setup.system_steps import SystemContext
@@ -81,19 +82,26 @@ def installed_only(t: Tooling, split: Split) -> Split:
     )
 
 
-def _would_remove(ctx: SystemContext, name: str) -> set[str] | None:
-    """Packages the simulation removes, or None when it failed or never lists `name`."""
+def _would_remove(ctx: SystemContext, name: str) -> Result[frozenset[str]]:
+    """The packages the simulation removes, or why the simulation cannot vouch for removing `name`."""
     result = ctx.t.run(["apt-get", "-s", "remove", "-y", name], capture_output=True, text=True)
+    if result.returncode != 0:
+        return Err(f"exit {result.returncode}: {(result.stderr or '').strip()}")
     lines = (result.stdout or "").splitlines()
-    listed = {line.split()[1] for line in lines if line.startswith("Remv ") and len(line.split()) > 1}
-    return listed if result.returncode == 0 and name in listed else None
+    listed = frozenset(line.split()[1] for line in lines if line.startswith("Remv ") and len(line.split()) > 1)
+    return Ok(listed) if name in listed else Err(f"it does not list {name}")
 
 
 def _remove_one_apt(ctx: SystemContext, name: str, undo_action: str) -> bool:
-    listed = _would_remove(ctx, name)
-    if listed is None:
-        ctx.t.logger.warn(f"Skipping {name}: apt simulation failed.")
-        return False
+    match _would_remove(ctx, name):
+        case Err(error=reason):
+            ctx.t.logger.warn(f"Skipping {name}: apt simulation failed ({reason}).")
+            return False
+        case Ok(value=listed):
+            return _remove_listed(ctx, name, listed, undo_action)
+
+
+def _remove_listed(ctx: SystemContext, name: str, listed: frozenset[str], undo_action: str) -> bool:
     extras = listed - {name}
     if extras:
         ctx.t.logger.warn(f"Skipping {name}: removing it would also remove {', '.join(sorted(extras))}.")

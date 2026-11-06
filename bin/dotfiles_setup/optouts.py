@@ -43,7 +43,12 @@ def plan_migration(path: Path, combined: Sequence[str]) -> MigrationResult:
 def write_migration(path: Path, optouts: frozenset[str], backup: Path) -> None:
     backup.mkdir(parents=True, exist_ok=True)
     shutil.copy2(path, backup / path.name)
-    path.write_text(render(optouts))
+    staged = path.with_name(f"{path.name}.tmp")
+    try:
+        staged.write_text(render(optouts))
+        staged.replace(path)
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 def migrate(

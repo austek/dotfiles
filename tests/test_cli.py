@@ -389,6 +389,34 @@ def test_successful_install_writes_the_migration_once(isolated_dotfiles):
     assert [b.read_text() for b in backups] == ["zsh\nextra\n"]
 
 
+def test_state_is_saved_before_the_completion_banner(isolated_dotfiles, monkeypatch):
+    saved_at_banner = []
+    monkeypatch.setattr(
+        "dotfiles_setup.cli.install_flow.print_completion_banner",
+        lambda logger: saved_at_banner.append(state.load_state() is not None),
+    )
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert saved_at_banner == [True]
+
+
+def test_a_failed_migration_write_keeps_the_legacy_file_and_fails_the_run(isolated_dotfiles, monkeypatch, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+
+    def refuse(path, names, backup):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("dotfiles_setup.cli.optouts.write_migration", refuse)
+    assert main(["install", "--preset", "homelab"]) == 1
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert f"Could not migrate {package_file}" in out
+    assert "stays legacy" in out
+    assert package_file.read_text() == "zsh\nextra\n"
+    assert state.load_state().optouts_migrated is False
+    assert _plan_for(tmp_path, state.load_state()).loaded.from_legacy
+
+
 def test_plan_leaves_other_presets_files_in_place(isolated_dotfiles, capsys):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     other = _write_optouts(tmp_path, "vim\n", name="work.txt")
@@ -1003,9 +1031,10 @@ def test_confirm_yes_applies(answer, capsys):
 
 
 @pytest.mark.parametrize("answer", ["", "n", "no", "maybe"])
-def test_confirm_other_answers_decline(answer):
+def test_confirm_other_answers_decline(answer, capsys):
     _, ask = _ask(answer)
     assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
+    assert "Removals declined; they will be offered again next run." in capsys.readouterr().out
 
 
 def test_confirm_non_interactive_declines_without_prune(capsys):
@@ -1037,12 +1066,37 @@ def test_confirm_lists_manual_entries_separately(capsys):
     assert "sdkman" in out
 
 
-@pytest.mark.parametrize("error", [EOFError, KeyboardInterrupt])
-def test_confirm_treats_an_aborted_prompt_as_no(error):
+def _raise(error):
     def ask(prompt):
         raise error
 
-    assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
+    return ask
+
+
+def test_confirm_treats_end_of_input_as_declined(capsys):
+    assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=_raise(EOFError))
+    assert "Removals declined; they will be offered again next run." in capsys.readouterr().out
+
+
+def test_confirm_lets_an_interrupt_propagate():
+    with pytest.raises(KeyboardInterrupt):
+        confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=_raise(KeyboardInterrupt))
+
+
+def test_an_interrupt_at_the_prompt_exits_130_before_any_step(isolated_dotfiles, flow_calls, monkeypatch):
+    class InterruptedTty(io.StringIO):
+        def isatty(self):
+            return True
+
+        def readline(self, *args):
+            raise KeyboardInterrupt
+
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    monkeypatch.setattr("sys.stdin", InterruptedTty(""))
+    assert main(["install", "--preset", "homelab"]) == 130
+    assert flow_calls == []
+    assert state.load_state().applied_package_names == ("curl", "htop", "zsh")
 
 
 def test_confirm_with_only_manual_entries_lists_them_without_asking(capsys):
