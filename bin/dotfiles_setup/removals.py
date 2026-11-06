@@ -45,14 +45,20 @@ def installed_only(t: Tooling, split: Split) -> Split:
     )
 
 
-def _would_remove(ctx: SystemContext, name: str) -> set[str]:
+def _would_remove(ctx: SystemContext, name: str) -> set[str] | None:
+    """Packages the simulation removes, or None when it failed or never lists `name`."""
     result = ctx.t.run(["apt-get", "-s", "remove", "-y", name], capture_output=True, text=True)
     lines = (result.stdout or "").splitlines()
-    return {line.split()[1] for line in lines if line.startswith("Remv ") and len(line.split()) > 1}
+    listed = {line.split()[1] for line in lines if line.startswith("Remv ") and len(line.split()) > 1}
+    return listed if result.returncode == 0 and name in listed else None
 
 
 def _remove_one_apt(ctx: SystemContext, name: str) -> bool:
-    extras = _would_remove(ctx, name) - {name}
+    listed = _would_remove(ctx, name)
+    if listed is None:
+        ctx.t.logger.warn(f"Skipping {name}: apt simulation failed.")
+        return False
+    extras = listed - {name}
     if extras:
         ctx.t.logger.warn(f"Skipping {name}: removing it would also remove {', '.join(sorted(extras))}.")
         return False
@@ -76,5 +82,5 @@ def _remove_one_flatpak(t: Tooling, changes: RollbackLog, app_id: str) -> bool:
     return True
 
 
-def remove_flatpaks(ctx_t: Tooling, changes: RollbackLog, ids: Sequence[str]) -> list[str]:
-    return [app_id for app_id in ids if _remove_one_flatpak(ctx_t, changes, app_id)]
+def remove_flatpaks(t: Tooling, changes: RollbackLog, ids: Sequence[str]) -> list[str]:
+    return [app_id for app_id in ids if _remove_one_flatpak(t, changes, app_id)]

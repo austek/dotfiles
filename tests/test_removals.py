@@ -8,8 +8,9 @@ from dotfiles_setup.tooling import Tooling
 
 
 class Machine:
-    def __init__(self, simulations=None, failing=(), installed_apt=(), installed_flatpak=()):
+    def __init__(self, simulations=None, failing=(), installed_apt=(), installed_flatpak=(), simulation_code=0):
         self.commands = []
+        self.simulation_code = simulation_code
         self.simulations = simulations or {}
         self.failing = tuple(failing)
         self.installed_apt = installed_apt
@@ -18,7 +19,7 @@ class Machine:
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
         if argv[:3] == ["apt-get", "-s", "remove"]:
-            return SimpleNamespace(returncode=0, stdout=self.simulations.get(argv[-1], ""), stderr="")
+            return SimpleNamespace(returncode=self.simulation_code, stdout=self.simulations.get(argv[-1], ""), stderr="")
         if argv[0] == "dpkg-query":
             listing = "".join(f"ii  {name}\n" for name in self.installed_apt)
             return SimpleNamespace(returncode=0, stdout=listing, stderr="")
@@ -76,6 +77,24 @@ def test_remove_apt_skips_when_simulation_cascades(tmp_path):
     assert removals.remove_apt(ctx, ["slack-desktop"]) == []
     assert not machine.ran("sudo", "apt-get", "remove")
     assert any("libfoo" in warning for warning in logger.warnings)
+
+
+def test_remove_apt_skips_when_simulation_fails(tmp_path):
+    machine = Machine(simulations={"vim": "Remv vim [1]\n"}, simulation_code=100)
+    logger = Capture()
+    ctx = system_context(tmp_path, machine, logger)
+    assert removals.remove_apt(ctx, ["vim"]) == []
+    assert not machine.ran("sudo", "apt-get", "remove")
+    assert any("simulation failed" in warning for warning in logger.warnings)
+
+
+def test_remove_apt_skips_when_simulation_lists_nothing(tmp_path):
+    machine = Machine(simulations={"vim": ""})
+    logger = Capture()
+    ctx = system_context(tmp_path, machine, logger)
+    assert removals.remove_apt(ctx, ["vim"]) == []
+    assert not machine.ran("sudo", "apt-get", "remove")
+    assert any("simulation failed" in warning for warning in logger.warnings)
 
 
 def test_remove_apt_tracks_undo(tmp_path):
