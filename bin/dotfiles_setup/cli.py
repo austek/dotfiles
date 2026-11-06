@@ -299,14 +299,14 @@ def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | N
     return prior.preset_name
 
 
-def _save_state(env: Env, plan: _Install, applied: tuple[str, ...]) -> None:
+def _save_state(env: Env, plan: _Install, applied: tuple[str, ...], overlay_root: str | None) -> None:
     prior = plan.prior
     state.save_state(state.MachineState(
         preset_name=plan.preset.name,
         backend=plan.backend.name,
         package_file=str(plan.package_file),
         applied_package_names=applied,
-        overlay_root=str(plan.overlay_root) if plan.overlay_root else None,
+        overlay_root=overlay_root,
         created_at=prior.created_at if prior else env.now_iso(),
         updated_at=env.now_iso(),
         optouts_migrated=True,
@@ -373,6 +373,7 @@ def _plan(
     pending = _pending(logger, _Prior(prior, preset.name, overlay_root), wanted, loaded, backend.resolve_name)
     return _Install(
         preset, backend, combined, package_file, wanted, pending, overlay_root, env.dotfiles_dir, prior, stamp,
+        loaded, backup,
     )
 
 
@@ -389,6 +390,7 @@ class _Optouts:
     names: frozenset[str]
     created: frozenset[str] = frozenset()
     fork_only: tuple[str, ...] = ()
+    from_legacy: bool = False
 
 
 @dataclass(frozen=True)
@@ -443,12 +445,12 @@ def _load_optouts(
 
 def _migrate_fork(logger: Logger, package_file: Path, combined: tuple[str, ...], backup: Path) -> _Optouts:
     unpinned = tuple(n for n in combined if not n.startswith(apt_packages.PIN_PREFIX))
-    migrated = optouts.migrate(package_file, unpinned, backup, dry_run=logger.dry_run)
-    verb = "Would migrate" if logger.dry_run else "Migrated"
-    logger.warn(f"{verb} {package_file} to an opt-out file; backup in {backup}.")
+    migrated = optouts.plan_migration(package_file, unpinned)
+    verb = "Would migrate" if logger.dry_run else "Will migrate"
+    logger.warn(f"{verb} {package_file} to an opt-out file after a successful install; backup in {backup}.")
     if migrated.fork_only:
         logger.warn(f"Packages only in the old file: {', '.join(migrated.fork_only)}.")
-    return _Optouts(migrated.optouts, migrated.optouts, migrated.fork_only)
+    return _Optouts(migrated.optouts, migrated.optouts, migrated.fork_only, from_legacy=True)
 
 
 def combine_package_names(
@@ -469,6 +471,8 @@ class _Install:
     dotfiles_dir: Path
     prior: state.MachineState | None
     stamp: str
+    loaded: _Optouts
+    backup: Path
 
 
 def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
@@ -585,8 +589,26 @@ def _finish_install(
     _sync_foothold(logger, plan.preset, plan.prior)
     install_flow.print_completion_banner(logger)
     if not args.dry_run:
-        _save_state(env, plan, applied_after_removals(inputs.t, plan.wanted, plan.pending, inputs.removed))
+        _write_migration(logger, plan)
+        applied, overlay_root = _saved_applied(inputs, plan)
+        _save_state(env, plan, applied, overlay_root)
     logger.success(f"Machine preset set to '{plan.preset.name}'.")
+
+
+def _write_migration(logger: Logger, plan: _Install) -> None:
+    if plan.loaded.from_legacy:
+        optouts.write_migration(plan.package_file, plan.loaded.names, plan.backup)
+        logger.warn(f"Migrated {plan.package_file} to an opt-out file; backup in {plan.backup}.")
+
+
+def _saved_applied(inputs: install_flow.FlowInputs, plan: _Install) -> tuple[tuple[str, ...], str | None]:
+    """The applied list and overlay root to save; a missing overlay keeps the prior ones so removals are offered later."""
+    prior = _Prior(plan.prior, plan.preset.name, plan.overlay_root)
+    applied, missing = prior.applied(), prior.missing_overlay()
+    if applied is not None and missing is not None:
+        return tuple(sorted({*applied, *plan.wanted})), missing
+    current = str(plan.overlay_root) if plan.overlay_root else None
+    return applied_after_removals(inputs.t, plan.wanted, plan.pending, inputs.removed), current
 
 
 def _run_private_clone(args: argparse.Namespace, env: Env) -> int:

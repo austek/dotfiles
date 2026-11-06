@@ -234,9 +234,9 @@ def test_optout_of_pin_skips_install_and_removes_it(isolated_dotfiles):
 def test_migration_does_not_opt_out_pins(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     _write_pins(tmp_path)
-    package_file = _write_optouts(tmp_path, "zsh\ncurl\n")
+    _write_optouts(tmp_path, "zsh\ncurl\n")
     plan = _plan_for(tmp_path)
-    assert "github:derailed/k9s" not in package_file.read_text()
+    assert "github:derailed/k9s" not in plan.loaded.names
     assert "github:derailed/k9s" in plan.wanted
     no_dpkg = Tooling(Logger(dry_run=False), tmp_path, run=lambda *a, **k: SimpleNamespace(returncode=0, stdout=""))
     ctx = SystemContext(no_dpkg, plan.dotfiles_dir, plan.wanted, RollbackLog(tmp_path / "log"))
@@ -282,9 +282,31 @@ def test_plan_reads_a_headerless_file_as_optouts_once_migrated(isolated_dotfiles
 
 def test_plan_migrates_a_headerless_fork_on_an_unmigrated_machine(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
-    package_file = _write_optouts(tmp_path, "zsh\n")
+    _write_optouts(tmp_path, "zsh\n")
     assert _plan_for(tmp_path, _prior("homelab", ("zsh",))).wanted == frozenset({"zsh"})
-    assert package_file.read_text() == f"{optouts.HEADER}\ncurl\n"
+
+
+def test_failed_first_run_leaves_the_legacy_file_for_an_identical_retry(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nslack-desktop\n")
+    _save_applied(("curl", "zsh"))
+    fail_flow(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert package_file.read_text() == "zsh\nslack-desktop\n"
+    retry = _plan_for(tmp_path, state.load_state())
+    assert retry.pending == ("slack-desktop",)
+    assert retry.wanted == frozenset({"zsh"})
+
+
+def test_missing_overlay_carries_the_prior_applied_list_forward(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    machine(monkeypatch, apt=("extra",))
+    saved_root = str(tmp_path / "private")
+    state.save_state(_prior("homelab", ("curl", "extra", "zsh"), overlay_root=saved_root), state.state_file())
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    saved = state.load_state()
+    assert saved.applied_package_names == ("curl", "extra", "zsh")
+    assert saved.overlay_root == saved_root
 
 
 def test_migration_optouts_are_not_pending(isolated_dotfiles):
@@ -330,13 +352,15 @@ def test_plan_ignores_applied_for_other_preset(isolated_dotfiles):
     assert plan.pending == ()
 
 
-def test_plan_migrates_legacy_fork_once(isolated_dotfiles):
+def test_successful_install_writes_the_migration_once(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     package_file = _write_optouts(tmp_path, "zsh\nextra\n")
     assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+    assert package_file.read_text() == "zsh\nextra\n"
+    assert main(["install", "--preset", "homelab"]) == 0
     migrated = package_file.read_text()
     assert migrated == f"{optouts.HEADER}\ncurl\n"
-    assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+    assert main(["install", "--preset", "homelab"]) == 0
     assert package_file.read_text() == migrated
     backups = list((Path.home() / ".local" / "state" / "dotfiles" / "package-backups").glob("*/homelab.txt"))
     assert [b.read_text() for b in backups] == ["zsh\nextra\n"]
@@ -1090,7 +1114,7 @@ def test_migration_messages_show_at_default_verbosity(isolated_dotfiles, capsys)
     _write_optouts(tmp_path, "vim\n", name="work.txt")
     _plan_for(tmp_path)
     out = capsys.readouterr().out
-    assert "Migrated" in out
+    assert "Will migrate" in out
     assert "work.txt" in out
     assert "only in the old file: extra" in out
 

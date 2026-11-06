@@ -34,16 +34,24 @@ def render(optouts: frozenset[str]) -> str:
     return "".join(f"{line}\n" for line in (HEADER, *sorted(optouts)))
 
 
+def plan_migration(path: Path, combined: Sequence[str]) -> MigrationResult:
+    fork = frozenset(package_names(path.read_text()))
+    wanted = frozenset(combined)
+    return MigrationResult(wanted - fork, tuple(sorted(fork - wanted)))
+
+
+def write_migration(path: Path, optouts: frozenset[str], backup: Path) -> None:
+    backup.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, backup / path.name)
+    path.write_text(render(optouts))
+
+
 def migrate(
     path: Path, combined: Sequence[str], backup: Path, *, dry_run: bool
 ) -> MigrationResult:
-    fork = frozenset(package_names(path.read_text()))
-    wanted = frozenset(combined)
-    result = MigrationResult(wanted - fork, tuple(sorted(fork - wanted)))
+    result = plan_migration(path, combined)
     if not dry_run:
-        backup.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, backup / path.name)
-        path.write_text(render(result.optouts))
+        write_migration(path, result.optouts, backup)
     return result
 
 
