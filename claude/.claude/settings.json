@@ -1,6 +1,7 @@
 {
   "env": {
-    "COZEMPIC_NO_AUTO_UPDATE": "1"
+    "COZEMPIC_NO_AUTO_UPDATE": "1",
+    "PATH": "$HOME/.nvm/current/bin:$HOME/.local/bin:$HOME/.sdkman/candidates/java/current/bin:$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
   },
   "permissions": {
     "additionalDirectories": [

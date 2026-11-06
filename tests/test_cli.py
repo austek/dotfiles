@@ -846,6 +846,21 @@ def test_install_records_the_generated_settings_as_the_drift_baseline(isolated_d
     assert baseline.read_text() == (tmp_path / "claude-home" / "settings.json").read_text()
 
 
+def test_install_expands_home_in_the_generated_env_and_its_drift_baseline(
+    isolated_dotfiles, monkeypatch, tmp_path,
+):
+    dotfiles_dir, _ = isolated_dotfiles
+    base = {"env": {"PATH": "$HOME/.local/bin:/usr/bin"}, "hooks": {"command": "$HOME/x"}}
+    (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps(base))
+    monkeypatch.setattr("dotfiles_setup.cli._home", lambda: tmp_path / "me")
+    assert main(["install", "--preset", "homelab"]) == 0
+    generated = (tmp_path / "claude-home" / "settings.json").read_text()
+    assert json.loads(generated)["env"]["PATH"] == f"{tmp_path / 'me'}/.local/bin:/usr/bin"
+    assert json.loads(generated)["hooks"] == {"command": "$HOME/x"}
+    assert (tmp_path / "state" / "settings.last-generated.json").read_text() == generated
+    assert main(["install", "--preset", "homelab"]) == 0
+
+
 def test_install_stops_when_settings_were_edited_since_the_last_install(
     isolated_dotfiles, plugin_updates, foothold_installs, tmp_path, capsys,
 ):

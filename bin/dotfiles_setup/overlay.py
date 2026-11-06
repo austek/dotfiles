@@ -7,6 +7,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,21 @@ def _union(base: list[Any], extra: list[Any]) -> list[Any]:
 
 def merge_settings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     return _merge(base, overlay, union_lists=True)
+
+
+_HOME_REFERENCE = re.compile(r"\$\{HOME\}|\$HOME(?![A-Za-z0-9_])|^~(?=/|$)")
+
+
+def _expand_home(value: Any, home: Path) -> Any:
+    return _HOME_REFERENCE.sub(lambda _: str(home), value) if isinstance(value, str) else value
+
+
+def expand_home_in_env(settings: dict[str, Any], home: Path) -> dict[str, Any]:
+    """Returns settings with `$HOME`, `${HOME}` and a leading `~` in `env` string values replaced by home."""
+    env = settings.get("env")
+    if not isinstance(env, dict):
+        return settings
+    return {**settings, "env": {key: _expand_home(value, home) for key, value in env.items()}}
 
 
 def _read_layer(path: Path | None) -> dict[str, Any]:

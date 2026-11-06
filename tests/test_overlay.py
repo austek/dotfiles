@@ -1,6 +1,9 @@
 import json
+from pathlib import Path
 
+import pytest
 from dotfiles_setup.overlay import (
+    expand_home_in_env,
     find_overlay_root,
     load_preset_settings,
     merge_settings,
@@ -93,3 +96,34 @@ def test_preset_settings_skip_another_presets_overlay_file(tmp_path):
 
 def test_merge_settings_deduplicates_repeats_within_the_overlay_list():
     assert merge_settings({"allow": ["a"]}, {"allow": ["b", "b"]}) == {"allow": ["a", "b"]}
+
+
+HOME = Path("/h/me")
+
+
+@pytest.mark.parametrize(("raw", "expanded"), [
+    ("$HOME/bin:/usr/bin", "/h/me/bin:/usr/bin"),
+    ("${HOME}/a:$HOME/b", "/h/me/a:/h/me/b"),
+    ("~/.local/bin", "/h/me/.local/bin"),
+    ("~", "/h/me"),
+    ("$HOMEDIR/x", "$HOMEDIR/x"),
+    ("/opt/~/x", "/opt/~/x"),
+])
+def test_expand_home_in_env_rewrites_home_references(raw, expanded):
+    assert expand_home_in_env({"env": {"PATH": raw}}, HOME) == {"env": {"PATH": expanded}}
+
+
+def test_expand_home_in_env_leaves_non_env_keys_and_non_strings_alone():
+    hooks = {"Stop": [{"hooks": [{"command": "\"$HOME/x.sh\""}]}]}
+    settings = {"env": {"N": 1, "P": "$HOME"}, "hooks": hooks, "model": "$HOME"}
+    assert expand_home_in_env(settings, HOME) == {"env": {"N": 1, "P": "/h/me"}, "hooks": hooks, "model": "$HOME"}
+
+
+def test_expand_home_in_env_does_not_mutate_its_input():
+    settings = {"env": {"PATH": "$HOME/bin"}}
+    expand_home_in_env(settings, HOME)
+    assert settings == {"env": {"PATH": "$HOME/bin"}}
+
+
+def test_expand_home_in_env_returns_settings_without_env_unchanged():
+    assert expand_home_in_env({"model": "x"}, HOME) == {"model": "x"}
