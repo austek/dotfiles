@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from dotfiles_setup import rollback, tools
 from dotfiles_setup.log import Logger
 
@@ -175,11 +176,16 @@ def test_undo_of_a_removed_deb_warns_and_runs_nothing(tmp_path, capsys):
     assert "reinstall k9s manually" in capsys.readouterr().out
 
 
-def test_a_failed_reinstall_only_warns(tmp_path):
-    machine = Machine(failing=[("sudo", "apt-get", "install")])
+@pytest.mark.parametrize(
+    ("action", "failing"),
+    [("APT_REMOVED", ("sudo", "apt-get", "install")), ("FLATPAK_REMOVED", ("flatpak", "install"))],
+)
+def test_a_failed_reinstall_only_warns(tmp_path, capsys, action, failing):
+    machine = Machine(failing=[failing])
     ctx = context(tmp_path, machine)
-    ctx.log.track("APT_REMOVED:vim", dry_run=False)
+    ctx.log.track(f"{action}:vim", dry_run=False)
     rollback.perform_rollback(ctx)
+    assert "Failed to reinstall vim" in capsys.readouterr().out
     assert not ctx.log.path.exists()
 
 

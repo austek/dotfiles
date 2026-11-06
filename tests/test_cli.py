@@ -433,6 +433,22 @@ def test_dry_run_plan_moves_no_other_presets_file(isolated_dotfiles, capsys):
     assert "Would move" in capsys.readouterr().out
 
 
+def test_dry_run_install_moves_no_other_presets_file(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert other.exists()
+    assert not (Path.home() / ".local" / "state" / "dotfiles" / "package-backups").exists()
+    assert "Would move" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("applied", "pending"), [(("zsh",), ()), (("curl", "zsh"), ("curl",))])
+def test_a_headered_optout_is_pending_only_when_it_was_applied(isolated_dotfiles, applied, pending):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
+    assert _plan_for(tmp_path, _prior("homelab", applied, optouts_migrated=True)).pending == pending
+
+
 def test_failed_run_leaves_other_presets_files_in_place(isolated_dotfiles, monkeypatch):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     other = _write_optouts(tmp_path, "vim\n", name="work.txt")
