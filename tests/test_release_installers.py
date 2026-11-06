@@ -260,6 +260,104 @@ def test_awscli_bad_zip_is_reported_and_skipped(tmp_path):
     assert not any(c[0] == "sudo" for c in machine.commands)
 
 
+ZOOM_REDIRECT = "https://cdn.zoom.us/prod/7.2.5.6661/zoom_amd64.deb"
+
+
+def zoom_listing(version):
+    return f"ii  zoom           {version}       amd64        Zoom Cloud Meetings\n"
+
+
+@pytest.mark.parametrize(("installed", "latest", "current"), [
+    ("7.2.5.6661", "7.2.5.6661", True),
+    ("7.2.1.5760", "7.2.5.6661", False),
+    ("7.2.1.5760", "7.2.1", False),
+    ("4.41.105", "4.41.105", True),
+    ("1:4.41.105-1", "4.41.105", True),
+    ("4.41.105+build2", "4.41.105", True),
+    (None, "7.2.5.6661", False),
+])
+def test_deb_is_current_compares_dpkg_and_vendor_versions(installed, latest, current):
+    assert ri.deb_is_current(installed, latest) is current
+
+
+def test_upgrade_reinstalls_zoom_once_when_the_vendor_has_a_newer_version(tmp_path):
+    machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
+    t, downloads = make(tmp_path, machine, redirect=lambda url: ZOOM_REDIRECT)
+    ri.upgrade_vendor_debs(t, {"zoom"})
+    assert downloads == [ri.ZOOM_URL]
+    assert sum(c[:3] == ["sudo", "dpkg", "-i"] for c in machine.commands) == 1
+
+
+def test_upgrade_skips_zoom_at_the_vendor_version(tmp_path):
+    machine = Machine(dpkg_listing=zoom_listing("7.2.5.6661"))
+    t, downloads = make(tmp_path, machine, redirect=lambda url: ZOOM_REDIRECT)
+    ri.upgrade_vendor_debs(t, {"zoom"})
+    assert downloads == []
+    assert not machine.ran("sudo")
+
+
+def test_upgrade_leaves_an_absent_package_to_the_install(tmp_path):
+    def refuse(url):
+        raise AssertionError(url)
+
+    machine = Machine()
+    t, downloads = make(tmp_path, machine, redirect=refuse)
+    ri.upgrade_vendor_debs(t, {"zoom"})
+    assert downloads == []
+
+
+def test_upgrade_ignores_unwanted_vendor_debs(tmp_path):
+    machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
+    t, downloads = make(tmp_path, machine, redirect=lambda url: ZOOM_REDIRECT)
+    ri.upgrade_vendor_debs(t, {"slack-desktop"})
+    assert downloads == []
+
+
+def test_upgrade_warns_and_skips_when_the_latest_version_is_unknown(tmp_path, capsys):
+    machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
+    t, downloads = make(tmp_path, machine, redirect=lambda url: None)
+    ri.upgrade_vendor_debs(t, {"zoom"})
+    assert downloads == []
+    assert not machine.ran("sudo")
+    assert "Could not determine the latest Zoom version" in capsys.readouterr().out
+
+
+def test_upgrade_dry_run_downloads_and_installs_nothing(tmp_path, capsys):
+    machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
+    t, downloads = make(tmp_path, machine, redirect=lambda url: ZOOM_REDIRECT, dry_run=True)
+    ri.upgrade_vendor_debs(t, {"zoom"})
+    assert downloads == []
+    assert not machine.ran("sudo")
+    assert "Would upgrade Zoom from v7.2.1.5760 to v7.2.5.6661" in capsys.readouterr().out
+
+
+def test_upgrade_reinstalls_slack_when_the_downloads_page_is_newer(tmp_path):
+    machine = Machine(dpkg_listing="ii  slack-desktop  4.35.0  amd64  Slack\n")
+    t, downloads = make(tmp_path, machine, fetch=lambda url: "Version 4.41.105")
+    ri.upgrade_vendor_debs(t, {"slack-desktop"})
+    assert downloads == [
+        "https://downloads.slack-edge.com/desktop-releases/linux/x64/4.41.105/slack-desktop-4.41.105-amd64.deb",
+    ]
+
+
+def test_only_deb_specs_are_upgradable():
+    assert [package for package, _ in ri.UPGRADABLE_DEBS] == ["zoom", "slack-desktop"]
+
+
+def test_install_tools_without_upgrade_skips_an_installed_zoom(tmp_path):
+    machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
+    t, downloads = make(tmp_path, machine, redirect=lambda url: ZOOM_REDIRECT)
+    assert tools.install_tools(t, {"zoom"})
+    assert downloads == []
+
+
+def test_install_tools_with_upgrade_reinstalls_an_outdated_zoom(tmp_path):
+    machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
+    t, downloads = make(tmp_path, machine, redirect=lambda url: ZOOM_REDIRECT)
+    assert tools.install_tools(t, {"zoom"}, upgrade=True)
+    assert downloads == [ri.ZOOM_URL]
+
+
 def test_release_installers_run_after_the_script_installers(tmp_path):
     names = [name for name, _ in tools.TOOL_INSTALLERS]
     assert names == [

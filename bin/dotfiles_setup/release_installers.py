@@ -7,7 +7,7 @@ import shutil
 import tarfile
 import tempfile
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -156,6 +156,17 @@ def _dpkg_listing(t: Tooling) -> str:
     return t.run(["dpkg", "-l"], capture_output=True, text=True).stdout or ""
 
 
+def _dpkg_version(t: Tooling, package: str) -> str | None:
+    listing = t.run(["dpkg", "-l"], capture_output=True, text=True, env={**os.environ, "COLUMNS": "400"}).stdout or ""
+    match = re.search(rf"^ii  {re.escape(package)}(?::\S+)?\s+(\S+)", listing, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def deb_is_current(installed: str | None, latest: str) -> bool:
+    """True when the dpkg version is `latest`, ignoring an epoch prefix and a `-`/`+` revision suffix."""
+    return installed is not None and re.fullmatch(rf"(\d+:)?{re.escape(latest)}([-+].*)?", installed) is not None
+
+
 def _dpkg_has(t: Tooling, pattern: str) -> bool:
     return re.search(rf"^ii.*{pattern}", _dpkg_listing(t), re.MULTILINE) is not None
 
@@ -298,16 +309,49 @@ JETBRAINS_TOOLBOX = ReleaseSpec(
     _jetbrains_resolve, "targz", _jetbrains_install,
 )
 
-RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = tuple(
-    (package, lambda t, spec=spec: install_release(t, spec))
-    for package, spec in (
-        ("lazydocker", LAZYDOCKER),
-        ("zoom", ZOOM),
-        ("slack-desktop", SLACK),
-        ("jetbrains-toolbox", JETBRAINS_TOOLBOX),
-        ("istioctl", ISTIOCTL),
-        ("awscli", AWSCLI),
-        ("zizmor", ZIZMOR),
-        ("mcp-grafana", MCP_GRAFANA),
-    )
+RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = (
+    ("lazydocker", LAZYDOCKER),
+    ("zoom", ZOOM),
+    ("slack-desktop", SLACK),
+    ("jetbrains-toolbox", JETBRAINS_TOOLBOX),
+    ("istioctl", ISTIOCTL),
+    ("awscli", AWSCLI),
+    ("zizmor", ZIZMOR),
+    ("mcp-grafana", MCP_GRAFANA),
 )
+RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = tuple(
+    (package, lambda t, spec=spec: install_release(t, spec)) for package, spec in RELEASE_SPECS
+)
+# The package name doubles as the dpkg package the .deb installs.
+UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = tuple(
+    (package, spec) for package, spec in RELEASE_SPECS if spec.kind == "deb"
+)
+
+
+def _latest_release(t: Tooling, spec: ReleaseSpec) -> Resolved | None:
+    resolved = spec.resolve(t)
+    if resolved is None or not re.fullmatch(r"\d[\w.+~-]*", resolved.version):
+        t.logger.warn(f"Could not determine the latest {spec.name} version. Skipping upgrade.")
+        return None
+    return resolved
+
+
+def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:
+    installed = _dpkg_version(t, package)
+    resolved = _latest_release(t, spec) if installed else None
+    if installed is None or resolved is None:
+        return
+    if deb_is_current(installed, resolved.version):
+        t.logger.info(f"{spec.name} is already at v{installed}. Skipping.")
+        return
+    if dry_run_all(t, f"Would upgrade {spec.name} from v{installed} to v{resolved.version}"):
+        return
+    with tempfile.TemporaryDirectory() as temp_dir:
+        _fetch_and_install(t, spec, resolved, Path(temp_dir))
+
+
+def upgrade_vendor_debs(t: Tooling, package_names: Collection[str]) -> None:
+    """Reinstalls each wanted, installed vendor .deb whose latest vendor version differs from dpkg's."""
+    for package, spec in UPGRADABLE_DEBS:
+        if package in package_names:
+            upgrade_release(t, spec, package)

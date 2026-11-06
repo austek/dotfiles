@@ -1,5 +1,7 @@
 import json
+from pathlib import Path
 
+import pytest
 from dotfiles_setup.presets import Preset, load_preset, package_names, resolve_packages
 from dotfiles_setup.result import Err, Ok
 
@@ -55,6 +57,15 @@ def test_resolve_packages_dedupes_and_sorts_across_files(tmp_path):
         backend_overrides={}, claude_settings=None,
     )
     assert resolve_packages(tmp_path, preset) == Ok(("curl", "ripgrep", "zsh"))
+
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+@pytest.mark.parametrize(("preset", "has_zoom"), [("work", True), ("personal", False), ("homelab", False)])
+def test_only_the_work_preset_installs_zoom(preset, has_zoom):
+    manifest = load_preset(REPO / "presets", preset).value
+    assert ("zoom" in resolve_packages(REPO / "packages", manifest).value) is has_zoom
 
 
 def test_resolve_packages_returns_err_for_missing_files(tmp_path):

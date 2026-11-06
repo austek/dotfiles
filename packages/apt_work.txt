@@ -4,3 +4,4 @@ istioctl
 postgresql-17
 teleport
 teleport-connect
+zoom

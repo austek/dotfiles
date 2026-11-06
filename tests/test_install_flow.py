@@ -283,6 +283,15 @@ def test_upgrade_replaces_the_report_with_the_upgrade_step(tmp_path):
     assert names.index("upgrade_packages") == names.index("install_packages") + 1
 
 
+@pytest.mark.parametrize("upgrade", [True, False])
+def test_install_tools_step_receives_the_upgrade_flag(tmp_path, monkeypatch, upgrade):
+    seen = []
+    monkeypatch.setattr(tools, "install_tools", lambda t, packages, upgrade=False: seen.append(upgrade) or True)
+    steps = dict(flow.build_steps(inputs(tmp_path, upgrade=upgrade), frozenset(), RollbackLog(tmp_path / "log")))
+    steps["install_tools"]()
+    assert seen == [upgrade]
+
+
 def test_upgrade_forces_the_system_stage_without_checking(tmp_path, no_sudo, monkeypatch):
     ran = _recorded_steps(monkeypatch)
     monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: pytest.fail("no check when upgrading"))

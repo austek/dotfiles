@@ -13,7 +13,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 - **NEVER** suggest or use `apt-get install` directly to add applications.
 - To add or remove applications, update the text files located in the `~/.dotfiles/packages/` directory.
 - GUI apps that Flathub ships (`flatpak_desktop.txt`, `flatpak_work.txt`) are written as `flatpak:<app-id>` and installed user-level, without sudo, by `flatpak.py`. Apt skips these entries. Other CLI and sandbox-hostile apps stay on apt, `.deb` or vendor scripts.
-- `dotfiles-setup install --upgrade` also runs `apt-get dist-upgrade` and `flatpak update`, and forces the system stage. Without it, the install only reports how many apt packages are upgradable. A pinned `.deb` in `github_bins.txt` is reinstalled when the installed version differs from the pin.
+- `dotfiles-setup install --upgrade` also runs `apt-get dist-upgrade` and `flatpak update`, and forces the system stage. Without it, the install only reports how many apt packages are upgradable. A pinned `.deb` in `github_bins.txt` is reinstalled when the installed version differs from the pin. `--upgrade` also reinstalls wanted vendor `.deb` installs (`zoom`, `slack-desktop`) when the vendor's latest version differs from the installed one.
 - Available package lists include: `apt_common.txt` (all presets, headless-safe), `apt_desktop.txt` (GUI packages, pulled in by `work`/`personal` only), `apt_rust.txt` (Rust tooling shared by `personal` and `homelab`), `apt_work.txt`, `apt_personal.txt`, `apt_homelab.txt`, and `github_bins.txt`.
 - `apt_packages.py` downloads and installs the `.deb` packages from GitHub releases listed in `github_bins.txt`.
 

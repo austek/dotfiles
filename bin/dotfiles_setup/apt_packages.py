@@ -7,7 +7,11 @@ import tempfile
 from pathlib import Path
 
 from dotfiles_setup import checksums, flatpak
-from dotfiles_setup.release_installers import Resolved, download_with_cache
+from dotfiles_setup.release_installers import (
+    Resolved,
+    deb_is_current,
+    download_with_cache,
+)
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import dry_run_all
 
@@ -100,10 +104,6 @@ def _installed_version(ctx: SystemContext, filename: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _is_current(installed: str | None, pinned: str) -> bool:
-    return installed is not None and re.fullmatch(rf"(\d+:)?{re.escape(pinned)}([-+].*)?", installed) is not None
-
-
 def pending_github_bins(ctx: SystemContext) -> list[str]:
     """Filenames of listed .debs that are absent or installed at a version other than the pinned one."""
     listing = ctx.dotfiles_dir / "packages" / "github_bins.txt"
@@ -111,7 +111,7 @@ def pending_github_bins(ctx: SystemContext) -> list[str]:
         return []
     return [
         filename for _, repo, version, filename in _wanted_bins(ctx, listing)
-        if repo and version and filename and not _is_current(_installed_version(ctx, filename), version)
+        if repo and version and filename and not deb_is_current(_installed_version(ctx, filename), version)
     ]
 
 
@@ -155,7 +155,7 @@ def install_github_bins(ctx: SystemContext) -> None:
         for line, repo, version, filename in entries:
             if not (repo and version and filename):
                 logger.error(f"Invalid line in github_bins.txt: '{line}'")
-            elif _is_current(_installed_version(ctx, filename), version):
+            elif deb_is_current(_installed_version(ctx, filename), version):
                 logger.info(f"Package {filename.split('_', 1)[0]} is already at v{version}. Skipping.")
             else:
                 _install_deb(ctx, repo, version, filename, Path(temp_dir))
