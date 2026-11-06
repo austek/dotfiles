@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -84,6 +86,39 @@ def test_cozempic_already_installed_is_left_alone(tmp_path, on_path):
     t, _ = make(tmp_path, machine)
     ct.configure_cozempic_cli(t)
     assert not machine.ran("pipx")
+
+
+def test_the_cozempic_version_check_disables_global_init_and_keeps_the_environment(tmp_path, on_path, monkeypatch):
+    monkeypatch.setenv("COZEMPIC_TEST_MARKER", "kept")
+    on_path.update({"cozempic", "pipx"})
+    machine = Machine()
+    t, _ = make(tmp_path, machine)
+    ct.configure_cozempic_cli(t)
+    env = machine.envs[machine.commands.index(["cozempic", "--version"])]
+    assert env["COZEMPIC_NO_GLOBAL_INIT"] == "1"
+    assert env["COZEMPIC_TEST_MARKER"] == "kept"
+
+
+def test_the_post_install_cozempic_report_disables_global_init(tmp_path, on_path):
+    on_path.add("cozempic")
+    machine = Machine()
+    t, _ = make(tmp_path, machine)
+    ct._report_cozempic(t)
+    assert machine.envs[machine.commands.index(["/usr/bin/cozempic", "--version"])]["COZEMPIC_NO_GLOBAL_INIT"] == "1"
+
+
+def test_other_binaries_do_not_get_the_cozempic_variable(tmp_path, on_path):
+    on_path.update({"pipx", "serena", "rtk"})
+    machine = Machine()
+    t, _ = make(tmp_path, machine)
+    ct._version_of(t, "serena")
+    ct._version_of(t, "rtk")
+    assert all("COZEMPIC_NO_GLOBAL_INIT" not in (env or {}) for env in machine.envs)
+
+
+def test_the_base_settings_disable_cozempic_global_init():
+    settings = Path(__file__).resolve().parent.parent / "claude/.claude/settings.json"
+    assert json.loads(settings.read_text())["env"]["COZEMPIC_NO_GLOBAL_INIT"] == "1"
 
 
 def test_serena_is_skipped_on_homelab(tmp_path, on_path):

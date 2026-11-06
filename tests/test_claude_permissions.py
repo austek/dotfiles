@@ -64,3 +64,10 @@ def test_plain_rg_does_not_prompt(command):
 
 def test_cozempic_auto_update_is_disabled():
     assert SETTINGS["env"]["COZEMPIC_NO_AUTO_UPDATE"] == "1"
+
+
+def test_path_is_portable_and_keeps_the_system_directories():
+    entries = SETTINGS["env"]["PATH"].split(":")
+    assert "$HOME/.local/bin" in entries
+    assert {"/usr/local/bin", "/usr/bin", "/bin"} <= set(entries)
+    assert "/home/" not in SETTINGS["env"]["PATH"]

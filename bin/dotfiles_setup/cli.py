@@ -196,6 +196,10 @@ def _dotfiles_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _home() -> Path:
+    return Path.home()
+
+
 def _claude_home() -> Path:
     return Path.home() / ".claude"
 
@@ -212,6 +216,7 @@ class Env:
 
     run: RunFn = field(default_factory=lambda: tooling.run_command)
     clock: Callable[[], datetime] = field(default_factory=lambda: lambda: datetime.now(UTC))
+    home: Path = field(default_factory=lambda: _home())
     claude_home: Path = field(default_factory=lambda: _claude_home())
     state_dir: Path = field(default_factory=lambda: state.state_dir())
     dotfiles_dir: Path = field(default_factory=lambda: _dotfiles_dir())
@@ -243,11 +248,14 @@ def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None
     staged.replace(target)
 
 
-def _merged_claude_settings(dotfiles_dir: Path, overlay_root: Path | None, preset: Preset) -> dict[str, Any]:
+def _merged_claude_settings(
+    dotfiles_dir: Path, overlay_root: Path | None, preset: Preset, home: Path,
+) -> dict[str, Any]:
     profile = dotfiles_dir / "claude-profiles" / preset.claude_settings if preset.claude_settings else None
-    return overlay.load_preset_settings(
+    merged = overlay.load_preset_settings(
         dotfiles_dir / "claude" / ".claude" / SETTINGS_FILE, profile, overlay_root, preset.name,
     )
+    return overlay.expand_home_in_env(merged, home)
 
 
 def _write_claude_settings(logger: Logger, merged: dict[str, Any], env: Env) -> None:
@@ -488,7 +496,7 @@ class _Install:
 
 def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
     return tooling.Tooling(
-        logger, Path.home(), run=env.run,
+        logger, env.home, run=env.run,
         fetch=tooling.fetch_https, fetch_bytes=tooling.fetch_bytes_https,
         download=tooling.download_https, redirect=tooling.redirect_location,
         checksums=checksums.load(env.dotfiles_dir / "packages" / checksums.FILE_NAME),
@@ -584,7 +592,7 @@ def _flow_inputs(
 
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
-    claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset)
+    claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset, env.home)
     t = _tooling(logger, env)
     match _approval(args, t, plan):
         case Err(error=message):

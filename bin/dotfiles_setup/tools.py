@@ -127,8 +127,11 @@ def _run_installers(t: Tooling, table: tuple[tuple[str, Installer], ...], packag
     return True
 
 
-def install_tools(t: Tooling, package_names: Collection[str]) -> bool:
-    return _run_installers(t, TOOL_INSTALLERS, package_names)
+def install_tools(t: Tooling, package_names: Collection[str], upgrade: bool = False) -> bool:
+    installed = _run_installers(t, TOOL_INSTALLERS, package_names)
+    if installed and upgrade:
+        release_installers.upgrade_vendor_debs(t, package_names)
+    return installed
 
 
 def install_post_apt_tools(t: Tooling, package_names: Collection[str]) -> bool:
