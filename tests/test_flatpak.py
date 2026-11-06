@@ -38,7 +38,7 @@ def test_only_prefixed_entries_are_app_ids():
 
 def test_no_flatpak_entries_means_no_calls(tmp_path):
     machine = Machine()
-    assert flatpak.install_flatpaks(tooling(tmp_path, machine), ["vim"])
+    flatpak.install_flatpaks(tooling(tmp_path, machine), ["vim"])
     assert machine.commands == []
 
 
@@ -67,23 +67,29 @@ def test_update_runs_only_when_upgrading(tmp_path, has_flatpak):
 def test_a_missing_flatpak_binary_skips_without_failing(tmp_path, monkeypatch):
     monkeypatch.setattr(flatpak.shutil, "which", lambda name: None)
     machine = Machine()
-    assert flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.slack.Slack"])
+    flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.slack.Slack"])
     assert machine.commands == []
 
 
 def test_a_failed_remote_add_skips_the_installs_without_failing(tmp_path, has_flatpak):
     machine = Machine(failing=[("flatpak", "remote-add")])
-    assert flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.slack.Slack"])
+    flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.slack.Slack"])
     assert not machine.ran("flatpak", "install")
 
 
 def test_one_failed_install_does_not_stop_the_next(tmp_path, has_flatpak):
     machine = Machine(failing=[("flatpak", "install", "--user", "-y", "--noninteractive", "flathub", "com.a.A")])
-    assert flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.a.A", "flatpak:com.b.B"])
+    flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.a.A", "flatpak:com.b.B"])
     assert machine.ran("flatpak", "install", "--user", "-y", "--noninteractive", "flathub", "com.b.B")
+
+
+def test_a_failed_update_is_logged_and_does_not_raise(tmp_path, has_flatpak):
+    machine = Machine(failing=[("flatpak", "update")])
+    flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.slack.Slack"], upgrade=True)
+    assert machine.ran("flatpak", "update")
 
 
 def test_a_dry_run_makes_no_calls(tmp_path, has_flatpak):
     machine = Machine()
-    assert flatpak.install_flatpaks(tooling(tmp_path, machine, dry_run=True), ["flatpak:com.slack.Slack"])
+    flatpak.install_flatpaks(tooling(tmp_path, machine, dry_run=True), ["flatpak:com.slack.Slack"])
     assert machine.commands == []

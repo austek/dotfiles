@@ -135,6 +135,17 @@ def test_a_packaging_suffix_or_epoch_on_the_pinned_version_counts_as_current(tmp
     assert ap.pending_github_bins(ctx) == []
 
 
+def test_a_pre_release_of_the_pinned_version_is_pending(tmp_path):
+    ctx = make(tmp_path, Machine(dpkg="ii  tool  1.2.3~rc1  amd64  A tool\n"))
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == ["tool_1.2.3_amd64.deb"]
+
+
+def test_a_failed_simulation_is_unknown_not_zero(tmp_path):
+    machine = Machine(failing=[("apt-get", "-s")])
+    assert ap.upgradable_count(make(tmp_path, machine)) is None
+
+
 def test_a_longer_version_sharing_the_pinned_prefix_is_not_current(tmp_path):
     ctx = make(tmp_path, Machine(dpkg="ii  tool  1.2.30  amd64  A tool\n"))
     write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")

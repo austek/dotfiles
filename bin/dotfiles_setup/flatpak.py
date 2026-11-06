@@ -36,20 +36,19 @@ def _install_missing(t: Tooling, ids: list[str]) -> None:
             t.logger.error(f"Failed to install {app_id} from Flathub.")
 
 
-def install_flatpaks(t: Tooling, package_names: Collection[str], upgrade: bool = False) -> bool:
+def install_flatpaks(t: Tooling, package_names: Collection[str], upgrade: bool = False) -> None:
+    """Never stops the install: every failure is logged and the remaining apps are still attempted."""
     ids = app_ids(package_names)
     if not ids:
-        return True
+        return
     t.logger.step("Installing Flatpak apps...")
     if dry_run_all(t, f"Would install Flatpak apps: {' '.join(ids)}", *(["Would update Flatpak apps"] if upgrade else [])):
-        return True
+        return
     if shutil.which("flatpak") is None:
-        t.logger.warn("flatpak is not installed; skipping Flatpak apps. Add 'flatpak' to the preset's apt list.")
-        return True
-    if not _flatpak(t, "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB_REPO):
-        t.logger.warn("Could not add the Flathub remote; skipping Flatpak apps.")
-        return True
-    _install_missing(t, ids)
-    if upgrade and not _flatpak(t, "update", "--user", "-y", "--noninteractive"):
-        t.logger.warn("flatpak update failed.")
-    return True
+        t.logger.error("flatpak is not installed; skipping Flatpak apps. Add 'flatpak' to the preset's apt list.")
+    elif not _flatpak(t, "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB_REPO):
+        t.logger.error("Could not add the Flathub remote; skipping Flatpak apps.")
+    else:
+        _install_missing(t, ids)
+        if upgrade and not _flatpak(t, "update", "--user", "-y", "--noninteractive"):
+            t.logger.error("flatpak update failed.")

@@ -74,7 +74,7 @@ def _installed_version(ctx: SystemContext, filename: str) -> str | None:
 
 
 def _is_current(installed: str | None, pinned: str) -> bool:
-    return installed is not None and re.fullmatch(rf"(\d+:)?{re.escape(pinned)}([-+~].*)?", installed) is not None
+    return installed is not None and re.fullmatch(rf"(\d+:)?{re.escape(pinned)}([-+].*)?", installed) is not None
 
 
 def pending_github_bins(ctx: SystemContext) -> list[str]:
@@ -134,10 +134,13 @@ def install_github_bins(ctx: SystemContext) -> None:
                 _install_deb(ctx, repo, version, filename, Path(temp_dir))
 
 
-def upgradable_count(ctx: SystemContext) -> int:
-    """Packages a dist-upgrade would change, from a simulated run against the current package lists."""
-    simulated = ctx.t.run(["apt-get", "-s", "dist-upgrade"], capture_output=True, text=True).stdout or ""
-    return sum(1 for line in simulated.splitlines() if line.startswith("Inst "))
+def upgradable_count(ctx: SystemContext) -> int | None:
+    """Packages a dist-upgrade would change, from a simulated run; None when the simulation fails."""
+    result = ctx.t.run(["apt-get", "-s", "dist-upgrade"], capture_output=True, text=True)
+    if result.returncode != 0:
+        ctx.t.logger.warn(f"Could not check for apt upgrades: {(result.stderr or '').strip() or 'apt-get -s failed'}")
+        return None
+    return sum(1 for line in (result.stdout or "").splitlines() if line.startswith("Inst "))
 
 
 def report_upgradable(ctx: SystemContext) -> None:
