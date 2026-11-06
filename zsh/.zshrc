@@ -128,5 +128,3 @@ if [[ -r $HOME/.sdkman ]]; then
 fi
 
 path_prepend "$HOME/.local/share/sonarqube-cli/bin"
-
-path_prepend "$HOME/.opencode/bin"
