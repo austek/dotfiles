@@ -83,6 +83,20 @@ def test_one_failed_install_does_not_stop_the_next(tmp_path, has_flatpak):
     assert machine.ran("flatpak", "install", "--user", "-y", "--noninteractive", "flathub", "com.b.B")
 
 
+def test_upgrade_updates_installed_apps_even_without_flatpak_entries(tmp_path, has_flatpak):
+    machine = Machine()
+    flatpak.install_flatpaks(tooling(tmp_path, machine), ["vim"], upgrade=True)
+    assert machine.ran("flatpak", "update", "--user", "-y", "--noninteractive")
+    assert not machine.ran("flatpak", "remote-add")
+
+
+def test_upgrade_without_flatpak_installed_is_not_an_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(flatpak.shutil, "which", lambda name: None)
+    machine = Machine()
+    flatpak.install_flatpaks(tooling(tmp_path, machine), ["vim"], upgrade=True)
+    assert machine.commands == []
+
+
 def test_a_failed_update_is_logged_and_does_not_raise(tmp_path, has_flatpak):
     machine = Machine(failing=[("flatpak", "update")])
     flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.slack.Slack"], upgrade=True)

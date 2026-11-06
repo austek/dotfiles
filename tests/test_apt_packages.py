@@ -157,7 +157,10 @@ def test_upgrade_updates_the_lists_then_dist_upgrades(tmp_path):
     assert ap.upgrade_packages(make(tmp_path, machine))
     assert machine.commands == [
         ["sudo", "apt-get", "update"],
-        ["sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "dist-upgrade", "-y"],
+        [
+            "sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "dist-upgrade", "-y",
+            "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
+        ],
     ]
 
 

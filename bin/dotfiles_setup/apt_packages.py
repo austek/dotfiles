@@ -19,6 +19,10 @@ CUSTOM_INSTALL_PACKAGES = frozenset({
 })
 
 
+# The upgrade output is hidden, so a dpkg conffile prompt would hang the run unseen.
+KEEP_LOCAL_CONFIG = ("-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold")
+
+
 def is_apt_package(name: str) -> bool:
     return name not in CUSTOM_INSTALL_PACKAGES and not flatpak.is_flatpak_entry(name)
 
@@ -156,7 +160,7 @@ def upgrade_packages(ctx: SystemContext) -> bool:
         return True
     if not ctx.quiet("sudo", "apt-get", "update"):
         return False
-    if not ctx.quiet("sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "dist-upgrade", "-y"):
+    if not ctx.quiet("sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "dist-upgrade", "-y", *KEEP_LOCAL_CONFIG):
         return False
     logger.success("Installed apt packages upgraded.")
     return True

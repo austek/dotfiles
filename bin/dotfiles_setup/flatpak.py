@@ -36,19 +36,26 @@ def _install_missing(t: Tooling, ids: list[str]) -> None:
             t.logger.error(f"Failed to install {app_id} from Flathub.")
 
 
+def _ready(t: Tooling, ids: list[str]) -> bool:
+    if shutil.which("flatpak") is None:
+        report = t.logger.error if ids else t.logger.info
+        report("flatpak is not installed; skipping Flatpak apps. Add 'flatpak' to the preset's apt list.")
+        return False
+    if ids and not _flatpak(t, "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB_REPO):
+        t.logger.error("Could not add the Flathub remote; skipping Flatpak apps.")
+        return False
+    return True
+
+
 def install_flatpaks(t: Tooling, package_names: Collection[str], upgrade: bool = False) -> None:
-    """Never stops the install: every failure is logged and the remaining apps are still attempted."""
+    """Installs the listed apps and, on upgrade, updates every Flatpak app. Failures are logged and never stop the install."""
     ids = app_ids(package_names)
-    if not ids:
+    if not ids and not upgrade:
         return
     t.logger.step("Installing Flatpak apps...")
-    if dry_run_all(t, f"Would install Flatpak apps: {' '.join(ids)}", *(["Would update Flatpak apps"] if upgrade else [])):
+    notices = ([f"Would install Flatpak apps: {' '.join(ids)}"] if ids else []) + (["Would update Flatpak apps"] if upgrade else [])
+    if dry_run_all(t, *notices) or not _ready(t, ids):
         return
-    if shutil.which("flatpak") is None:
-        t.logger.error("flatpak is not installed; skipping Flatpak apps. Add 'flatpak' to the preset's apt list.")
-    elif not _flatpak(t, "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB_REPO):
-        t.logger.error("Could not add the Flathub remote; skipping Flatpak apps.")
-    else:
-        _install_missing(t, ids)
-        if upgrade and not _flatpak(t, "update", "--user", "-y", "--noninteractive"):
-            t.logger.error("flatpak update failed.")
+    _install_missing(t, ids)
+    if upgrade and not _flatpak(t, "update", "--user", "-y", "--noninteractive"):
+        t.logger.error("flatpak update failed.")
