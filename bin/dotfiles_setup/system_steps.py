@@ -25,6 +25,7 @@ class SystemContext:
     dotfiles_dir: Path
     packages: Collection[str]
     changes: RollbackLog
+    removals: Collection[str] = ()
 
     def quiet(self, *argv: str, cwd: Path | None = None) -> bool:
         return self.t.logger.quiet_run(list(argv), run=self.t.run, cwd=cwd).returncode == 0

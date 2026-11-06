@@ -65,6 +65,18 @@ def test_packages_installed_outside_apt_are_not_checked_against_dpkg(tmp_path, n
     assert sc.system_stage_reasons(ctx, nosnap) == []
 
 
+def test_system_check_reports_pending_apt_removal(tmp_path, nosnap):
+    ctx = make(tmp_path, Machine(installed=("vim", "git", "htop")))
+    ctx = SystemContext(ctx.t, ctx.dotfiles_dir, ctx.packages, ctx.changes, removals=("htop", "flatpak:a.B", "nvm"))
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 apt package(s) pending removal"]
+
+
+def test_system_check_ignores_removal_of_uninstalled_package(tmp_path, nosnap):
+    ctx = make(tmp_path, Machine(installed=("vim", "git")))
+    ctx = SystemContext(ctx.t, ctx.dotfiles_dir, ctx.packages, ctx.changes, removals=("htop",))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
+
+
 def test_an_installed_snapd_is_a_reason(tmp_path, nosnap):
     found = sc.system_stage_reasons(make(tmp_path, Machine(installed=("vim", "git", "snapd"))), nosnap)
     assert found == ["snapd is installed"]

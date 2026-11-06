@@ -8,14 +8,46 @@ from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 
 
-def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n", system="always", upgrade=False):
+def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n", system="always", upgrade=False, run=None, removals=()):
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
-    t =tools.Tooling(Logger(dry_run=dry_run, verbosity=1), home, run=lambda *a, **k: SimpleNamespace(returncode=0))
+    run = run or (lambda *a, **k: SimpleNamespace(returncode=0))
+    t =tools.Tooling(Logger(dry_run=dry_run, verbosity=1), home, run=run)
     return flow.FlowInputs(
         t, tmp_path / "repo", "work", frozenset(packages.split()), None, False, "T1", euid=euid, system=system,
-        upgrade=upgrade,
+        upgrade=upgrade, removals=removals,
     )
+
+
+class Machine:
+    def __init__(self, failing=()):
+        self.commands = []
+        self.failing = tuple(failing)
+
+    def __call__(self, argv, **kwargs):
+        self.commands.append(list(argv))
+        if argv[0] == "dpkg-query":
+            return SimpleNamespace(returncode=0, stdout="ii  htop\n", stderr="")
+        if argv[:3] == ["apt-get", "-s", "remove"]:
+            return SimpleNamespace(returncode=0, stdout=f"Remv {argv[-1]} [1]\n", stderr="")
+        if argv[:3] == ["flatpak", "info", "--user"]:
+            return SimpleNamespace(returncode=0 if argv[3] == "b.B" else 1, stdout="", stderr="")
+        failed = any(argv[: len(p)] == list(p) for p in self.failing)
+        return SimpleNamespace(returncode=1 if failed else 0, stdout="", stderr="")
+
+    def ran(self, *prefix):
+        return any(c[: len(prefix)] == list(prefix) for c in self.commands)
+
+    def index(self, *prefix):
+        return next(i for i, c in enumerate(self.commands) if c[: len(prefix)] == list(prefix))
+
+
+def run_removal_steps(tmp_path, machine, dry_run=False, packages="vim flatpak:a.A"):
+    flow_inputs = inputs(tmp_path, dry_run=dry_run, run=machine, packages=packages, removals=("htop", "flatpak:b.B"))
+    steps = dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))
+    for name in ("install_flatpaks", "remove_flatpaks", "remove_apt_packages"):
+        steps[name]()
+    return flow_inputs
 
 
 @pytest.fixture
@@ -27,7 +59,8 @@ def test_steps_run_in_the_order_the_shell_installer_used(tmp_path):
     steps = flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))
     assert [name for name, _ in steps] == [
         "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
-        "install_tools", "install_packages", "report_upgradable", "install_flatpaks", "install_post_apt_tools",
+        "install_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
+        "install_post_apt_tools",
         "enable_gpaste_extension",
         "install_github_bins", "configure_docker_group", "configure_dotfiles", "retire_claude_profile",
         "configure_claude_tools", "change_shell", "set_default_terminal",
@@ -215,6 +248,47 @@ def test_every_root_step_is_a_known_step_name(tmp_path):
 def test_every_root_step_is_known_without_upgrade(tmp_path):
     names = {name for name, _ in flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))}
     assert flow.SYSTEM_STEPS - {"upgrade_packages"} <= names
+
+
+def test_removals_run_in_order_after_flatpak_install(tmp_path):
+    machine = Machine()
+    flow_inputs = run_removal_steps(tmp_path, machine)
+    install = machine.index("flatpak", "install")
+    flatpak_removal = machine.index("flatpak", "uninstall")
+    apt_removal = machine.index("sudo", "apt-get", "remove", "-y", "htop")
+    assert install < flatpak_removal < apt_removal
+    assert flow_inputs.removed == ["flatpak:b.B", "htop"]
+
+
+def test_flatpak_failure_skips_all_removals(tmp_path):
+    machine = Machine(failing=[("flatpak", "install")])
+    flow_inputs = run_removal_steps(tmp_path, machine)
+    assert not machine.ran("flatpak", "uninstall")
+    assert not machine.ran("sudo")
+    assert not machine.ran("apt-get")
+    assert flow_inputs.removed == []
+
+
+def test_dry_run_removals_run_no_command(tmp_path, capsys):
+    machine = Machine()
+    flow_inputs = run_removal_steps(tmp_path, machine, dry_run=True)
+    assert machine.commands == []
+    assert flow_inputs.removed == []
+    out = capsys.readouterr().out
+    assert "Would remove" in out and "htop" in out and "b.B" in out
+
+
+def test_manual_removals_are_logged_not_run(tmp_path, capsys):
+    machine = Machine()
+    flow_inputs = inputs(tmp_path, run=machine, removals=("nvm",))
+    steps = dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))
+    steps["remove_apt_packages"]()
+    assert "dropped, remove manually: nvm" in capsys.readouterr().out
+    assert machine.commands == []
+
+
+def test_remove_apt_packages_is_a_system_step():
+    assert "remove_apt_packages" in flow.SYSTEM_STEPS
 
 
 def test_the_banner_differs_for_a_dry_run(tmp_path, capsys):

@@ -21,6 +21,13 @@ def _missing_apt_packages(ctx: SystemContext, installed: set[str]) -> str | None
     return f"{len(missing)} apt package(s) not installed ({', '.join(missing[:3])}...)" if missing else None
 
 
+def _pending_removals(ctx: SystemContext, installed: set[str]) -> str | None:
+    from dotfiles_setup.removals import split_removals  # removals imports this module's STATUS_FORMAT
+
+    pending = installed & set(split_removals(tuple(ctx.removals)).apt)
+    return f"{len(pending)} apt package(s) pending removal" if pending else None
+
+
 def _snapd_state(installed: set[str], nosnap: Path) -> str | None:
     if "snapd" in installed:
         return "snapd is installed"
@@ -36,6 +43,7 @@ def system_stage_reasons(ctx: SystemContext, nosnap: Path = NOSNAP_PREFERENCE) -
     installed = _installed_packages(ctx)
     checks = (
         _missing_apt_packages(ctx, installed),
+        _pending_removals(ctx, installed),
         _snapd_state(installed, nosnap),
         _missing_debs(ctx),
         "the docker group is not set up" if system_steps.docker_group_pending(ctx) else None,

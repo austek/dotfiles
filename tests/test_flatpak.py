@@ -103,6 +103,29 @@ def test_a_failed_update_is_logged_and_does_not_raise(tmp_path, has_flatpak):
     assert machine.ran("flatpak", "update")
 
 
+def test_install_flatpaks_returns_failed_ids(tmp_path, has_flatpak):
+    machine = Machine(failing=[("flatpak", "install", "--user", "-y", "--noninteractive", "flathub", "com.a.A")])
+    failed = flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.a.A", "flatpak:com.b.B"])
+    assert failed == ("com.a.A",)
+
+
+def test_install_flatpaks_returns_nothing_on_success_or_skip(tmp_path, has_flatpak):
+    assert flatpak.install_flatpaks(tooling(tmp_path, Machine()), ["flatpak:com.a.A"]) == ()
+    assert flatpak.install_flatpaks(tooling(tmp_path, Machine()), ["vim"]) == ()
+
+
+def test_unready_flatpak_fails_every_wanted_id(tmp_path, has_flatpak):
+    machine = Machine(failing=[("flatpak", "remote-add")])
+    failed = flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.b.B", "flatpak:com.a.A"])
+    assert failed == ("com.a.A", "com.b.B")
+
+
+def test_missing_flatpak_binary_fails_every_wanted_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(flatpak.shutil, "which", lambda name: None)
+    failed = flatpak.install_flatpaks(tooling(tmp_path, Machine()), ["flatpak:com.a.A"])
+    assert failed == ("com.a.A",)
+
+
 def test_a_dry_run_makes_no_calls(tmp_path, has_flatpak):
     machine = Machine()
     flatpak.install_flatpaks(tooling(tmp_path, machine, dry_run=True), ["flatpak:com.slack.Slack"])
