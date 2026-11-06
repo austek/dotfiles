@@ -77,29 +77,68 @@ def _restore_backup(ctx: RollbackContext, data: str) -> None:
             ctx.t.logger.warn(f"Failed to restore {original}")
 
 
+def _stow_home(ctx: RollbackContext, data: str) -> None:
+    _unstow(ctx, f"Unstowing package from HOME: {data}", data, ctx.dotfiles_dir)
+
+
+def _stow_private(ctx: RollbackContext, data: str) -> None:
+    _unstow(ctx, f"Unstowing private-overlay package from HOME: {data}", data, ctx.private_root)
+
+
+def _stow_root(ctx: RollbackContext, data: str) -> None:
+    _unstow(ctx, f"Unstowing package from /: {data}", data, ctx.dotfiles_dir, sudo=True)
+
+
+def _docker_group(ctx: RollbackContext, data: str) -> None:
+    ctx.t.logger.info("Removing user from docker group")
+    if not _run_quiet(ctx, ["sudo", "gpasswd", "-d", data, "docker"]):
+        ctx.t.logger.warn("Failed to remove user from docker group")
+
+
+def _file_created(ctx: RollbackContext, data: str) -> None:
+    ctx.t.logger.info(f"Removing generated file: {data}")
+    if not _run_quiet(ctx, ["sudo", "rm", "-f", data]):
+        ctx.t.logger.warn(f"Failed to remove {data}")
+
+
+def _apt_removed(ctx: RollbackContext, data: str) -> None:
+    ctx.t.logger.info(f"Reinstalling removed package: {data}")
+    if not _run_quiet(ctx, ["sudo", "apt-get", "install", "-y", data]):
+        ctx.t.logger.warn(f"Failed to reinstall {data}")
+
+
+def _deb_removed(ctx: RollbackContext, data: str) -> None:
+    ctx.t.logger.warn(f"Removed {data} is not in apt; reinstall {data} manually.")
+
+
+def _flatpak_removed(ctx: RollbackContext, data: str) -> None:
+    ctx.t.logger.info(f"Reinstalling removed Flatpak app: {data}")
+    argv = ["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", data]
+    if not _run_quiet(ctx, argv):
+        ctx.t.logger.warn(f"Failed to reinstall {data}")
+
+
+_UNDO_HANDLERS: dict[str, Callable[[RollbackContext, str], None]] = {
+    "STOW_HOME": _stow_home,
+    "STOW_PRIVATE": _stow_private,
+    "UNSTOW_PRIVATE": _restow_private,
+    "STOW_ROOT": _stow_root,
+    "DOCKER_GROUP": _docker_group,
+    "FILE_BACKUP": _restore_backup,
+    "FILE_CREATED": _file_created,
+    "APT_REMOVED": _apt_removed,
+    "DEB_REMOVED": _deb_removed,
+    "FLATPAK_REMOVED": _flatpak_removed,
+}
+
+
 def _undo(ctx: RollbackContext, entry: str) -> None:
     action, _, data = entry.partition(":")
-    logger = ctx.t.logger
-    if action == "STOW_HOME":
-        _unstow(ctx, f"Unstowing package from HOME: {data}", data, ctx.dotfiles_dir)
-    elif action == "STOW_PRIVATE":
-        _unstow(ctx, f"Unstowing private-overlay package from HOME: {data}", data, ctx.private_root)
-    elif action == "UNSTOW_PRIVATE":
-        _restow_private(ctx, data)
-    elif action == "STOW_ROOT":
-        _unstow(ctx, f"Unstowing package from /: {data}", data, ctx.dotfiles_dir, sudo=True)
-    elif action == "DOCKER_GROUP":
-        logger.info("Removing user from docker group")
-        if not _run_quiet(ctx, ["sudo", "gpasswd", "-d", data, "docker"]):
-            logger.warn("Failed to remove user from docker group")
-    elif action == "FILE_BACKUP":
-        _restore_backup(ctx, data)
-    elif action == "FILE_CREATED":
-        logger.info(f"Removing generated file: {data}")
-        if not _run_quiet(ctx, ["sudo", "rm", "-f", data]):
-            logger.warn(f"Failed to remove {data}")
-    else:
-        logger.warn(f"Unknown rollback action: {action}")
+    handler = _UNDO_HANDLERS.get(action)
+    if handler is None:
+        ctx.t.logger.warn(f"Unknown rollback action: {action}")
+        return
+    handler(ctx, data)
 
 
 def perform_rollback(ctx: RollbackContext) -> None:

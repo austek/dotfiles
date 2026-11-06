@@ -38,7 +38,8 @@ def make(tmp_path, machine, packages=(), dry_run=False, downloads=None):
     t = tools.Tooling(Logger(dry_run=dry_run, verbosity=1), tmp_path, run=machine, download=download)
     repo = tmp_path / "repo"
     (repo / "packages").mkdir(parents=True, exist_ok=True)
-    return ss.SystemContext(t, repo, frozenset(packages), RollbackLog(tmp_path / "rollback.log"))
+    wanted = frozenset(packages) | {"github:owner/tool"}
+    return ss.SystemContext(t, repo, wanted, RollbackLog(tmp_path / "rollback.log"))
 
 
 def test_only_apt_packages_are_installed_and_custom_ones_are_left_to_their_installers(tmp_path):
@@ -139,6 +140,35 @@ def test_a_pre_release_of_the_pinned_version_is_pending(tmp_path):
     ctx = make(tmp_path, Machine(dpkg="ii  tool  1.2.3~rc1  amd64  A tool\n"))
     write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
     assert ap.pending_github_bins(ctx) == ["tool_1.2.3_amd64.deb"]
+
+
+def test_pin_entries_from_listing(tmp_path):
+    listing = tmp_path / "github_bins.txt"
+    listing.write_text("# c\nderailed/k9s 0.51.0 k9s.deb\n\nbad/line\nowner/tool 1 tool.deb\n")
+    assert ap.pin_entries(listing) == ("github:derailed/k9s", "github:owner/tool")
+
+
+def test_pin_entries_of_a_missing_listing_are_empty(tmp_path):
+    assert ap.pin_entries(tmp_path / "absent.txt") == ()
+
+
+def test_is_apt_package_rejects_github_entries():
+    assert not ap.is_apt_package("github:derailed/k9s")
+    assert ap.is_apt_package("k9s")
+
+
+def test_pending_github_bins_skips_unwanted_pin(tmp_path):
+    ctx = make(tmp_path, Machine())
+    write_bins(ctx, "other/thing 1.0 thing_1.0.deb\nowner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == ["tool_1.2.3_amd64.deb"]
+
+
+def test_install_github_bins_skips_unwanted_pin(tmp_path):
+    downloads = []
+    ctx = make(tmp_path, Machine(), downloads=downloads)
+    write_bins(ctx, "other/thing 1.0 thing_1.0.deb\n")
+    ap.install_github_bins(ctx)
+    assert downloads == []
 
 
 def test_a_failed_simulation_is_unknown_not_zero(tmp_path):

@@ -31,6 +31,10 @@ def load_preset(presets_dir: Path, name: str) -> Result[Preset]:
     ))
 
 
+def preset_names(presets_dir: Path) -> frozenset[str]:
+    return frozenset(p.stem for p in presets_dir.glob("*.json"))
+
+
 def package_names(text: str) -> set[str]:
     stripped = (line.strip() for line in text.splitlines())
     return {line for line in stripped if line and not line.startswith("#")}

@@ -5,22 +5,26 @@ import argparse
 import os
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from dotfiles_setup import (
+    apt_packages,
     checksums,
     claude_plugins,
+    flatpak,
     foothold,
     identity,
     install_flow,
+    optouts,
     overlay,
+    package_sets,
     presets,
     private,
-    reconcile,
+    removals,
     rollback,
     settings_drift,
     state,
@@ -94,7 +98,7 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
     system_g = install_p.add_mutually_exclusive_group()
     system_g.add_argument(
         "--system", dest="system", action="store_const", const="always",
-        help="Always run the sudo steps (apt, snapd, apt sources, docker group, login shell).",
+        help="Always run the sudo steps (apt installs and removals, snapd, apt sources, docker group, login shell).",
     )
     system_g.add_argument(
         "--no-system", dest="system", action="store_const", const="never",
@@ -104,6 +108,14 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
         "--upgrade",
         action="store_true",
         help="Also upgrade every installed apt package (dist-upgrade) and update Flatpak apps. Forces the sudo steps.",
+    )
+    install_p.add_argument(
+        "--prune",
+        action="store_true",
+        help=(
+            "Uninstall installed packages the repo or overlay dropped, or that you opted out of, "
+            "without asking for confirmation. apt removals run only in the system stage."
+        ),
     )
     install_p.set_defaults(system="auto")
 
@@ -287,16 +299,19 @@ def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | N
     return prior.preset_name
 
 
-def _save_state(env: Env, plan: _Install) -> None:
+def _save_state(
+    env: Env, plan: _Install, applied: tuple[str, ...], overlay_root: str | None, *, migrated: bool,
+) -> None:
     prior = plan.prior
     state.save_state(state.MachineState(
         preset_name=plan.preset.name,
         backend=plan.backend.name,
         package_file=str(plan.package_file),
-        applied_package_names=plan.combined,
-        overlay_root=str(plan.overlay_root) if plan.overlay_root else None,
+        applied_package_names=applied,
+        overlay_root=overlay_root,
         created_at=prior.created_at if prior else env.now_iso(),
         updated_at=env.now_iso(),
+        optouts_migrated=migrated,
     ), state.state_file(env.state_dir))
 
 
@@ -348,29 +363,110 @@ def _plan(
     overlay_root: Path | None, prior: state.MachineState | None,
 ) -> _Install:
     backend = env.backend_factory(env.dotfiles_dir, preset.backend_overrides.get("apt", {}))
-    overlay_names = overlay.overlay_package_names(overlay_root, preset.name)
-    combined = combine_package_names(backend, logical_names, overlay_names)
+    combined = _combined(env, backend, logical_names, overlay_root, preset.name)
     package_file = state.package_dir(env.state_dir) / f"{preset.name}.txt"
-    previous_names = prior.applied_package_names if prior and prior.preset_name == preset.name else None
-    packages = reconcile.effective_names(package_file, combined, previous_names)
-    _reconcile_packages(logger, package_file, combined, previous_names)
-    return _Install(preset, backend, combined, package_file, packages, overlay_root, env.dotfiles_dir, prior)
+    stamp = env.clock().strftime("%Y%m%d%H%M%S")
+    backup = optouts.backup_dir(Path.home() / ".local" / "state" / "dotfiles", stamp)
+    others = _other_presets(logger, package_file, preset.name, backup, env.dotfiles_dir / "presets")
+    loaded = _load_optouts(logger, package_file, combined, backup, migrated=bool(prior and prior.optouts_migrated))
+    for stale in package_sets.stale_optouts(loaded.names, combined, backend.resolve_name):
+        logger.warn(f"Opt-out '{stale}' in {package_file} matches no package in {preset.name}.")
+    wanted = package_sets.wanted(combined, loaded.names, backend.resolve_name)
+    pending = _pending(logger, _Prior(prior, preset.name, overlay_root), wanted, loaded, backend.resolve_name)
+    return _Install(
+        preset, backend, combined, package_file, wanted, pending, overlay_root, env.dotfiles_dir, prior, stamp,
+        loaded, backup, others,
+    )
+
+
+def _combined(
+    env: Env, backend: Backend, logical_names: tuple[str, ...], overlay_root: Path | None, preset_name: str,
+) -> tuple[str, ...]:
+    overlay_names = overlay.overlay_package_names(overlay_root, preset_name)
+    pins = apt_packages.pin_entries(env.dotfiles_dir / "packages" / "github_bins.txt")
+    return tuple(sorted({*combine_package_names(backend, logical_names, overlay_names), *pins}))
+
+
+@dataclass(frozen=True)
+class _Optouts:
+    names: frozenset[str]
+    created: frozenset[str] = frozenset()
+    fork_only: tuple[str, ...] = ()
+    from_legacy: bool = False
+
+
+@dataclass(frozen=True)
+class _Prior:
+    state: state.MachineState | None
+    preset_name: str
+    overlay_root: Path | None
+
+    def applied(self) -> tuple[str, ...] | None:
+        if self.state is None or self.state.preset_name != self.preset_name:
+            return None
+        return self.state.applied_package_names
+
+    def missing_overlay(self) -> str | None:
+        saved = self.state.overlay_root if self.state else None
+        return saved if self.overlay_root is None else None
+
+
+def _pending(
+    logger: Logger, prior: _Prior, wanted: frozenset[str], loaded: _Optouts, resolve: Callable[[str], str],
+) -> tuple[str, ...]:
+    applied = prior.applied() or ()
+    missing = prior.missing_overlay()
+    if missing is not None:
+        logger.warn(f"Private overlay not found: skipping removals (last install used {missing}).")
+        return ()
+    created = {resolve(name) for name in loaded.created}
+    candidates = {*package_sets.pending_removals(applied, wanted), *loaded.fork_only} - created
+    return tuple(sorted(candidates - _moved(logger, candidates, wanted)))
+
+
+def _moved(logger: Logger, candidates: set[str], wanted: frozenset[str]) -> set[str]:
+    moved = removals.moved_entries(candidates, wanted)
+    for entry in moved:
+        logger.warn(f"{entry} moved to another manager; keeping {removals.dpkg_name(entry)}.")
+    return set(moved)
+
+
+def _other_presets(
+    logger: Logger, package_file: Path, keep: str, backup: Path, presets_dir: Path,
+) -> tuple[Path, ...]:
+    others = optouts.other_preset_files(package_file.parent, keep, presets.preset_names(presets_dir))
+    verb = "Would move" if logger.dry_run else "Will move"
+    if others:
+        names = ", ".join(p.name for p in others)
+        logger.warn(f"{verb} other presets' package files {names} to {backup} after a successful install.")
+    return others
+
+
+def _load_optouts(
+    logger: Logger, package_file: Path, combined: tuple[str, ...], backup: Path, *, migrated: bool,
+) -> _Optouts:
+    if not optouts.is_legacy(package_file):
+        return _Optouts(optouts.read_optouts(package_file))
+    if migrated:
+        logger.warn(f"{package_file} has no header line '{optouts.HEADER}'; reading it as opt-outs.")
+        return _Optouts(optouts.read_optouts(package_file))
+    return _migrate_fork(logger, package_file, combined, backup)
+
+
+def _migrate_fork(logger: Logger, package_file: Path, combined: tuple[str, ...], backup: Path) -> _Optouts:
+    unpinned = tuple(n for n in combined if not n.startswith(apt_packages.PIN_PREFIX))
+    migrated = optouts.plan_migration(package_file, unpinned)
+    verb = "Would migrate" if logger.dry_run else "Will migrate"
+    logger.warn(f"{verb} {package_file} to an opt-out file after a successful install; backup in {backup}.")
+    if migrated.fork_only:
+        logger.warn(f"Packages only in the old file: {', '.join(migrated.fork_only)}.")
+    return _Optouts(migrated.optouts, migrated.optouts, migrated.fork_only, from_legacy=True)
 
 
 def combine_package_names(
     backend: Backend, logical_names: tuple[str, ...], overlay_names: tuple[str, ...]
 ) -> tuple[str, ...]:
-    return tuple(sorted({backend.resolve_name(n) for n in logical_names} | set(overlay_names)))
-
-
-def _reconcile_packages(
-    logger: Logger, package_file: Path, combined: tuple[str, ...], previous_names: tuple[str, ...] | None
-) -> None:
-    if logger.dry_run_notice(f"Would reconcile {package_file}."):
-        return
-    added, _ = reconcile.reconcile_package_file(package_file, combined, previous_names)
-    if added:
-        logger.info(f"Added {len(added)} new package(s) to {package_file}")
+    return tuple(sorted({backend.resolve_name(n) for n in (*logical_names, *overlay_names)}))
 
 
 @dataclass(frozen=True)
@@ -379,10 +475,15 @@ class _Install:
     backend: Backend
     combined: tuple[str, ...]
     package_file: Path
-    packages: frozenset[str]
+    wanted: frozenset[str]
+    pending: tuple[str, ...]
     overlay_root: Path | None
     dotfiles_dir: Path
     prior: state.MachineState | None
+    stamp: str
+    loaded: _Optouts
+    backup: Path
+    other_presets: tuple[Path, ...] = ()
 
 
 def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
@@ -399,37 +500,208 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
     return rollback.RollbackContext(t, rollback.RollbackLog.for_home(t.home), plan.dotfiles_dir, plan.overlay_root)
 
 
-def _flow_inputs(logger: Logger, env: Env, plan: _Install, args: argparse.Namespace) -> install_flow.FlowInputs:
+def _uninstallable(pending: Sequence[str]) -> tuple[str, ...]:
+    split = removals.split_removals(pending)
+    return (*split.apt, *split.debs, *(f"{flatpak.PREFIX}{i}" for i in split.flatpak))
+
+
+def _print_pending(logger: Logger, pending: Sequence[str]) -> None:
+    uninstallable = _uninstallable(pending)
+    if uninstallable:
+        logger.warn(f"No longer wanted, installed copies would be removed: {', '.join(uninstallable)}.")
+    manual = removals.split_removals(pending).manual
+    if manual:
+        logger.warn(f"Entries dropped, remove manually: {', '.join(manual)}.")
+
+
+def _answer(ask: Callable[[str], str]) -> str:
+    try:
+        return ask("Remove these packages? [y/N] ")
+    except EOFError:
+        print()
+        return ""
+
+
+def _answered_yes(logger: Logger, ask: Callable[[str], str]) -> bool:
+    if _answer(ask).strip().lower() in ("y", "yes"):
+        return True
+    logger.warn("Removals declined; they will be offered again next run.")
+    return False
+
+
+def confirm_removals(
+    logger: Logger, pending: Sequence[str], *, prune: bool, interactive: bool,
+    ask: Callable[[str], str] = input,
+) -> bool:
+    _print_pending(logger, pending)
+    if not _uninstallable(pending):
+        return False
+    if prune:
+        return True
+    if not interactive:
+        logger.warn("Removals skipped; pass --prune to apply.")
+        return False
+    return _answered_yes(logger, ask)
+
+
+def removal_candidates(t: tooling.Tooling, pending: Sequence[str]) -> tuple[str, ...]:
+    """The pending entries still installed, followed by the manual entries."""
+    present = removals.installed_only(t, removals.split_removals(pending))
+    return (*_entry_names(present), *present.manual)
+
+
+def _entry_names(split: removals.Split) -> tuple[str, ...]:
+    return (*removals.entries_for(split, split.apt), *(f"{flatpak.PREFIX}{app_id}" for app_id in split.flatpak))
+
+
+def applied_after_removals(
+    t: tooling.Tooling, wanted: frozenset[str], pending: Sequence[str], removed: Sequence[str]
+) -> tuple[str, ...]:
+    left = [name for name in pending if name not in set(removed)]
+    still_installed = removals.installed_only(t, removals.split_removals(left))
+    return tuple(sorted(wanted | set(_entry_names(still_installed))))
+
+
+def _approved_removals(args: argparse.Namespace, t: tooling.Tooling, plan: _Install) -> tuple[str, ...]:
+    candidates = removal_candidates(t, plan.pending) if plan.pending else ()
+    if args.dry_run:
+        _print_pending(t.logger, candidates)
+        return ()
+    confirmed = confirm_removals(
+        t.logger, candidates, prune=args.prune, interactive=sys.stdin.isatty(),
+    )
+    return candidates if confirmed else ()
+
+
+def _flow_inputs(
+    t: tooling.Tooling, env: Env, plan: _Install, args: argparse.Namespace, approved: tuple[str, ...] = (),
+) -> install_flow.FlowInputs:
     return install_flow.FlowInputs(
-        _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.packages, plan.overlay_root,
-        args.force, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(), system=args.system,
-        upgrade=args.upgrade,
+        t, plan.dotfiles_dir, plan.preset.name, plan.wanted, plan.overlay_root,
+        args.force, plan.stamp, euid=env.euid(), system=args.system,
+        upgrade=args.upgrade, removals=approved,
     )
 
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset)
-    # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
-    _write_claude_settings(logger, claude_settings, env)
-    result = install_flow.run_install(_flow_inputs(logger, env, plan, args))
+    t = _tooling(logger, env)
+    match _approval(args, t, plan):
+        case Err(error=message):
+            logger.error(message)
+            return install_flow.INTERRUPTED_EXIT_CODE
+        case Ok(value=approved):
+            # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
+            _write_claude_settings(logger, claude_settings, env)
+            return _run_flow(args, env, plan, claude_settings, _flow_inputs(t, env, plan, args, approved))
+
+
+def _approval(args: argparse.Namespace, t: tooling.Tooling, plan: _Install) -> Result[tuple[str, ...]]:
+    try:
+        return Ok(_approved_removals(args, t, plan))
+    except KeyboardInterrupt:
+        print()
+        return Err("Interrupted before any install step.")
+
+
+def _run_flow(
+    args: argparse.Namespace, env: Env, plan: _Install, claude_settings: dict[str, Any],
+    inputs: install_flow.FlowInputs,
+) -> int:
+    logger = inputs.t.logger
+    result = install_flow.run_install(inputs)
     if not result.succeeded:
         _log_install_failure(logger, result)
         if result.rollback_pending:
             rollback.offer_rollback(_rollback_context(logger, env, plan), interactive=sys.stdin.isatty())
         return result.returncode
-    _finish_install(args, logger, env, plan, claude_settings)
-    return 0
+    return _finish_install(args, logger, env, plan, claude_settings, inputs)
 
 
 def _finish_install(
-    args: argparse.Namespace, logger: Logger, env: Env, plan: _Install, claude_settings: dict[str, Any]
-) -> None:
+    args: argparse.Namespace, logger: Logger, env: Env, plan: _Install, claude_settings: dict[str, Any],
+    inputs: install_flow.FlowInputs,
+) -> int:
     claude_plugins.update_claude_plugins(logger, claude_settings)
     _sync_foothold(logger, plan.preset, plan.prior)
+    if not (args.dry_run or _persist(logger, env, plan, inputs)):
+        return 1
     install_flow.print_completion_banner(logger)
-    if not args.dry_run:
-        _save_state(env, plan)
     logger.success(f"Machine preset set to '{plan.preset.name}'.")
+    return 0
+
+
+def _persist(logger: Logger, env: Env, plan: _Install, inputs: install_flow.FlowInputs) -> bool:
+    """Writes the migration, the state and the other presets' backups; False when any of them failed."""
+    written = _write_migration(logger, plan)
+    applied, overlay_root = _saved_applied(inputs, plan)
+    if not _state_saved(logger, env, plan, (applied, overlay_root), written):
+        return False
+    return isinstance(written, Ok) and _retire_other_presets(logger, plan)
+
+
+def _state_saved(
+    logger: Logger, env: Env, plan: _Install, saved: tuple[tuple[str, ...], str | None], written: Result[Path | None],
+) -> bool:
+    try:
+        _save_state(env, plan, *saved, migrated=isinstance(written, Ok))
+    except OSError as error:
+        logger.error(f"Could not save the install state to {state.state_file(env.state_dir)}: {error}.")
+        match written:
+            case Ok(value=Path() as backup_copy):
+                _undo_migration(logger, plan, backup_copy)
+        return False
+    return True
+
+
+def _undo_migration(logger: Logger, plan: _Install, backup_copy: Path) -> None:
+    try:
+        optouts.restore_from_backup(plan.package_file, backup_copy)
+    except OSError as error:
+        logger.error(
+            f"Could not restore {plan.package_file}: {error}. It now has a header line, so the next run reads it "
+            "as plain opt-outs and will offer to remove the names the migration created."
+        )
+        return
+    logger.warn(f"Restored {plan.package_file} from {backup_copy}; the next install retries the migration.")
+
+
+def _retire_other_presets(logger: Logger, plan: _Install) -> bool:
+    if not plan.other_presets:
+        return True
+    try:
+        optouts.move_to_backup(plan.other_presets, plan.backup)
+    except OSError as error:
+        logger.error(f"Could not move {', '.join(map(str, plan.other_presets))} to {plan.backup}: {error}.")
+        return False
+    logger.warn(f"Moved other presets' package files {', '.join(p.name for p in plan.other_presets)} to {plan.backup}.")
+    return True
+
+
+def _write_migration(logger: Logger, plan: _Install) -> Result[Path | None]:
+    """Ok with the legacy file's backup copy, Ok(None) when nothing needed migrating, Err when the write failed."""
+    if not plan.loaded.from_legacy:
+        return Ok(None)
+    try:
+        backup_copy = optouts.write_migration(plan.package_file, plan.loaded.names, plan.backup)
+    except OSError as error:
+        logger.error(
+            f"Could not migrate {plan.package_file}: {error}. "
+            "The file stays legacy; the next install retries the migration."
+        )
+        return Err(str(error))
+    logger.warn(f"Migrated {plan.package_file} to an opt-out file; backup in {backup_copy}.")
+    return Ok(backup_copy)
+
+
+def _saved_applied(inputs: install_flow.FlowInputs, plan: _Install) -> tuple[tuple[str, ...], str | None]:
+    """The applied list and overlay root to save; a missing overlay keeps the prior ones so removals are offered later."""
+    prior = _Prior(plan.prior, plan.preset.name, plan.overlay_root)
+    applied, missing = prior.applied(), prior.missing_overlay()
+    if applied is not None and missing is not None:
+        return tuple(sorted({*applied, *plan.wanted})), missing
+    current = str(plan.overlay_root) if plan.overlay_root else None
+    return applied_after_removals(inputs.t, plan.wanted, plan.pending, inputs.removed), current
 
 
 def _run_private_clone(args: argparse.Namespace, env: Env) -> int:

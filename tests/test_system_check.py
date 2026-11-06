@@ -65,6 +65,31 @@ def test_packages_installed_outside_apt_are_not_checked_against_dpkg(tmp_path, n
     assert sc.system_stage_reasons(ctx, nosnap) == []
 
 
+def test_system_check_reports_pending_apt_removal(tmp_path, nosnap):
+    ctx = make(tmp_path, Machine(installed=("vim", "git", "htop")))
+    ctx = SystemContext(ctx.t, ctx.dotfiles_dir, ctx.packages, ctx.changes, removals=("htop", "flatpak:a.B", "nvm"))
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 apt package(s) pending removal"]
+
+
+@pytest.mark.parametrize(("removal", "dpkg"), [("slack-desktop", "slack-desktop"), ("github:derailed/k9s", "k9s")])
+def test_system_check_reports_pending_deb_removal_by_dpkg_name(tmp_path, nosnap, removal, dpkg):
+    ctx = make(tmp_path, Machine(installed=("vim", "git", dpkg)))
+    ctx = SystemContext(ctx.t, ctx.dotfiles_dir, ctx.packages, ctx.changes, removals=(removal,))
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 apt package(s) pending removal"]
+
+
+def test_system_check_ignores_removal_of_a_pin_whose_package_is_absent(tmp_path, nosnap):
+    ctx = make(tmp_path, Machine(installed=("vim", "git")))
+    ctx = SystemContext(ctx.t, ctx.dotfiles_dir, ctx.packages, ctx.changes, removals=("github:derailed/k9s",))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
+
+
+def test_system_check_ignores_removal_of_uninstalled_package(tmp_path, nosnap):
+    ctx = make(tmp_path, Machine(installed=("vim", "git")))
+    ctx = SystemContext(ctx.t, ctx.dotfiles_dir, ctx.packages, ctx.changes, removals=("htop",))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
+
+
 def test_an_installed_snapd_is_a_reason(tmp_path, nosnap):
     found = sc.system_stage_reasons(make(tmp_path, Machine(installed=("vim", "git", "snapd"))), nosnap)
     assert found == ["snapd is installed"]
@@ -94,9 +119,10 @@ def test_a_shell_changed_in_passwd_counts_before_the_next_login(tmp_path, nosnap
 
 
 def test_a_github_deb_that_is_not_installed_is_a_reason(tmp_path, nosnap):
-    ctx = make(tmp_path, Machine(installed=("vim", "git")))
+    wanted = ("vim", "git", "github:derailed/k9s")
+    ctx = make(tmp_path, Machine(installed=("vim", "git")), wanted)
     (ctx.dotfiles_dir / "packages" / "github_bins.txt").write_text("derailed/k9s 0.51.0 k9s_linux_amd64.deb\n")
     assert sc.system_stage_reasons(ctx, nosnap) == ["1 GitHub .deb package(s) missing or outdated"]
-    ctx = make(tmp_path / "ok", Machine(installed=("vim", "git"), debs="ii  k9s  0.51.0 amd64 x\n"))
+    ctx = make(tmp_path / "ok", Machine(installed=("vim", "git"), debs="ii  k9s  0.51.0 amd64 x\n"), wanted)
     (ctx.dotfiles_dir / "packages" / "github_bins.txt").write_text("derailed/k9s 0.51.0 k9s_linux_amd64.deb\n")
     assert sc.system_stage_reasons(ctx, nosnap) == []

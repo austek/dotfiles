@@ -15,6 +15,7 @@ from dotfiles_setup import (
     claude_tools,
     desktop_defaults,
     flatpak,
+    removals,
     stow,
     system_steps,
     tools,
@@ -30,7 +31,8 @@ Step = tuple[str, Callable[[], bool | None]]
 INTERRUPTED_EXIT_CODE = 130
 SYSTEM_STEPS = frozenset({
     "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
-    "install_packages", "upgrade_packages", "install_github_bins", "configure_docker_group", "change_shell", "set_default_terminal",
+    "install_packages", "upgrade_packages", "remove_apt_packages", "install_github_bins", "configure_docker_group",
+    "change_shell", "set_default_terminal",
 })
 
 
@@ -46,6 +48,56 @@ class FlowInputs:
     euid: int = field(default_factory=os.geteuid)
     system: Literal["auto", "always", "never"] = "auto"
     upgrade: bool = False
+    removals: tuple[str, ...] = ()
+    removed: list[str] = field(default_factory=list)
+
+
+def _announce(t: Tooling, kind: str, names: tuple[str, ...]) -> None:
+    for name in names:
+        t.logger.info(f"Would remove {kind} {name}")
+
+
+def _remove_flatpak_apps(inputs: FlowInputs, changes: RollbackLog, failed: list[str]) -> None:
+    t = inputs.t
+    if failed:
+        if inputs.removals:
+            t.logger.warn("Skipping removals: a Flatpak install failed.")
+        return
+    split = removals.split_removals(inputs.removals)
+    if t.logger.dry_run:
+        _announce(t, "Flatpak app", split.flatpak)
+        return
+    present = removals.installed_only(t, split).flatpak
+    gone = removals.remove_flatpaks(t, changes, present)
+    inputs.removed.extend(f"{flatpak.PREFIX}{app_id}" for app_id in gone)
+
+
+def _remove_apt_packages(inputs: FlowInputs, ctx: SystemContext, failed: list[str]) -> None:
+    t = inputs.t
+    if failed:
+        return
+    split = removals.split_removals(inputs.removals)
+    if t.logger.dry_run:
+        _announce(t, "apt package", (*split.apt, *split.debs))
+        return
+    present = removals.installed_only(t, split)
+    deb_names = frozenset(removals.dpkg_name(entry) for entry in present.debs)
+    covered = removals.dpkg_names(inputs.packages)
+    gone = removals.remove_apt(ctx, [name for name in present.apt if name not in covered], deb_names)
+    inputs.removed.extend(removals.entries_for(present, gone))
+
+
+def _report_unremoved(inputs: FlowInputs) -> None:
+    manual = set(removals.split_removals(inputs.removals).manual)
+    left = [e for e in inputs.removals if e not in set(inputs.removed) and e not in manual]
+    if left and not inputs.t.logger.dry_run:
+        inputs.t.logger.warn(f"not removed: {', '.join(left)}; they will be offered again next run")
+
+
+def _warn_skipped_apt_removals(inputs: FlowInputs) -> None:
+    split = removals.split_removals(inputs.removals)
+    if split.apt or split.debs:
+        inputs.t.logger.warn("apt removals skipped: system stage not run (use --system)")
 
 
 def _upgrade_steps(inputs: FlowInputs, ctx: SystemContext) -> list[Step]:
@@ -56,7 +108,8 @@ def _upgrade_steps(inputs: FlowInputs, ctx: SystemContext) -> list[Step]:
 
 def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackLog) -> list[Step]:
     t = inputs.t
-    ctx = SystemContext(t, inputs.dotfiles_dir, packages, changes)
+    ctx = SystemContext(t, inputs.dotfiles_dir, packages, changes, inputs.removals)
+    failed: list[str] = []
     stow_plan = stow.StowPlan(
         t, inputs.dotfiles_dir, inputs.overlay_root, inputs.force,
         t.home / ".local/state/dotfiles/stow-backups", inputs.stamp, changes, inputs.preset_name,
@@ -69,7 +122,10 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("install_tools", lambda: tools.install_tools(t, packages)),
         ("install_packages", lambda: apt_packages.install_packages(ctx)),
         *_upgrade_steps(inputs, ctx),
-        ("install_flatpaks", lambda: flatpak.install_flatpaks(t, packages, inputs.upgrade)),
+        ("install_flatpaks", lambda: failed.extend(flatpak.install_flatpaks(t, packages, inputs.upgrade))),
+        ("remove_flatpaks", lambda: _remove_flatpak_apps(inputs, changes, failed)),
+        ("remove_apt_packages", lambda: _remove_apt_packages(inputs, ctx, failed)),
+        ("report_unremoved", lambda: _report_unremoved(inputs)),
         ("install_post_apt_tools", lambda: tools.install_post_apt_tools(t, packages)),
         ("enable_gpaste_extension", lambda: system_steps.enable_gpaste_extension(ctx)),
         ("install_github_bins", lambda: apt_packages.install_github_bins(ctx)),
@@ -128,6 +184,13 @@ def _system_stage_wanted(inputs: FlowInputs, ctx: SystemContext) -> bool:
     return False
 
 
+def _system_stage(inputs: FlowInputs, ctx: SystemContext) -> bool:
+    wanted = _system_stage_wanted(inputs, ctx)
+    if not wanted:
+        _warn_skipped_apt_removals(inputs)
+    return wanted
+
+
 def run_install(inputs: FlowInputs) -> InstallResult:
     logger = inputs.t.logger
     if inputs.euid == 0:
@@ -136,8 +199,8 @@ def run_install(inputs: FlowInputs) -> InstallResult:
     packages = inputs.packages
     logger.info(f"Found {len(packages)} unique packages to install.")
     log = _start_log(inputs, logger)
-    ctx = SystemContext(inputs.t, inputs.dotfiles_dir, packages, log)
-    system = _system_stage_wanted(inputs, ctx)
+    ctx = SystemContext(inputs.t, inputs.dotfiles_dir, packages, log, inputs.removals)
+    system = _system_stage(inputs, ctx)
     session = SudoSession(ctx)
     try:
         if system and not session.start():

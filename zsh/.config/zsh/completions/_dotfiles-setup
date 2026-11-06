@@ -30,6 +30,7 @@ case $state in
           '--force[back up files that block stow and stow anyway]' \
           '--accept-drift[overwrite settings.json even if edited since last install]' \
           '--upgrade[also upgrade all apt packages and update Flatpak apps]' \
+          '--prune[uninstall dropped or opted-out packages, without asking]' \
           '(--no-system)--system[always run the sudo steps]' \
           '(--system)--no-system[skip the sudo steps]' \
           '(-h --help)'{-h,--help}'[show help message]'

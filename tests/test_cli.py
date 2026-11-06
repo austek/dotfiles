@@ -1,24 +1,48 @@
+import io
 import json
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from dotfiles_setup import overlay, state
+from dotfiles_setup import (
+    apt_packages,
+    optouts,
+    overlay,
+    package_sets,
+    settings_drift,
+    state,
+)
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.cli import (
     Env,
+    _plan,
     _replace_settings_target,
+    applied_after_removals,
     build_arg_parser,
     combine_package_names,
+    confirm_removals,
     main,
 )
+from dotfiles_setup.log import Logger
+from dotfiles_setup.presets import Preset
+from dotfiles_setup.rollback import RollbackLog
+from dotfiles_setup.system_steps import SystemContext
+from dotfiles_setup.tooling import Tooling
 
 
 def test_combine_package_names_resolves_overrides_and_merges_overlay(tmp_path):
     backend = AptBackend(dotfiles_dir=tmp_path, backend_overrides={"bat": "batcat"})
     assert combine_package_names(backend, ("bat", "git"), ("zsh", "git")) == ("batcat", "git", "zsh")
+
+
+def test_an_opted_out_overlay_name_is_resolved_like_a_preset_name(tmp_path):
+    backend = AptBackend(dotfiles_dir=tmp_path, backend_overrides={"batcat": "bat"})
+    combined = combine_package_names(backend, (), ("batcat",))
+    assert combined == ("bat",)
+    assert package_sets.wanted(combined, frozenset({"batcat"}), backend.resolve_name) == frozenset()
 
 
 def test_preset_is_optional_at_parse_time():
@@ -156,6 +180,7 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
         "backend_overrides": {},
         "claude_settings": "claude_homelab.json",
     }))
+    (dotfiles_dir / "presets" / "work.json").write_text(json.dumps({"package_files": ["apt_common.txt"]}))
     (dotfiles_dir / "packages" / "apt_common.txt").write_text("zsh\ncurl\n")
     (dotfiles_dir / "claude-profiles" / "claude_homelab.json").write_text("{}")
 
@@ -172,12 +197,440 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
     return dotfiles_dir, tmp_path
 
 
-def test_install_creates_package_file_on_first_run(isolated_dotfiles):
+def _plan_for(tmp_path, prior=None, applied_preset="homelab", overlay_root=None, names=("zsh", "curl"), dry_run=False):
+    env = Env(
+        state_dir=tmp_path / "state", dotfiles_dir=tmp_path / "dotfiles",
+        clock=lambda: datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+    )
+    preset = Preset("homelab", "test", ("apt_common.txt",), {}, None)
+    return _plan(Logger(dry_run=dry_run), env, preset, names, overlay_root, prior)
+
+
+def _write_optouts(tmp_path, text, name="homelab.txt"):
+    package_file = tmp_path / "state" / "packages" / name
+    package_file.parent.mkdir(parents=True, exist_ok=True)
+    package_file.write_text(text)
+    return package_file
+
+
+def test_plan_excludes_optouts_from_wanted(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+
+
+def _write_pins(tmp_path):
+    packages = tmp_path / "dotfiles" / "packages"
+    packages.mkdir(parents=True, exist_ok=True)
+    (packages / "github_bins.txt").write_text("derailed/k9s 0.51.0 k9s_linux_amd64.deb\n")
+
+
+def test_plan_includes_pin_entries_in_combined(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_pins(tmp_path)
+    plan = _plan_for(tmp_path)
+    assert "github:derailed/k9s" in plan.combined
+    assert "github:derailed/k9s" in plan.wanted
+
+
+def test_optout_of_pin_skips_install_and_removes_it(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_pins(tmp_path)
+    _write_optouts(tmp_path, f"{optouts.HEADER}\ngithub:derailed/k9s\n")
+    plan = _plan_for(tmp_path, _prior("homelab", ("curl", "github:derailed/k9s", "zsh")))
+    assert "github:derailed/k9s" not in plan.wanted
+    assert plan.pending == ("github:derailed/k9s",)
+    ctx = SystemContext(
+        Tooling(Logger(dry_run=False), tmp_path), plan.dotfiles_dir, plan.wanted, RollbackLog(tmp_path / "log"),
+    )
+    assert apt_packages.pending_github_bins(ctx) == []
+
+
+def test_migration_does_not_opt_out_pins(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_pins(tmp_path)
+    _write_optouts(tmp_path, "zsh\ncurl\n")
+    plan = _plan_for(tmp_path)
+    assert "github:derailed/k9s" not in plan.loaded.names
+    assert "github:derailed/k9s" in plan.wanted
+    no_dpkg = Tooling(Logger(dry_run=False), tmp_path, run=lambda *a, **k: SimpleNamespace(returncode=0, stdout=""))
+    ctx = SystemContext(no_dpkg, plan.dotfiles_dir, plan.wanted, RollbackLog(tmp_path / "log"))
+    assert apt_packages.pending_github_bins(ctx) == ["k9s_linux_amd64.deb"]
+
+
+def test_a_pin_moved_to_apt_is_kept_and_not_pending(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    plan = _plan_for(tmp_path, _prior("homelab", ("curl", "github:derailed/k9s", "zsh")), names=("zsh", "curl", "k9s"))
+    assert plan.pending == ()
+    assert "github:derailed/k9s moved to another manager; keeping k9s" in capsys.readouterr().out
+
+
+def test_an_apt_package_moved_to_a_pin_is_kept_and_not_pending(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_pins(tmp_path)
+    assert _plan_for(tmp_path, _prior("homelab", ("curl", "k9s", "zsh"))).pending == ()
+
+
+def test_applied_reports_pin_entries(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch, apt=("k9s",))
+    applied = applied_after_removals(t, frozenset({"zsh"}), ("github:derailed/k9s",), [])
+    assert applied == ("github:derailed/k9s", "zsh")
+    assert applied_after_removals(t, frozenset({"zsh"}), ("github:derailed/k9s",), ["github:derailed/k9s"]) == ("zsh",)
+
+
+def test_plan_without_an_optout_file_wants_everything_and_creates_nothing(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh", "curl"})
+    assert not (tmp_path / "state" / "packages").exists()
+
+
+def _prior(preset_name, applied, overlay_root=None, optouts_migrated=False):
+    return state.MachineState(
+        preset_name=preset_name, backend="apt", package_file="x", applied_package_names=applied,
+        overlay_root=overlay_root, created_at="t", updated_at="t", optouts_migrated=optouts_migrated,
+    )
+
+
+def test_plan_reads_a_header_below_a_comment_as_optouts(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    text = f"# mine\n{optouts.HEADER}\ncurl\n"
+    package_file = _write_optouts(tmp_path, text)
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+    assert package_file.read_text() == text
+
+
+def test_plan_reads_a_headerless_file_as_optouts_once_migrated(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "curl\n")
+    prior = _prior("homelab", ("curl", "zsh"), optouts_migrated=True)
+    assert _plan_for(tmp_path, prior).wanted == frozenset({"zsh"})
+    assert package_file.read_text() == "curl\n"
+    assert "no header" in capsys.readouterr().out
+
+
+def test_plan_migrates_a_headerless_fork_on_an_unmigrated_machine(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "zsh\n")
+    assert _plan_for(tmp_path, _prior("homelab", ("zsh",))).wanted == frozenset({"zsh"})
+
+
+def test_failed_first_run_leaves_the_legacy_file_for_an_identical_retry(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nslack-desktop\n")
+    _save_applied(("curl", "zsh"))
+    fail_flow(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert package_file.read_text() == "zsh\nslack-desktop\n"
+    retry = _plan_for(tmp_path, state.load_state())
+    assert retry.pending == ("slack-desktop",)
+    assert retry.wanted == frozenset({"zsh"})
+
+
+def test_missing_overlay_carries_the_prior_applied_list_forward(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    machine(monkeypatch, apt=("extra",))
+    saved_root = str(tmp_path / "private")
+    state.save_state(_prior("homelab", ("curl", "extra", "zsh"), overlay_root=saved_root), state.state_file())
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    saved = state.load_state()
+    assert saved.applied_package_names == ("curl", "extra", "zsh")
+    assert saved.overlay_root == saved_root
+
+
+def test_migration_optouts_are_not_pending(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "zsh\n")
+    assert _plan_for(tmp_path, _prior("homelab", ("curl", "zsh"))).pending == ()
+
+
+def test_install_marks_the_optouts_migrated(isolated_dotfiles):
+    main(["install", "--preset", "homelab"])
+    assert state.load_state().optouts_migrated is True
+
+
+def test_missing_overlay_skips_all_removals(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    prior = _prior("homelab", ("curl", "extra", "zsh"), overlay_root=str(tmp_path / "private"))
+    assert _plan_for(tmp_path, prior).pending == ()
+    assert "overlay not found: skipping removals" in capsys.readouterr().out.lower()
+
+
+def test_overlay_at_a_new_path_keeps_removals(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    prior = _prior("homelab", ("curl", "extra", "zsh"), overlay_root=str(tmp_path / "private"))
+    assert _plan_for(tmp_path, prior, overlay_root=tmp_path / "elsewhere").pending == ("extra",)
+    assert "overlay not found" not in capsys.readouterr().out.lower()
+
+
+def test_overlay_at_a_new_path_is_saved(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    moved = tmp_path / "elsewhere"
+    moved.mkdir()
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: moved)
+    state.save_state(_prior("homelab", ("curl", "zsh"), overlay_root=str(tmp_path / "private")), state.state_file())
     assert main(["install", "--preset", "homelab"]) == 0
-    package_file = tmp_path / "state" / "packages" / "homelab.txt"
-    assert package_file.is_file()
-    assert set(package_file.read_text().split()) == {"zsh", "curl"}
+    assert state.load_state().overlay_root == str(moved)
+
+
+def test_same_overlay_keeps_removals(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    prior = _prior("homelab", ("curl", "extra", "zsh"), overlay_root=str(tmp_path / "private"))
+    assert _plan_for(tmp_path, prior, overlay_root=tmp_path / "private").pending == ("extra",)
+
+
+def test_plan_pending_lists_dropped_packages(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    plan = _plan_for(tmp_path, _prior("homelab", ("curl", "htop", "zsh")))
+    assert plan.pending == ("htop",)
+
+
+def test_plan_ignores_applied_for_other_preset(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    plan = _plan_for(tmp_path, _prior("work", ("htop",)))
+    assert plan.pending == ()
+
+
+def test_successful_install_writes_the_migration_once(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
+    assert package_file.read_text() == "zsh\nextra\n"
+    assert main(["install", "--preset", "homelab"]) == 0
+    migrated = package_file.read_text()
+    assert migrated == f"{optouts.HEADER}\ncurl\n"
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert package_file.read_text() == migrated
+    backups = list((Path.home() / ".local" / "state" / "dotfiles" / "package-backups").glob("*/homelab.txt"))
+    assert [b.read_text() for b in backups] == ["zsh\nextra\n"]
+
+
+def test_state_is_saved_before_the_completion_banner(isolated_dotfiles, monkeypatch):
+    saved_at_banner = []
+    monkeypatch.setattr(
+        "dotfiles_setup.cli.install_flow.print_completion_banner",
+        lambda logger: saved_at_banner.append(state.load_state() is not None),
+    )
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert saved_at_banner == [True]
+
+
+def test_a_failed_migration_write_keeps_the_legacy_file_and_fails_the_run(isolated_dotfiles, monkeypatch, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+
+    def refuse(path, names, backup):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("dotfiles_setup.cli.optouts.write_migration", refuse)
+    assert main(["install", "--preset", "homelab"]) == 1
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert f"Could not migrate {package_file}" in out
+    assert "stays legacy" in out
+    assert package_file.read_text() == "zsh\nextra\n"
+    assert state.load_state().optouts_migrated is False
+    assert _plan_for(tmp_path, state.load_state()).loaded.from_legacy
+
+
+def test_plan_leaves_other_presets_files_in_place(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    _plan_for(tmp_path)
+    assert other.exists()
+    assert "Will move" in capsys.readouterr().out
+
+
+def test_dry_run_plan_moves_no_other_presets_file(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    _plan_for(tmp_path, dry_run=True)
+    assert other.exists()
+    assert "Would move" in capsys.readouterr().out
+
+
+def test_dry_run_install_moves_no_other_presets_file(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert other.exists()
+    assert not (Path.home() / ".local" / "state" / "dotfiles" / "package-backups").exists()
+    assert "Would move" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("applied", "pending"), [(("zsh",), ()), (("curl", "zsh"), ("curl",))])
+def test_a_headered_optout_is_pending_only_when_it_was_applied(isolated_dotfiles, applied, pending):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
+    assert _plan_for(tmp_path, _prior("homelab", applied, optouts_migrated=True)).pending == pending
+
+
+def test_failed_run_leaves_other_presets_files_in_place(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    fail_flow(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert other.exists()
+
+
+def test_successful_run_moves_other_presets_files_to_the_backup(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert not other.exists()
+    backups = list((Path.home() / ".local" / "state" / "dotfiles" / "package-backups").glob("*/work.txt"))
+    assert [b.read_text() for b in backups] == ["vim\n"]
+
+
+def _refuse_state_saves(monkeypatch):
+    refusing = [True]
+    real = state.save_state
+
+    def save(machine_state, path):
+        if refusing[0]:
+            raise OSError("read-only file system")
+        real(machine_state, path)
+
+    monkeypatch.setattr("dotfiles_setup.cli.state.save_state", save)
+    return refusing
+
+
+def _output(capsys):
+    captured = capsys.readouterr()
+    return captured.out + captured.err
+
+
+def test_a_failed_state_save_restores_the_legacy_file_and_fails_the_run(isolated_dotfiles, monkeypatch, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    _save_applied(("curl", "zsh"))
+    before = state.load_state()
+    _refuse_state_saves(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    out = _output(capsys)
+    assert f"Could not save the install state to {state.state_file()}: read-only file system" in out
+    assert "retries the migration" in out
+    assert "Traceback" not in out
+    assert "Machine preset set" not in out
+    assert package_file.read_text() == "zsh\nextra\n"
+    assert state.load_state() == before
+
+
+def test_a_retry_after_a_failed_state_save_migrates_identically(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    refusing = _refuse_state_saves(monkeypatch)
+    assert main(["install", "--preset", "homelab"]) == 1
+    refusing[0] = False
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert package_file.read_text() == f"{optouts.HEADER}\ncurl\n"
+    assert state.load_state().optouts_migrated is True
+
+
+def test_a_failed_restore_after_a_failed_state_save_explains_the_headered_file(
+    isolated_dotfiles, monkeypatch, capsys,
+):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    _refuse_state_saves(monkeypatch)
+
+    def refuse(path, backup):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("dotfiles_setup.cli.optouts.restore_from_backup", refuse)
+    assert main(["install", "--preset", "homelab"]) == 1
+    out = _output(capsys)
+    assert f"Could not restore {package_file}: permission denied" in out
+    assert "now has a header" in out
+    assert "offer to remove" in out
+    assert "Traceback" not in out
+
+
+def test_a_failed_backup_move_reports_and_fails_without_a_traceback(isolated_dotfiles, monkeypatch, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+
+    def refuse(files, backup):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr("dotfiles_setup.cli.optouts.move_to_backup", refuse)
+    assert main(["install", "--preset", "homelab"]) == 1
+    out = _output(capsys)
+    assert f"Could not move {other} to " in out
+    assert "package-backups" in out
+    assert "no space left on device" in out
+    assert "Traceback" not in out
+    assert "Machine preset set" not in out
+    assert state.load_state().preset_name == "homelab"
+
+
+def test_a_failed_migration_write_leaves_other_presets_files_in_place(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "zsh\nextra\n")
+    other = _write_optouts(tmp_path, "vim\n", name="work.txt")
+
+    def refuse(path, names, backup):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("dotfiles_setup.cli.optouts.write_migration", refuse)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert other.read_text() == "vim\n"
+
+
+def test_a_txt_file_that_names_no_preset_is_neither_listed_nor_moved(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "vim\n", name="work.txt")
+    notes = _write_optouts(tmp_path, "keep me\n", name="notes.txt")
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert notes.read_text() == "keep me\n"
+    assert "notes.txt" not in capsys.readouterr().out
+
+
+def test_without_state_a_legacy_forks_installed_fork_only_name_is_offered(isolated_dotfiles, flow_calls, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    machine(monkeypatch, apt=("extra",))
+    _write_optouts(tmp_path, "zsh\ncurl\nextra\n")
+    assert _plan_for(tmp_path).pending == ("extra",)
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert flow_calls[0].removals == ("extra",)
+
+
+def test_without_state_or_a_legacy_file_nothing_is_pending(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    assert _plan_for(tmp_path).pending == ()
+
+
+def test_a_failed_state_save_restores_from_this_runs_backup(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\nextra\n")
+    earlier = optouts.backup_dir(Path.home() / ".local" / "state" / "dotfiles", "20260102030405") / "homelab.txt"
+    earlier.parent.mkdir(parents=True)
+    earlier.write_text("stale\n")
+    _refuse_state_saves(monkeypatch)
+    env = Env(clock=lambda: datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+    assert main(["install", "--preset", "homelab"], env) == 1
+    assert package_file.read_text() == "zsh\nextra\n"
+    assert earlier.read_text() == "stale\n"
+
+
+def test_optout_for_unlisted_package_warns_only(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, f"{optouts.HEADER}\nghost\n")
+    assert _plan_for(tmp_path).wanted == frozenset({"zsh", "curl"})
+    assert "ghost" in capsys.readouterr().out
+
+
+def test_dry_run_does_not_migrate_a_legacy_file(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, "zsh\n")
+    main(["install", "--preset", "homelab", "--dry-run"])
+    assert package_file.read_text() == "zsh\n"
+
+
+def test_install_saves_the_wanted_names_as_applied(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
+    main(["install", "--preset", "homelab"])
+    assert state.load_state().applied_package_names == ("zsh",)
 
 
 def test_install_persists_state(isolated_dotfiles):
@@ -187,13 +640,12 @@ def test_install_persists_state(isolated_dotfiles):
     assert saved.backend == "apt"
 
 
-def test_install_is_idempotent_on_rerun(isolated_dotfiles):
+def test_install_keeps_the_optout_file_on_rerun(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
+    package_file = _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
     main(["install", "--preset", "homelab"])
-    package_file = tmp_path / "state" / "packages" / "homelab.txt"
-    package_file.write_text(package_file.read_text() + "ripgrep\n")
     main(["install", "--preset", "homelab"])
-    assert "ripgrep" in package_file.read_text()
+    assert package_file.read_text() == f"{optouts.HEADER}\ncurl\n"
 
 
 def fail_flow(monkeypatch, message="apt-get exploded"):
@@ -250,12 +702,10 @@ def test_dry_run_does_not_create_the_forked_package_file(isolated_dotfiles):
     assert not (state.package_dir() / "homelab.txt").exists()
 
 
-def test_dry_run_leaves_an_existing_forked_package_file_unchanged(isolated_dotfiles):
-    main(["install", "--preset", "homelab"])
-    package_file = state.package_dir() / "homelab.txt"
-    package_file.write_text("vim\n")
+def test_dry_run_leaves_an_existing_optout_file_unchanged(isolated_dotfiles):
+    package_file = _write_optouts(isolated_dotfiles[1], f"{optouts.HEADER}\nvim\n")
     main(["install", "--preset", "homelab", "--dry-run"])
-    assert package_file.read_text() == "vim\n"
+    assert package_file.read_text() == f"{optouts.HEADER}\nvim\n"
 
 
 def test_dry_run_hands_the_flow_the_packages_it_would_install(isolated_dotfiles, flow_calls):
@@ -638,7 +1088,7 @@ def test_install_uses_injected_clock_and_paths(isolated_dotfiles, tmp_path):
     saved = state.load_state(tmp_path / "injected-state" / "state.json")
     assert saved.created_at == clock_value.isoformat()
     assert (tmp_path / "injected-claude" / "settings.json").is_file()
-    assert (tmp_path / "injected-state" / "packages" / "homelab.txt").is_file()
+    assert not (tmp_path / "injected-state" / "packages").exists()
 
 
 def test_install_builds_backend_through_injected_factory(isolated_dotfiles):
@@ -718,12 +1168,271 @@ def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):
     assert not (tmp_path / "state" / "claude-profiles").exists()
 
 
-def test_switching_presets_forks_packages_and_regenerates_state(isolated_dotfiles, foothold_retirements):
+def test_switching_presets_retires_the_old_optout_file_and_regenerates_state(isolated_dotfiles, foothold_retirements):
     dotfiles_dir, tmp_path = isolated_dotfiles
     _add_preset(dotfiles_dir, "personal")
+    old = _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
     assert main(["install", "--preset", "homelab"]) == 0
     assert main(["install", "--preset", "personal"]) == 0
-    assert (tmp_path / "state" / "packages" / "homelab.txt").is_file()
-    assert (tmp_path / "state" / "packages" / "personal.txt").is_file()
+    assert not old.exists()
     assert state.load_state().preset_name == "personal"
     assert foothold_retirements == ["homelab"]
+
+
+def _ask(answer):
+    asked = []
+    return asked, lambda prompt: asked.append(prompt) or answer
+
+
+@pytest.mark.parametrize("answer", ["y", "yes", "Y", "YES"])
+def test_confirm_yes_applies(answer, capsys):
+    asked, ask = _ask(answer)
+    assert confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
+    assert asked == ["Remove these packages? [y/N] "]
+    assert "htop" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("answer", ["", "n", "no", "maybe"])
+def test_confirm_other_answers_decline(answer, capsys):
+    _, ask = _ask(answer)
+    assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
+    assert "Removals declined; they will be offered again next run." in capsys.readouterr().out
+
+
+def test_confirm_non_interactive_declines_without_prune(capsys):
+    asked, ask = _ask("y")
+    assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=False, ask=ask)
+    assert asked == []
+    assert "pass --prune to apply" in capsys.readouterr().out
+
+
+def test_confirm_prune_applies_without_asking():
+    asked, ask = _ask("n")
+    assert confirm_removals(Logger(dry_run=False), ("htop",), prune=True, interactive=False, ask=ask)
+    assert asked == []
+
+
+def test_confirm_with_nothing_pending_is_silent(capsys):
+    asked, ask = _ask("y")
+    assert not confirm_removals(Logger(dry_run=False), (), prune=True, interactive=True, ask=ask)
+    assert asked == []
+    assert capsys.readouterr().out == ""
+
+
+def test_confirm_lists_manual_entries_separately(capsys):
+    confirm_removals(Logger(dry_run=False), ("htop", "flatpak:org.x.App", "sdkman"), prune=True, interactive=False)
+    out = capsys.readouterr().out
+    assert "htop" in out
+    assert "flatpak:org.x.App" in out
+    assert "dropped, remove manually" in out
+    assert "sdkman" in out
+
+
+def _raise(error):
+    def ask(prompt):
+        raise error
+
+    return ask
+
+
+def test_confirm_treats_end_of_input_as_declined(capsys):
+    assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=_raise(EOFError))
+    assert "Removals declined; they will be offered again next run." in capsys.readouterr().out
+
+
+def test_confirm_lets_an_interrupt_propagate():
+    logger = Logger(dry_run=False)
+    ask = _raise(KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        confirm_removals(logger, ("htop",), prune=False, interactive=True, ask=ask)
+
+
+def test_an_interrupt_at_the_prompt_exits_130_before_any_step(isolated_dotfiles, flow_calls, monkeypatch):
+    class InterruptedTty(io.StringIO):
+        def isatty(self):
+            return True
+
+        def readline(self, *args):
+            raise KeyboardInterrupt
+
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    monkeypatch.setattr("sys.stdin", InterruptedTty(""))
+    assert main(["install", "--preset", "homelab"]) == 130
+    assert flow_calls == []
+    assert state.load_state().applied_package_names == ("curl", "htop", "zsh")
+
+
+def test_an_interrupt_at_the_prompt_leaves_the_claude_settings_unwritten(isolated_dotfiles, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+
+    class InterruptedTty(io.StringIO):
+        def isatty(self):
+            return True
+
+        def readline(self, *args):
+            raise KeyboardInterrupt
+
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    monkeypatch.setattr("sys.stdin", InterruptedTty(""))
+    assert main(["install", "--preset", "homelab"]) == 130
+    assert not (tmp_path / "claude-home" / "settings.json").exists()
+    assert not settings_drift.baseline_path(tmp_path / "state").exists()
+
+
+def test_confirm_with_only_manual_entries_lists_them_without_asking(capsys):
+    asked, ask = _ask("y")
+    assert not confirm_removals(Logger(dry_run=False), ("sdkman",), prune=False, interactive=True, ask=ask)
+    assert asked == []
+    assert "remove manually: sdkman" in capsys.readouterr().out
+
+
+def test_prune_flag_parses():
+    assert build_arg_parser().parse_args(["install", "--prune"]).prune is True
+    assert build_arg_parser().parse_args(["install"]).prune is False
+
+
+def machine(monkeypatch, apt=(), flatpaks=()):
+    def run(argv, **kwargs):
+        if argv[0] == "dpkg-query":
+            out = "".join(f"ii  {name} 1.0\n" for name in apt)
+        else:
+            out = ""
+        code = 0 if argv[:3] != ["flatpak", "info", "--user"] or argv[3] in flatpaks else 1
+        return SimpleNamespace(returncode=code, stdout=out, stderr="")
+
+    monkeypatch.setattr("dotfiles_setup.tooling.subprocess.run", run)
+
+
+def _save_applied(applied):
+    state.save_state(_prior("homelab", applied), state.state_file())
+
+
+def _tooling(tmp_path, monkeypatch, apt=(), flatpaks=()):
+    machine(monkeypatch, apt, flatpaks)
+    return Tooling(Logger(dry_run=False), tmp_path)
+
+
+def test_applied_keeps_installed_pending_names_that_were_not_removed(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch, apt=("htop",))
+    applied = applied_after_removals(t, frozenset({"zsh"}), ("htop",), [])
+    assert applied == ("htop", "zsh")
+
+
+def test_applied_drops_removed_names(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch, apt=("htop", "vim"))
+    applied = applied_after_removals(t, frozenset({"zsh"}), ("htop", "vim"), ["htop"])
+    assert applied == ("vim", "zsh")
+
+
+def test_applied_drops_pending_names_that_are_not_installed(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch)
+    assert applied_after_removals(t, frozenset({"zsh"}), ("htop",), []) == ("zsh",)
+
+
+def test_applied_drops_manual_entries(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch)
+    assert applied_after_removals(t, frozenset({"zsh"}), ("sdkman",), []) == ("zsh",)
+
+
+def test_applied_keeps_flatpaks_with_their_prefix(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch, flatpaks=("org.x.App", "org.y.App"))
+    applied = applied_after_removals(
+        t, frozenset({"zsh"}), ("flatpak:org.x.App", "flatpak:org.y.App"), ["flatpak:org.y.App"],
+    )
+    assert applied == ("flatpak:org.x.App", "zsh")
+
+
+def test_prune_applies_non_interactively(isolated_dotfiles, flow_calls, monkeypatch):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert flow_calls[0].removals == ("htop",)
+
+
+def test_declined_removals_stay_in_applied_state(isolated_dotfiles, flow_calls, monkeypatch):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert flow_calls[0].removals == ()
+    assert state.load_state().applied_package_names == ("curl", "htop", "zsh")
+
+
+def test_completed_removals_leave_applied_state(isolated_dotfiles, monkeypatch):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+
+    def run_install(inputs):
+        inputs.removed.extend(inputs.removals)
+        return InstallResult(True, 0, "")
+
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", run_install)
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert state.load_state().applied_package_names == ("curl", "zsh")
+
+
+def test_interactive_yes_approves_removals(isolated_dotfiles, flow_calls, monkeypatch):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    monkeypatch.setattr("sys.stdin", Tty("y\n"))
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert flow_calls[0].removals == ("htop",)
+
+
+def test_migration_offers_installed_fork_only_packages(isolated_dotfiles, flow_calls, monkeypatch):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    machine(monkeypatch, apt=("curl", "slack-desktop", "zsh"))
+    _write_optouts(tmp_path, "zsh\ncurl\nslack-desktop\nnever-installed\n")
+    _save_applied(("curl", "zsh"))
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert flow_calls[0].removals == ("slack-desktop",)
+
+
+def test_migration_messages_show_at_default_verbosity(isolated_dotfiles, capsys):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    _write_optouts(tmp_path, "zsh\nextra\n")
+    _write_optouts(tmp_path, "vim\n", name="work.txt")
+    _plan_for(tmp_path)
+    out = capsys.readouterr().out
+    assert "Will migrate" in out
+    assert "work.txt" in out
+    assert "only in the old file: extra" in out
+
+
+def test_prompt_lists_only_installed_removals(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "vim", "zsh"))
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert flow_calls[0].removals == ("htop",)
+    assert "vim" not in capsys.readouterr().out
+
+
+def test_no_prompt_when_no_removal_is_installed(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    machine(monkeypatch)
+    _save_applied(("curl", "sdkman", "vim", "zsh"))
+    monkeypatch.setattr("sys.stdin", Tty("y\n"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("no prompt expected"))
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert flow_calls[0].removals == ()
+    out = capsys.readouterr().out
+    assert "vim" not in out
+    assert out.count("remove manually") == 1
+
+
+def test_dry_run_lists_removals_and_does_not_prompt(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("no prompt expected"))
+    assert main(["install", "--preset", "homelab", "--dry-run", "--prune"]) == 0
+    assert flow_calls[0].removals == ()
+    assert "htop" in capsys.readouterr().out
+

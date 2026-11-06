@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from dotfiles_setup import rollback, tools
 from dotfiles_setup.log import Logger
 
@@ -152,6 +153,40 @@ def test_nothing_is_offered_without_a_log(tmp_path):
         raise AssertionError(prompt)
 
     rollback.offer_rollback(context(tmp_path, Machine()), interactive=True, ask=refuse)
+
+
+def test_undo_reinstalls_removed_packages(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    ctx.log.track("APT_REMOVED:vim", dry_run=False)
+    ctx.log.track("FLATPAK_REMOVED:com.slack.Slack", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert machine.argvs() == [
+        ["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", "com.slack.Slack"],
+        ["sudo", "apt-get", "install", "-y", "vim"],
+    ]
+
+
+def test_undo_of_a_removed_deb_warns_and_runs_nothing(tmp_path, capsys):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    ctx.log.track("DEB_REMOVED:k9s", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert machine.argvs() == []
+    assert "reinstall k9s manually" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("action", "failing"),
+    [("APT_REMOVED", ("sudo", "apt-get", "install")), ("FLATPAK_REMOVED", ("flatpak", "install"))],
+)
+def test_a_failed_reinstall_only_warns(tmp_path, capsys, action, failing):
+    machine = Machine(failing=[failing])
+    ctx = context(tmp_path, machine)
+    ctx.log.track(f"{action}:vim", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert "Failed to reinstall vim" in capsys.readouterr().out
+    assert not ctx.log.path.exists()
 
 
 def test_the_default_log_lives_in_home(tmp_path):

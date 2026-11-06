@@ -18,13 +18,20 @@ CUSTOM_INSTALL_PACKAGES = frozenset({
     "cargo-audit",
 })
 
+# Custom entries whose installer leaves a dpkg package of the same name.
+DPKG_BACKED_CUSTOM = frozenset({"slack-desktop", "zoom"})
+
+PIN_PREFIX = "github:"
+
 
 # The upgrade output is hidden, so a dpkg conffile prompt would hang the run unseen.
 KEEP_LOCAL_CONFIG = ("-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold")
 
 
 def is_apt_package(name: str) -> bool:
-    return name not in CUSTOM_INSTALL_PACKAGES and not flatpak.is_flatpak_entry(name)
+    return (
+        name not in CUSTOM_INSTALL_PACKAGES and not flatpak.is_flatpak_entry(name) and not name.startswith(PIN_PREFIX)
+    )
 
 
 def _remove_superseded_lists(ctx: SystemContext, sources_dir: Path) -> None:
@@ -68,6 +75,22 @@ def _bin_entries(listing: Path) -> list[tuple[str, str, str, str]]:
     return entries
 
 
+def pin_entries(listing: Path) -> tuple[str, ...]:
+    """`github:<user>/<repo>` for each valid line of the listing; empty when the file is absent."""
+    if not listing.is_file():
+        return ()
+    return tuple(
+        f"{PIN_PREFIX}{repo}" for _, repo, version, filename in _bin_entries(listing) if repo and version and filename
+    )
+
+
+def _wanted_bins(ctx: SystemContext, listing: Path) -> list[tuple[str, str, str, str]]:
+    return [
+        entry for entry in _bin_entries(listing)
+        if not all(entry[1:]) or f"{PIN_PREFIX}{entry[1]}" in ctx.packages
+    ]
+
+
 def _installed_version(ctx: SystemContext, filename: str) -> str | None:
     package = filename.split("_", 1)[0]
     listing = ctx.t.run(
@@ -87,7 +110,7 @@ def pending_github_bins(ctx: SystemContext) -> list[str]:
     if not listing.is_file():
         return []
     return [
-        filename for _, repo, version, filename in _bin_entries(listing)
+        filename for _, repo, version, filename in _wanted_bins(ctx, listing)
         if repo and version and filename and not _is_current(_installed_version(ctx, filename), version)
     ]
 
@@ -122,7 +145,7 @@ def install_github_bins(ctx: SystemContext) -> None:
     if not listing.is_file() or listing.stat().st_size == 0:
         logger.warn("github_bins.txt not found or is empty. Skipping.")
         return
-    entries = _bin_entries(listing)
+    entries = _wanted_bins(ctx, listing)
     if logger.dry_run:
         for _, repo, version, filename in entries:
             if repo and version and filename:

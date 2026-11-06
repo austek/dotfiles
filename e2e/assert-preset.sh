@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Usage: assert-preset.sh <preset> <first|snapshot|second> [package removed from the forked list before the second run]
+# Usage: assert-preset.sh <preset> <first|snapshot|second> [package opted out before the second run]
 set -euo pipefail
 
 preset=${1:?preset required}
 phase=${2:?phase required}
 removed_package=${3:-}
 config_dir="$HOME/.config/dotfiles"
-forked="$config_dir/packages/$preset.txt"
+state_json="$config_dir/state.json"
+optouts_file="$config_dir/packages/$preset.txt"
 settings="$HOME/.claude/settings.json"
 snapshot_dir=${E2E_SNAPSHOT_DIR:-/tmp/e2e-snapshot}
 
@@ -20,6 +21,17 @@ assert_symlink_into_repo() {
     [[ -L "$link" ]] || fail "$link is not a symlink"
     [[ -e "$link" ]] || fail "$link is a dangling symlink"
     [[ $(readlink -f "$link") == "$HOME/.dotfiles/"* ]] || fail "$link does not resolve into ~/.dotfiles"
+}
+
+applied() {
+    local package=$1
+    python3 -I -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1]))["applied_package_names"] else 1)' \
+        "$state_json" "$package"
+}
+
+dpkg_installed() {
+    local package=$1
+    [[ $(dpkg-query -W -f="\${db:Status-Abbrev}" "$package" 2>/dev/null) == ii* ]]
 }
 
 source_host() {
@@ -47,7 +59,7 @@ assert_apt_sources_follow_the_preset() {
         package=${pair%%:*}
         file=${pair#*:}
         [[ -f "$tracked_dir/$file" ]] || fail "tracked source $file is missing from the checkout"
-        if grep -qx "$package" "$forked"; then
+        if applied "$package"; then
             assert_source_installed "$package" "$sources_dir/$file" "$tracked_dir/$file"
         else
             [[ ! -e "$sources_dir/$file" && ! -L "$sources_dir/$file" ]] || fail "$file is linked although '$package' is not selected"
@@ -56,10 +68,10 @@ assert_apt_sources_follow_the_preset() {
 }
 
 assert_installed_state() {
-    [[ -f "$config_dir/state.json" ]] || fail "state.json missing"
+    [[ -f "$state_json" ]] || fail "state.json missing"
     python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("preset_name") == sys.argv[2] else 1)' \
-        "$config_dir/state.json" "$preset" || fail "state.json does not record preset '$preset'"
-    [[ -s "$forked" ]] || fail "forked package list $forked missing or empty"
+        "$state_json" "$preset" || fail "state.json does not record preset '$preset'"
+    [[ -n "$removed_package" ]] || fail "phase $phase needs the opted-out package name"
     python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$settings" || fail "$settings is not valid JSON"
     assert_symlink_into_repo "$HOME/.zshrc"
     assert_symlink_into_repo "$HOME/.gitconfig"
@@ -72,14 +84,24 @@ assert_installed_state() {
     done
 }
 
+assert_fresh_install_writes_no_optouts() {
+    [[ ! -e "$optouts_file" ]] || fail "a fresh install wrote $optouts_file"
+    applied "$removed_package" || fail "state.json does not list '$removed_package' as applied"
+    dpkg_installed "$removed_package" || fail "'$removed_package' is not installed"
+}
+
+assert_optout_removed() {
+    cmp -s "$snapshot_dir/optouts.txt" "$optouts_file" || fail "second run changed the opt-out file $optouts_file"
+    ! dpkg_installed "$removed_package" || fail "opted-out '$removed_package' is still installed"
+    ! applied "$removed_package" || fail "state.json still lists opted-out '$removed_package' as applied"
+}
+
 assert_idempotent_second_run() {
     [[ -d "$snapshot_dir" ]] || fail "no snapshot to compare against"
     cmp -s "$snapshot_dir/settings.json" "$settings" || fail "second run rewrote $settings"
     [[ $(file_identity "$settings") == "$(cat "$snapshot_dir/settings.identity")" ]] \
         || fail "second run replaced $settings with identical content"
-    cmp -s "$snapshot_dir/forked.txt" "$forked" || fail "second run changed the forked package list"
-    [[ -n "$removed_package" ]] || fail "second phase needs the removed package name"
-    ! grep -qx "$removed_package" "$forked" || fail "second run re-added '$removed_package' to the forked list"
+    assert_optout_removed
     compgen -G "$HOME/.claude/settings.json.bak-*" >/dev/null && fail "second run backed up settings.json"
     return 0
 }
@@ -93,11 +115,11 @@ take_snapshot() {
     mkdir -p "$snapshot_dir"
     cp "$settings" "$snapshot_dir/settings.json"
     file_identity "$settings" > "$snapshot_dir/settings.identity"
-    cp "$forked" "$snapshot_dir/forked.txt"
+    cp "$optouts_file" "$snapshot_dir/optouts.txt"
 }
 
 case $phase in
-    first) assert_installed_state ;;
+    first) assert_installed_state; assert_fresh_install_writes_no_optouts ;;
     snapshot) take_snapshot ;;
     second) assert_installed_state; assert_idempotent_second_run ;;
     *) fail "unknown phase '$phase'" ;;
