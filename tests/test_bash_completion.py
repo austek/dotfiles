@@ -54,4 +54,4 @@ def test_keeps_both_system_flags_when_the_text_sits_inside_one_quoted_word():
 
 def test_completes_nothing_unexpected_for_bare_dash():
     completions = _complete(["dotfiles-setup", "install", "-"], 2)
-    assert set(completions) == {"-v", "--verbose", "-vv", "-vvv", "-h", "--help", "--preset", "--dry-run", "--reconfigure", "--force", "--accept-drift", "--system", "--no-system"}
+    assert set(completions) == {"-v", "--verbose", "-vv", "-vvv", "-h", "--help", "--preset", "--dry-run", "--reconfigure", "--force", "--accept-drift", "--upgrade", "--system", "--no-system"}

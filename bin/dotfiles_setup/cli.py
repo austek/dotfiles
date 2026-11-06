@@ -100,6 +100,11 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
         "--no-system", dest="system", action="store_const", const="never",
         help="Skip the sudo steps and run only the user-level ones.",
     )
+    install_p.add_argument(
+        "--upgrade",
+        action="store_true",
+        help="Also upgrade every installed apt package (dist-upgrade) and update Flatpak apps. Forces the sudo steps.",
+    )
     install_p.set_defaults(system="auto")
 
 
@@ -398,6 +403,7 @@ def _flow_inputs(logger: Logger, env: Env, plan: _Install, args: argparse.Namesp
     return install_flow.FlowInputs(
         _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.packages, plan.overlay_root,
         args.force, env.clock().strftime("%Y%m%d%H%M%S"), euid=env.euid(), system=args.system,
+        upgrade=args.upgrade,
     )
 
 

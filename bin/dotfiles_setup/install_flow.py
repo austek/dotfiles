@@ -14,6 +14,7 @@ from dotfiles_setup import (
     claude_profile,
     claude_tools,
     desktop_defaults,
+    flatpak,
     stow,
     system_steps,
     tools,
@@ -29,7 +30,7 @@ Step = tuple[str, Callable[[], bool | None]]
 INTERRUPTED_EXIT_CODE = 130
 SYSTEM_STEPS = frozenset({
     "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
-    "install_packages", "install_github_bins", "configure_docker_group", "change_shell", "set_default_terminal",
+    "install_packages", "upgrade_packages", "install_github_bins", "configure_docker_group", "change_shell", "set_default_terminal",
 })
 
 
@@ -44,6 +45,13 @@ class FlowInputs:
     stamp: str
     euid: int = field(default_factory=os.geteuid)
     system: Literal["auto", "always", "never"] = "auto"
+    upgrade: bool = False
+
+
+def _upgrade_steps(inputs: FlowInputs, ctx: SystemContext) -> list[Step]:
+    if inputs.upgrade:
+        return [("upgrade_packages", lambda: apt_packages.upgrade_packages(ctx))]
+    return [("report_upgradable", lambda: apt_packages.report_upgradable(ctx))]
 
 
 def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackLog) -> list[Step]:
@@ -60,6 +68,8 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("configure_apt_sources", lambda: apt_sources.configure_apt_sources(ctx)),
         ("install_tools", lambda: tools.install_tools(t, packages)),
         ("install_packages", lambda: apt_packages.install_packages(ctx)),
+        *_upgrade_steps(inputs, ctx),
+        ("install_flatpaks", lambda: flatpak.install_flatpaks(t, packages, inputs.upgrade)),
         ("install_post_apt_tools", lambda: tools.install_post_apt_tools(t, packages)),
         ("enable_gpaste_extension", lambda: system_steps.enable_gpaste_extension(ctx)),
         ("install_github_bins", lambda: apt_packages.install_github_bins(ctx)),
@@ -107,6 +117,9 @@ def _system_stage_wanted(inputs: FlowInputs, ctx: SystemContext) -> bool:
     logger = inputs.t.logger
     if inputs.system != "auto":
         return inputs.system == "always"
+    if inputs.upgrade:
+        logger.info("System stage needed: --upgrade was requested.")
+        return True
     reasons = system_stage_reasons(ctx)
     if reasons:
         logger.info(f"System stage needed: {'; '.join(reasons)}.")

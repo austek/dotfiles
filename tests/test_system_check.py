@@ -96,7 +96,7 @@ def test_a_shell_changed_in_passwd_counts_before_the_next_login(tmp_path, nosnap
 def test_a_github_deb_that_is_not_installed_is_a_reason(tmp_path, nosnap):
     ctx = make(tmp_path, Machine(installed=("vim", "git")))
     (ctx.dotfiles_dir / "packages" / "github_bins.txt").write_text("derailed/k9s 0.51.0 k9s_linux_amd64.deb\n")
-    assert sc.system_stage_reasons(ctx, nosnap) == ["1 GitHub .deb package(s) not installed"]
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 GitHub .deb package(s) missing or outdated"]
     ctx = make(tmp_path / "ok", Machine(installed=("vim", "git"), debs="ii  k9s  0.51.0 amd64 x\n"))
     (ctx.dotfiles_dir / "packages" / "github_bins.txt").write_text("derailed/k9s 0.51.0 k9s_linux_amd64.deb\n")
     assert sc.system_stage_reasons(ctx, nosnap) == []

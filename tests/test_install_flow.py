@@ -8,12 +8,13 @@ from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 
 
-def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n", system="always"):
+def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n", system="always", upgrade=False):
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
     t =tools.Tooling(Logger(dry_run=dry_run, verbosity=1), home, run=lambda *a, **k: SimpleNamespace(returncode=0))
     return flow.FlowInputs(
         t, tmp_path / "repo", "work", frozenset(packages.split()), None, False, "T1", euid=euid, system=system,
+        upgrade=upgrade,
     )
 
 
@@ -26,7 +27,8 @@ def test_steps_run_in_the_order_the_shell_installer_used(tmp_path):
     steps = flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))
     assert [name for name, _ in steps] == [
         "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
-        "install_tools", "install_packages", "install_post_apt_tools", "enable_gpaste_extension",
+        "install_tools", "install_packages", "report_upgradable", "install_flatpaks", "install_post_apt_tools",
+        "enable_gpaste_extension",
         "install_github_bins", "configure_docker_group", "configure_dotfiles", "retire_claude_profile",
         "configure_claude_tools", "change_shell", "set_default_terminal",
     ]
@@ -188,9 +190,31 @@ def test_never_skips_the_system_steps_without_checking_or_prompting(tmp_path, mo
     assert ran == ["configure_dotfiles"]
 
 
+def test_upgrade_replaces_the_report_with_the_upgrade_step(tmp_path):
+    steps = flow.build_steps(inputs(tmp_path, upgrade=True), frozenset(), RollbackLog(tmp_path / "log"))
+    names = [name for name, _ in steps]
+    assert "upgrade_packages" in names
+    assert "report_upgradable" not in names
+    assert names.index("upgrade_packages") == names.index("install_packages") + 1
+
+
+def test_upgrade_forces_the_system_stage_without_checking(tmp_path, no_sudo, monkeypatch):
+    ran = _recorded_steps(monkeypatch)
+    monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: pytest.fail("no check when upgrading"))
+    assert flow.run_install(inputs(tmp_path, system="auto", upgrade=True)).succeeded
+    assert ran == ["install_packages", "configure_dotfiles"]
+
+
 def test_every_root_step_is_a_known_step_name(tmp_path):
-    names = {name for name, _ in flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))}
+    names = {
+        name for name, _ in flow.build_steps(inputs(tmp_path, upgrade=True), frozenset(), RollbackLog(tmp_path / "log"))
+    }
     assert flow.SYSTEM_STEPS <= names
+
+
+def test_every_root_step_is_known_without_upgrade(tmp_path):
+    names = {name for name, _ in flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))}
+    assert flow.SYSTEM_STEPS - {"upgrade_packages"} <= names
 
 
 def test_the_banner_differs_for_a_dry_run(tmp_path, capsys):
