@@ -7,7 +7,7 @@ _dotfiles_setup_presets() {
 }
 
 _dotfiles_setup_install_flags() {
-    local flags="--preset --dry-run -v --verbose -vv -vvv --reconfigure --force --accept-drift --upgrade -h --help"
+    local flags="--preset --dry-run -v --verbose -vv -vvv --reconfigure --force --accept-drift --upgrade --prune -h --help"
     local word system=1 no_system=1
     for word in "${COMP_WORDS[@]}"; do
         [[ "$word" == "--system" ]] && no_system=0

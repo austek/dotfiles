@@ -22,7 +22,9 @@ def _missing_apt_packages(ctx: SystemContext, installed: set[str]) -> str | None
 
 
 def _pending_removals(ctx: SystemContext, installed: set[str]) -> str | None:
-    from dotfiles_setup.removals import split_removals  # removals imports this module's STATUS_FORMAT
+    from dotfiles_setup.removals import (
+        split_removals,  # removals imports this module's STATUS_FORMAT
+    )
 
     pending = installed & set(split_removals(tuple(ctx.removals)).apt)
     return f"{len(pending)} apt package(s) pending removal" if pending else None

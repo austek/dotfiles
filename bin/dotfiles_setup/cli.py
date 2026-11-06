@@ -5,7 +5,7 @@ import argparse
 import os
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +14,7 @@ from typing import Any
 from dotfiles_setup import (
     checksums,
     claude_plugins,
+    flatpak,
     foothold,
     identity,
     install_flow,
@@ -22,6 +23,7 @@ from dotfiles_setup import (
     package_sets,
     presets,
     private,
+    removals,
     rollback,
     settings_drift,
     state,
@@ -105,6 +107,11 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
         "--upgrade",
         action="store_true",
         help="Also upgrade every installed apt package (dist-upgrade) and update Flatpak apps. Forces the sudo steps.",
+    )
+    install_p.add_argument(
+        "--prune",
+        action="store_true",
+        help="Uninstall packages the repo or overlay dropped, without asking for confirmation.",
     )
     install_p.set_defaults(system="auto")
 
@@ -418,11 +425,59 @@ def _rollback_context(logger: Logger, env: Env, plan: _Install) -> rollback.Roll
     return rollback.RollbackContext(t, rollback.RollbackLog.for_home(t.home), plan.dotfiles_dir, plan.overlay_root)
 
 
-def _flow_inputs(logger: Logger, env: Env, plan: _Install, args: argparse.Namespace) -> install_flow.FlowInputs:
+def _print_pending(logger: Logger, pending: Sequence[str]) -> None:
+    split = removals.split_removals(pending)
+    uninstallable = (*split.apt, *(f"{flatpak.PREFIX}{i}" for i in split.flatpak))
+    if uninstallable:
+        logger.warn(f"No longer wanted, installed copies would be removed: {', '.join(uninstallable)}.")
+    if split.manual:
+        logger.warn(f"Entries dropped, remove manually: {', '.join(split.manual)}.")
+
+
+def confirm_removals(
+    logger: Logger, pending: Sequence[str], *, prune: bool, interactive: bool,
+    ask: Callable[[str], str] = input,
+) -> bool:
+    if not pending:
+        return False
+    _print_pending(logger, pending)
+    if prune:
+        return True
+    if not interactive:
+        logger.warn("Removals skipped; pass --prune to apply.")
+        return False
+    return ask("Remove these packages? [y/N] ").strip().lower() in ("y", "yes")
+
+
+def _entry_names(split: removals.Split) -> tuple[str, ...]:
+    return (*split.apt, *(f"{flatpak.PREFIX}{app_id}" for app_id in split.flatpak))
+
+
+def applied_after_removals(
+    t: tooling.Tooling, wanted: frozenset[str], pending: Sequence[str], removed: Sequence[str]
+) -> tuple[str, ...]:
+    left = [name for name in pending if name not in set(removed)]
+    still_installed = removals.installed_only(t, removals.split_removals(left))
+    return tuple(sorted(wanted | set(_entry_names(still_installed))))
+
+
+def _approved_removals(args: argparse.Namespace, logger: Logger, plan: _Install) -> tuple[str, ...]:
+    if args.dry_run:
+        _print_pending(logger, plan.pending)
+        return ()
+    confirmed = confirm_removals(
+        logger, plan.pending, prune=args.prune, interactive=sys.stdin.isatty(),
+    )
+    return plan.pending if confirmed else ()
+
+
+def _flow_inputs(
+    logger: Logger, env: Env, plan: _Install, args: argparse.Namespace, approved: tuple[str, ...] = (),
+) -> install_flow.FlowInputs:
     return install_flow.FlowInputs(
         _tooling(logger, env), plan.dotfiles_dir, plan.preset.name, plan.wanted, plan.overlay_root,
         args.force, plan.stamp, euid=env.euid(), system=args.system,
-        upgrade=args.upgrade,
+        upgrade=args.upgrade, removals=approved,
     )
 
 
@@ -430,24 +485,26 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
     claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset)
     # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
     _write_claude_settings(logger, claude_settings, env)
-    result = install_flow.run_install(_flow_inputs(logger, env, plan, args))
+    inputs = _flow_inputs(logger, env, plan, args, _approved_removals(args, logger, plan))
+    result = install_flow.run_install(inputs)
     if not result.succeeded:
         _log_install_failure(logger, result)
         if result.rollback_pending:
             rollback.offer_rollback(_rollback_context(logger, env, plan), interactive=sys.stdin.isatty())
         return result.returncode
-    _finish_install(args, logger, env, plan, claude_settings)
+    _finish_install(args, logger, env, plan, claude_settings, inputs)
     return 0
 
 
 def _finish_install(
-    args: argparse.Namespace, logger: Logger, env: Env, plan: _Install, claude_settings: dict[str, Any]
+    args: argparse.Namespace, logger: Logger, env: Env, plan: _Install, claude_settings: dict[str, Any],
+    inputs: install_flow.FlowInputs,
 ) -> None:
     claude_plugins.update_claude_plugins(logger, claude_settings)
     _sync_foothold(logger, plan.preset, plan.prior)
     install_flow.print_completion_banner(logger)
     if not args.dry_run:
-        _save_state(env, plan, tuple(sorted(plan.wanted)))
+        _save_state(env, plan, applied_after_removals(inputs.t, plan.wanted, plan.pending, inputs.removed))
     logger.success(f"Machine preset set to '{plan.preset.name}'.")
 
 

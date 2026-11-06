@@ -1,3 +1,4 @@
+import io
 import json
 import os
 from datetime import UTC, datetime
@@ -12,12 +13,15 @@ from dotfiles_setup.cli import (
     Env,
     _plan,
     _replace_settings_target,
+    applied_after_removals,
     build_arg_parser,
     combine_package_names,
+    confirm_removals,
     main,
 )
 from dotfiles_setup.log import Logger
 from dotfiles_setup.presets import Preset
+from dotfiles_setup.tooling import Tooling
 
 
 def test_combine_package_names_resolves_overrides_and_merges_overlay(tmp_path):
@@ -213,13 +217,13 @@ def _prior(preset_name, applied):
 
 def test_plan_pending_lists_dropped_packages(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
-    plan = _plan_for(tmp_path, _prior("homelab", ("curl", "slack-desktop", "zsh")))
-    assert plan.pending == ("slack-desktop",)
+    plan = _plan_for(tmp_path, _prior("homelab", ("curl", "htop", "zsh")))
+    assert plan.pending == ("htop",)
 
 
 def test_plan_ignores_applied_for_other_preset(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
-    plan = _plan_for(tmp_path, _prior("work", ("slack-desktop",)))
+    plan = _plan_for(tmp_path, _prior("work", ("htop",)))
     assert plan.pending == ()
 
 
@@ -807,3 +811,169 @@ def test_switching_presets_retires_the_old_optout_file_and_regenerates_state(iso
     assert not old.exists()
     assert state.load_state().preset_name == "personal"
     assert foothold_retirements == ["homelab"]
+
+
+def _ask(answer):
+    asked = []
+    return asked, lambda prompt: asked.append(prompt) or answer
+
+
+@pytest.mark.parametrize("answer", ["y", "yes", "Y", "YES"])
+def test_confirm_yes_applies(answer, capsys):
+    asked, ask = _ask(answer)
+    assert confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
+    assert asked == ["Remove these packages? [y/N] "]
+    assert "htop" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("answer", ["", "n", "no", "maybe"])
+def test_confirm_other_answers_decline(answer):
+    _, ask = _ask(answer)
+    assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
+
+
+def test_confirm_non_interactive_declines_without_prune(capsys):
+    asked, ask = _ask("y")
+    assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=False, ask=ask)
+    assert asked == []
+    assert "pass --prune to apply" in capsys.readouterr().out
+
+
+def test_confirm_prune_applies_without_asking():
+    asked, ask = _ask("n")
+    assert confirm_removals(Logger(dry_run=False), ("htop",), prune=True, interactive=False, ask=ask)
+    assert asked == []
+
+
+def test_confirm_with_nothing_pending_is_silent(capsys):
+    asked, ask = _ask("y")
+    assert not confirm_removals(Logger(dry_run=False), (), prune=True, interactive=True, ask=ask)
+    assert asked == []
+    assert capsys.readouterr().out == ""
+
+
+def test_confirm_lists_manual_entries_separately(capsys):
+    confirm_removals(Logger(dry_run=False), ("htop", "flatpak:org.x.App", "sdkman"), prune=True, interactive=False)
+    out = capsys.readouterr().out
+    assert "htop" in out
+    assert "flatpak:org.x.App" in out
+    assert "dropped, remove manually" in out
+    assert "sdkman" in out
+
+
+def test_prune_flag_parses():
+    assert build_arg_parser().parse_args(["install", "--prune"]).prune is True
+    assert build_arg_parser().parse_args(["install"]).prune is False
+
+
+def machine(monkeypatch, apt=(), flatpaks=()):
+    def run(argv, **kwargs):
+        if argv[0] == "dpkg-query":
+            out = "".join(f"ii  {name} 1.0\n" for name in apt)
+        else:
+            out = ""
+        code = 0 if argv[:3] != ["flatpak", "info", "--user"] or argv[3] in flatpaks else 1
+        return SimpleNamespace(returncode=code, stdout=out, stderr="")
+
+    monkeypatch.setattr("dotfiles_setup.tooling.subprocess.run", run)
+
+
+def _save_applied(applied):
+    state.save_state(_prior("homelab", applied), state.state_file())
+
+
+def _tooling(tmp_path, monkeypatch, apt=(), flatpaks=()):
+    machine(monkeypatch, apt, flatpaks)
+    return Tooling(Logger(dry_run=False), tmp_path)
+
+
+def test_applied_keeps_installed_pending_names_that_were_not_removed(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch, apt=("htop",))
+    applied = applied_after_removals(t, frozenset({"zsh"}), ("htop",), [])
+    assert applied == ("htop", "zsh")
+
+
+def test_applied_drops_removed_names(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch, apt=("htop", "vim"))
+    applied = applied_after_removals(t, frozenset({"zsh"}), ("htop", "vim"), ["htop"])
+    assert applied == ("vim", "zsh")
+
+
+def test_applied_drops_pending_names_that_are_not_installed(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch)
+    assert applied_after_removals(t, frozenset({"zsh"}), ("htop",), []) == ("zsh",)
+
+
+def test_applied_drops_manual_entries(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch)
+    assert applied_after_removals(t, frozenset({"zsh"}), ("sdkman",), []) == ("zsh",)
+
+
+def test_applied_keeps_flatpaks_with_their_prefix(tmp_path, monkeypatch):
+    t = _tooling(tmp_path, monkeypatch, flatpaks=("org.x.App", "org.y.App"))
+    applied = applied_after_removals(
+        t, frozenset({"zsh"}), ("flatpak:org.x.App", "flatpak:org.y.App"), ["flatpak:org.y.App"],
+    )
+    assert applied == ("flatpak:org.x.App", "zsh")
+
+
+def test_prune_applies_non_interactively(isolated_dotfiles, flow_calls, monkeypatch):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert flow_calls[0].removals == ("htop",)
+
+
+def test_declined_removals_stay_in_applied_state(isolated_dotfiles, flow_calls, monkeypatch):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert flow_calls[0].removals == ()
+    assert state.load_state().applied_package_names == ("curl", "htop", "zsh")
+
+
+def test_completed_removals_leave_applied_state(isolated_dotfiles, monkeypatch):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+
+    def run_install(inputs):
+        inputs.removed.extend(inputs.removals)
+        return InstallResult(True, 0, "")
+
+    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", run_install)
+    assert main(["install", "--preset", "homelab", "--prune"]) == 0
+    assert state.load_state().applied_package_names == ("curl", "zsh")
+
+
+def test_interactive_yes_approves_removals(isolated_dotfiles, flow_calls, monkeypatch):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    monkeypatch.setattr("sys.stdin", Tty("y\n"))
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert flow_calls[0].removals == ("htop",)
+
+
+def test_dry_run_lists_removals_and_does_not_prompt(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+    machine(monkeypatch, apt=("htop",))
+    _save_applied(("curl", "htop", "zsh"))
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("no prompt expected"))
+    assert main(["install", "--preset", "homelab", "--dry-run", "--prune"]) == 0
+    assert flow_calls[0].removals == ()
+    assert "htop" in capsys.readouterr().out
+
+
+def test_declined_run_does_not_request_system_stage(tmp_path, monkeypatch):
+    from dotfiles_setup import system_check as sc
+    from dotfiles_setup.rollback import RollbackLog
+    from dotfiles_setup.system_steps import SystemContext
+
+    t = _tooling(tmp_path, monkeypatch, apt=("htop", "zsh"))
+    (tmp_path / "repo" / "packages").mkdir(parents=True)
+    nosnap = tmp_path / "nosnap.pref"
+    nosnap.write_text("Package: snapd\n")
+    ctx = SystemContext(t, tmp_path / "repo", frozenset({"zsh"}), RollbackLog(tmp_path / "log"), ())
+    assert not any("remov" in reason for reason in sc.system_stage_reasons(ctx, nosnap))

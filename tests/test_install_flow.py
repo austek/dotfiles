@@ -2,9 +2,8 @@ import os
 from types import SimpleNamespace
 
 import pytest
-from dotfiles_setup import flatpak
+from dotfiles_setup import flatpak, tools
 from dotfiles_setup import install_flow as flow
-from dotfiles_setup import tools
 from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 
