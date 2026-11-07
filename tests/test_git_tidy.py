@@ -129,6 +129,7 @@ def test_keeps_a_branch_with_unmerged_work(repo):
     assert result.returncode == 0, result.stderr
     assert repo.branches() == ["main", "wip"]
     assert "Nothing to tidy" in result.stdout
+    assert "wip  its work is not in" in result.stdout
 
 
 def test_keeps_a_branch_that_was_just_created_at_the_base(repo):
@@ -239,8 +240,32 @@ def test_fetches_with_prune_before_looking(repo):
     repo.git("clone", "-q", str(repo.origin), str(other), cwd=repo.tmp)
     repo.git("merge", "-q", "--no-ff", "-m", "merge feat", "origin/feat", cwd=other)
     repo.git("push", "-q", "origin", "main", cwd=other)
+    repo.git("push", "-q", "origin", "--delete", "feat", cwd=other)
+    assert "origin/feat" in repo.git("branch", "-r").stdout
     assert repo.tidy("--yes").returncode == 0
     assert repo.branches() == ["main"]
+    assert "origin/feat" not in repo.git("branch", "-r").stdout
+
+
+def test_refuses_to_run_in_a_bare_repository(repo):
+    repo.commit("second")
+    repo.git("push", "-q", "origin", "main")
+    repo.git("branch", "old", "main~1", cwd=repo.origin)
+    result = repo.tidy("--yes", cwd=repo.origin)
+    assert result.returncode == 1
+    assert "not inside a git work tree" in result.stderr
+    assert "old" in repo.git("branch", cwd=repo.origin).stdout
+
+
+def test_removes_a_worktree_whose_path_contains_a_newline(repo):
+    wt = repo.tmp / "wt\nfeat"
+    repo.git("worktree", "add", "-q", str(wt), "-b", "feat")
+    repo.commit("feat", cwd=wt)
+    repo.merge("feat")
+    result = repo.tidy("--yes")
+    assert result.returncode == 0, result.stderr
+    assert repo.branches() == ["main"]
+    assert not wt.exists()
 
 
 def test_no_fetch_works_from_the_refs_already_here(repo):
