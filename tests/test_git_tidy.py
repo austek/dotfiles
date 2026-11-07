@@ -233,18 +233,28 @@ def test_refuses_to_change_anything_without_a_terminal_or_yes(repo):
     assert repo.branches() == ["feat", "main"]
 
 
-def test_fetches_with_prune_before_looking(repo):
+def test_fetches_before_looking(repo):
     repo.branch_with_commit("feat")
     repo.git("push", "-q", "-u", "origin", "feat")
     other = repo.tmp / "other"
     repo.git("clone", "-q", str(repo.origin), str(other), cwd=repo.tmp)
     repo.git("merge", "-q", "--no-ff", "-m", "merge feat", "origin/feat", cwd=other)
     repo.git("push", "-q", "origin", "main", cwd=other)
-    repo.git("push", "-q", "origin", "--delete", "feat", cwd=other)
-    assert "origin/feat" in repo.git("branch", "-r").stdout
     assert repo.tidy("--yes").returncode == 0
     assert repo.branches() == ["main"]
-    assert "origin/feat" not in repo.git("branch", "-r").stdout
+
+
+def test_detects_a_gone_upstream_without_pruning_the_tracking_ref(repo):
+    repo.git("switch", "-q", "-c", "lost")
+    repo.commit("lost")
+    repo.git("push", "-q", "-u", "origin", "lost")
+    repo.git("switch", "-q", "main")
+    other = repo.tmp / "other"
+    repo.git("clone", "-q", str(repo.origin), str(other), cwd=repo.tmp)
+    repo.git("push", "-q", "origin", "--delete", "lost", cwd=other)
+    result = repo.tidy("--dry-run")
+    assert "lost  upstream is gone" in result.stdout
+    assert "origin/lost" in repo.git("branch", "-r").stdout
 
 
 def test_refuses_to_run_in_a_bare_repository(repo):

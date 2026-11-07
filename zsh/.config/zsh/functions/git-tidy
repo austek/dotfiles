@@ -32,7 +32,7 @@ git-tidy() {
     return 1
   fi
 
-  if [[ -n $fetch ]] && ! git fetch --all --prune --quiet; then
+  if [[ -n $fetch ]] && ! git fetch --all --quiet; then
     print -u2 -r -- 'git-tidy: fetch failed; using the refs already here'
   fi
 
@@ -66,7 +66,7 @@ git-tidy() {
   local -a prunable_paths
   local wt_list
   if ! wt_list=$(git worktree list --porcelain -z); then
-    print -u2 -r -- 'git-tidy: could not list worktrees (needs git 2.36 or newer)'
+    print -u2 -r -- 'git-tidy: could not list worktrees (needs git 2.38 or newer)'
     return 1
   fi
   local -a lines=("${(@0)wt_list}" "")
@@ -110,12 +110,28 @@ git-tidy() {
       merged+=$branch
     elif tree=$(git merge-tree --write-tree "$tip" "$base_tip" 2>/dev/null) && [[ $tree == "$base_tree" ]]; then
       squashed+=$branch
-    elif [[ $(git for-each-ref --format='%(upstream:track)' "$ref") == '[gone]' ]]; then
-      gone_unmerged+=$branch
     else
       unmerged+=$branch
     fi
   done
+
+  # The remote is asked directly, so no tracking ref is pruned before the user approves the plan.
+  local up_remote up_ref
+  local -i rc
+  local -a still_unmerged
+  for branch in $unmerged; do
+    ref=refs/heads/$branch
+    up_remote=$(git for-each-ref --format='%(upstream:remotename)' "$ref")
+    up_ref=$(git for-each-ref --format='%(upstream:remoteref)' "$ref")
+    rc=0
+    [[ -n $fetch && -n $up_ref ]] && { git ls-remote --exit-code --heads "$up_remote" "$up_ref" >/dev/null 2>&1 || rc=$?; }
+    if [[ $(git for-each-ref --format='%(upstream:track)' "$ref") == '[gone]' ]] || (( rc == 2 )); then
+      gone_unmerged+=$branch
+    else
+      still_unmerged+=$branch
+    fi
+  done
+  unmerged=("${still_unmerged[@]}")
 
   local wt
   local -a remove_merged remove_squashed remove_worktrees skipped
