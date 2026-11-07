@@ -101,12 +101,28 @@ def test_ignores_claude_burst_dir_in_the_environment(tmp_path):
     assert (tmp_path / ".claude" / "settings.json").read_text() == "settings.json"
 
 
-def test_two_launches_at_once_both_succeed(tmp_path):
-    _home(tmp_path)
+def test_many_launches_at_once_all_succeed_and_never_touch_the_main_dir(tmp_path):
+    claude = _home(tmp_path)
+    for n in range(40):
+        (claude / f"dir{n}").mkdir()
+    before = sorted(p.relative_to(claude) for p in claude.rglob("*"))
     env = {"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
-    procs = [subprocess.Popen([str(SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(8)]
-    assert all(p.wait() == 0 for p in procs)
-    assert sorted(p.name for p in (tmp_path / ".claude-burst").iterdir()) == ["..odd", ".hidden", "projects", "settings.json"]
+    for _ in range(3):
+        procs = [subprocess.Popen([str(SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(16)]
+        assert [p.wait() for p in procs] == [0] * 16
+    assert sorted(p.relative_to(claude) for p in claude.rglob("*")) == before
+    burst = tmp_path / ".claude-burst"
+    assert all(p.is_symlink() for p in burst.iterdir())
+    assert len(list(burst.iterdir())) == 44
+
+
+def test_leaves_a_correct_link_alone(tmp_path):
+    _home(tmp_path)
+    _link(tmp_path)
+    link = tmp_path / ".claude-burst" / "settings.json"
+    before = link.lstat().st_ino
+    _link(tmp_path)
+    assert link.lstat().st_ino == before
 
 
 def test_works_without_a_claude_home(tmp_path):

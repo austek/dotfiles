@@ -23,6 +23,9 @@ for entry in "$claude_home"/* "$claude_home"/.[!.]* "$claude_home"/..?*; do
     name=${entry##*/}
     case $name in .credentials.json | .claude.json | backups) continue ;; esac
     link="$burst_dir/$name"
+    if [ -L "$link" ] && [ "$(readlink -- "$link")" = "$entry" ]; then
+        continue
+    fi
     # A regular file here is one claude wrote over the link; the shared copy wins.
     if [ -L "$link" ] || [ -f "$link" ]; then
         rm -f -- "$link"
@@ -31,8 +34,9 @@ for entry in "$claude_home"/* "$claude_home"/.[!.]* "$claude_home"/..?*; do
         echo "claude-burst: $link is a real directory, so burst keeps its own copy; remove it to share ~/.claude/$name" >&2
         continue
     fi
-    # A launch running at the same time may have made the link first.
-    ln -s -- "$entry" "$link" 2>/dev/null || [ -L "$link" ] || ln -s -- "$entry" "$link"
+    # -n: never follow a link another launch just made to a directory, which would put the new link inside
+    # ~/.claude. That launch made the link first, so its failure here is fine.
+    ln -sn -- "$entry" "$link" 2>/dev/null || [ -L "$link" ] || ln -sn -- "$entry" "$link"
 done
 
 printf '%s\n' "$burst_dir"
