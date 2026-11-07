@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -135,6 +136,41 @@ def test_refuses_a_burst_dir_that_is_the_main_dir(tmp_path):
     assert "make it a separate directory" in result.stderr
     assert sorted(p.name for p in (tmp_path / ".claude").iterdir() if p.is_symlink()) == []
     assert (tmp_path / ".claude" / "settings.json").read_text() == "settings.json"
+
+
+def _wrapped_tools(tmp_path: Path) -> tuple[Path, Path]:
+    """rm logs its arguments, and mv first lets another launch finish the same link, as if it had won the race."""
+    tools, log = tmp_path / "tools", tmp_path / "rm.log"
+    tools.mkdir()
+    real_rm, real_mv, real_ln = shutil.which("rm"), shutil.which("mv"), shutil.which("ln")
+    (tools / "rm").write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\nexec {real_rm} "$@"\n')
+    (tools / "mv").write_text(
+        "#!/bin/sh\n"
+        'for last; do :; done\n'
+        'src=""; for a; do case $a in -*) ;; *) [ -n "$src" ] || src=$a ;; esac; done\n'
+        f'[ -L "$last" ] || {real_ln} -sn -- "$(readlink -- "$src")" "$last"\n'
+        f'exec {real_mv} "$@"\n'
+    )
+    for tool in ("rm", "mv"):
+        (tools / tool).chmod(0o755)
+    return tools, log
+
+
+def test_a_launch_that_loses_the_race_never_deletes_the_winners_link(tmp_path):
+    claude = _home(tmp_path)
+    tools, log = _wrapped_tools(tmp_path)
+    burst = tmp_path / ".claude-burst"
+    burst.mkdir()
+    (burst / "settings.json").write_text("written over the link")
+    result = subprocess.run(
+        [str(SCRIPT)], env={"HOME": str(tmp_path), "PATH": f"{tools}:/usr/bin:/bin"},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    removed = log.read_text().split("\n") if log.exists() else []
+    assert not any(str(burst / name) in line for line in removed for name in ("..odd", ".hidden", "projects", "settings.json"))
+    assert sorted(p.name for p in burst.iterdir()) == ["..odd", ".hidden", "projects", "settings.json"]
+    assert all((burst / p.name).resolve() == (claude / p.name).resolve() for p in burst.iterdir())
 
 
 def test_works_without_a_claude_home(tmp_path):

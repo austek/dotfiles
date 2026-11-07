@@ -10,6 +10,10 @@ claude_home="$HOME/.claude"
 burst_dir="$HOME/.claude-burst"
 
 mkdir -p -- "$burst_dir"
+# Each link is built here, then renamed into place.
+tmp="$burst_dir/.claude-burst-link.$$"
+trap 'rm -f -- "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
 if [ -d "$claude_home" ] && [ "$(cd -P -- "$burst_dir" && pwd)" = "$(cd -P -- "$claude_home" && pwd)" ]; then
     echo "claude-burst: $burst_dir is $claude_home; make it a separate directory" >&2
     exit 1
@@ -30,17 +34,17 @@ for entry in "$claude_home"/* "$claude_home"/.[!.]* "$claude_home"/..?*; do
     if [ -L "$link" ] && [ "$(readlink -- "$link")" = "$entry" ]; then
         continue
     fi
-    # A regular file here is one claude wrote over the link; the shared copy wins.
-    if [ -L "$link" ] || [ -f "$link" ]; then
-        rm -f -- "$link"
-    fi
-    if [ -e "$link" ]; then
+    if [ -d "$link" ] && [ ! -L "$link" ]; then
         echo "claude-burst: $link is a real directory, so burst keeps its own copy; remove it to share ~/.claude/$name" >&2
         continue
     fi
-    # -n: never follow a link another launch just made to a directory, which would put the new link inside
-    # ~/.claude. That launch made the link first, so its failure here is fine.
-    ln -sn -- "$entry" "$link" 2>/dev/null || [ -L "$link" ] || ln -sn -- "$entry" "$link"
+    # rename(2) swaps the new link in atomically: it replaces a stale link or a file claude wrote over the link
+    # (the shared copy wins), and never leaves a moment with no link. Launches running at once each swap in the
+    # same link, and none deletes a link another one made. -T treats a link to a directory as the name to
+    # replace, never as a directory to move into, and -n does the same for ln.
+    rm -f -- "$tmp"
+    ln -sn -- "$entry" "$tmp"
+    mv -fT -- "$tmp" "$link"
 done
 
 printf '%s\n' "$burst_dir"
