@@ -15,6 +15,7 @@ class Preset:
     package_files: tuple[str, ...]
     backend_overrides: dict[str, dict[str, str]]
     claude_settings: str | None
+    footholds: tuple[str, ...] = ()
 
 
 def load_preset(presets_dir: Path, name: str) -> Result[Preset]:
@@ -22,12 +23,16 @@ def load_preset(presets_dir: Path, name: str) -> Result[Preset]:
     if Path(name).name != name or not manifest_path.is_file():
         return Err(f"No preset named '{name}' in {presets_dir}")
     data = json.loads(manifest_path.read_text())
+    footholds = data.get("footholds", [])
+    if not isinstance(footholds, list) or not all(isinstance(account, str) for account in footholds):
+        return Err(f"Preset '{name}' has an invalid footholds value; expected a list of account names: {footholds!r}")
     return Ok(Preset(
         name=name,
         description=data.get("description", ""),
         package_files=tuple(data.get("package_files", ())),
         backend_overrides=data.get("backend_overrides", {}),
         claude_settings=data.get("claude_settings"),
+        footholds=tuple(footholds),
     ))
 
 

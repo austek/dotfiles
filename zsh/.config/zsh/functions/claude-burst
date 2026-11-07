@@ -1,0 +1,7 @@
+# Runs claude on a second account (burst) that shares everything in ~/.claude except its login.
+# claude-burst-link (in ~/.dotfiles/bin) prepares its config dir, ~/.claude-burst, on each launch. Log in once with `claude-burst` then /login. Usage: claude-burst [<claude-args...>]
+claude-burst() {
+  local burst_dir
+  burst_dir=$(claude-burst-link) || return
+  claude-tmux burst env CLAUDE_CONFIG_DIR="$burst_dir" claude "$@"
+}

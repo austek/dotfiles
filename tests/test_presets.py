@@ -26,6 +26,7 @@ def test_load_preset_reads_all_fields(tmp_path):
         package_files=["apt_common.txt", "apt_work.txt"],
         backend_overrides={"apt": {"bat": "batcat"}},
         claude_settings="claude_work.json",
+        footholds=["main", "burst"],
     )
     preset = load_preset(tmp_path, "work").value
     assert preset == Preset(
@@ -34,6 +35,7 @@ def test_load_preset_reads_all_fields(tmp_path):
         package_files=("apt_common.txt", "apt_work.txt"),
         backend_overrides={"apt": {"bat": "batcat"}},
         claude_settings="claude_work.json",
+        footholds=("main", "burst"),
     )
 
 
@@ -43,6 +45,7 @@ def test_load_preset_defaults_missing_optional_fields(tmp_path):
     assert preset.description == ""
     assert preset.backend_overrides == {}
     assert preset.claude_settings is None
+    assert preset.footholds == ()
 
 
 def test_load_preset_returns_err_for_unknown_name(tmp_path):
@@ -77,3 +80,17 @@ def test_resolve_packages_returns_err_for_missing_files(tmp_path):
     assert resolve_packages(tmp_path, preset) == Err(
         f"Preset 'x' declares missing package file: {tmp_path / 'nonexistent.txt'}"
     )
+
+
+@pytest.mark.parametrize(("name", "footholds"), [("personal", ("main", "burst")), ("homelab", ("main", "burst")), ("work", ())])
+def test_shipped_presets_run_footholds_only_on_personal_and_homelab(name, footholds):
+    presets_dir = Path(__file__).resolve().parent.parent / "presets"
+    assert load_preset(presets_dir, name).value.footholds == footholds
+
+
+@pytest.mark.parametrize("footholds", ["main", [1], {"main": True}])
+def test_load_preset_rejects_a_footholds_value_that_is_not_a_list_of_names(tmp_path, footholds):
+    _write_manifest(tmp_path, "odd", package_files=["apt_common.txt"], footholds=footholds)
+    result = load_preset(tmp_path, "odd")
+    assert isinstance(result, Err)
+    assert "invalid footholds" in result.error

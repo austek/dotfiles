@@ -99,7 +99,7 @@ def test_a_home_without_any_generated_files_is_a_no_op(tmp_path):
     assert list(home.iterdir()) == []
 
 
-def test_the_old_burst_config_dir_is_never_deleted(tmp_path):
+def test_the_burst_config_dir_is_never_deleted(tmp_path):
     t, home = make(tmp_path)
     credentials = write(home / ".claude-burst/.credentials.json", "{}")
     cp.retire_claude_profile(t)

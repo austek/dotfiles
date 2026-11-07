@@ -1,0 +1,53 @@
+#!/bin/sh
+# Prepares ~/.claude-burst, the config dir of a second Claude account, and prints its path. Every ~/.claude
+# entry except the account's identity (.credentials.json, .claude.json, and the backups dir of timestamped
+# .claude.json copies) is symlinked in, so the burst account shares the generated settings.json, sessions
+# and plugins and keeps only its own login and account file. Run on every launch, so
+# entries created since the last one are picked up. Used by claude-burst and claude-foothold-launch.
+set -eu
+
+claude_home="$HOME/.claude"
+burst_dir="$HOME/.claude-burst"
+
+mkdir -p -- "$burst_dir"
+# Each link is built here, then renamed into place.
+tmp="$burst_dir/.claude-burst-link.$$"
+trap 'rm -f -- "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+if [ -d "$claude_home" ] && [ "$(cd -P -- "$burst_dir" && pwd)" = "$(cd -P -- "$claude_home" && pwd)" ]; then
+    echo "claude-burst: $burst_dir is $claude_home; make it a separate directory" >&2
+    exit 1
+fi
+
+# Drop links whose ~/.claude entry is gone. An entry that is itself a broken symlink is still an entry, and
+# another launch's temporary link (below) is never touched.
+for link in "$burst_dir"/* "$burst_dir"/.[!.]* "$burst_dir"/..?*; do
+    case ${link##*/} in .claude-burst-link.*) continue ;; esac
+    [ -L "$link" ] && [ ! -e "$link" ] || continue
+    target=$(readlink -- "$link")
+    case $target in "$claude_home"/*) ;; *) continue ;; esac
+    [ -L "$target" ] || rm -f -- "$link"
+done
+
+for entry in "$claude_home"/* "$claude_home"/.[!.]* "$claude_home"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    case $name in .credentials.json | .claude.json | backups) continue ;; esac
+    link="$burst_dir/$name"
+    if [ -L "$link" ] && [ "$(readlink -- "$link")" = "$entry" ]; then
+        continue
+    fi
+    if [ -d "$link" ] && [ ! -L "$link" ]; then
+        echo "claude-burst: $link is a real directory, so burst keeps its own copy; remove it to share ~/.claude/$name" >&2
+        continue
+    fi
+    # rename(2) swaps the new link in atomically: it replaces a stale link or a file claude wrote over the link
+    # (the shared copy wins), and never leaves a moment with no link. Launches running at once each swap in the
+    # same link, and none deletes a link another one made. -T treats a link to a directory as the name to
+    # replace, never as a directory to move into, and -n does the same for ln.
+    rm -f -- "$tmp"
+    ln -sn -- "$entry" "$tmp"
+    mv -fT -- "$tmp" "$link"
+done
+
+printf '%s\n' "$burst_dir"

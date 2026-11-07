@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 FUNCTIONS = Path(__file__).resolve().parent.parent / "zsh" / ".config" / "zsh" / "functions"
+REPO_BIN = Path(__file__).resolve().parent.parent / "bin"
 
 pytestmark = pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
 
@@ -21,13 +22,13 @@ def _run(tmp_path: Path, script: str, env: dict[str, str] | None = None) -> subp
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     full_env = {
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "PATH": f"{bin_dir}:{REPO_BIN}:{os.environ['PATH']}",
         "HOME": str(tmp_path / "home"),
         "LOG": str(tmp_path / "log"),
         **(env or {}),
     }
     (tmp_path / "home").mkdir(exist_ok=True)
-    setup = f"fpath=({FUNCTIONS} $fpath); autoload -Uz claude-with claude-tmux secrets_hydrate bw_unlock\n"
+    setup = f"fpath=({FUNCTIONS} $fpath); autoload -Uz claude-with claude-tmux claude-burst secrets_hydrate bw_unlock\n"
     return subprocess.run(
         ["zsh", "-f", "-c", setup + script], capture_output=True, text=True, env=full_env, timeout=30, check=False
     )
@@ -89,6 +90,74 @@ def test_claude_tmux_runs_command_directly_without_tty(tmp_path):
     result = _run(tmp_path, "claude-tmux label print -r -- hello")
     assert result.stdout.strip() == "hello"
     assert _log(tmp_path) == []
+
+
+def _claude_home(tmp_path: Path) -> Path:
+    claude = tmp_path / "home" / ".claude"
+    (claude / "projects").mkdir(parents=True)
+    for name in ("settings.json", ".credentials.json", ".hidden"):
+        (claude / name).write_text(name)
+    (claude / "backups").mkdir()
+    return claude
+
+
+def test_claude_burst_runs_claude_with_its_own_config_dir(tmp_path):
+    _claude_stub(tmp_path, 'echo "cfg $CLAUDE_CONFIG_DIR" >> "$LOG"')
+    _claude_home(tmp_path)
+    result = _run(tmp_path, "claude-burst --resume abc")
+    assert result.returncode == 0
+    assert _log(tmp_path) == ["claude --resume abc", f"cfg {tmp_path / 'home' / '.claude-burst'}"]
+
+
+def _two_accounts(tmp_path: Path) -> tuple[Path, Path]:
+    """A claude stub that logs the account it ran as and saves a session where that account keeps them."""
+    _stub(tmp_path / "bin", "claude", (
+        'cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}\n'
+        'echo "$(cat "$cfg/.credentials.json") $1" >> "$LOG"\n'
+        'mkdir -p "$cfg/projects/demo" && echo "$1" > "$cfg/projects/demo/$1.jsonl"'
+    ))
+    main = _claude_home(tmp_path)
+    (main / ".credentials.json").write_text("main-login")
+    burst = tmp_path / "home" / ".claude-burst"
+    burst.mkdir()
+    (burst / ".credentials.json").write_text("burst-login")
+    return main, burst
+
+
+def test_main_and_burst_accounts_each_use_their_own_login_in_one_shell(tmp_path):
+    (tmp_path / "bin").mkdir()
+    _two_accounts(tmp_path)
+    script = "claude-tmux main claude one; claude-burst two; claude-tmux main claude three; print -r -- ${CLAUDE_CONFIG_DIR-unset}"
+    result = _run(tmp_path, script)
+    assert result.returncode == 0
+    assert _log(tmp_path) == ["main-login one", "burst-login two", "main-login three"]
+    assert result.stdout.strip() == "unset"
+
+
+def test_sessions_from_either_account_are_visible_to_the_other(tmp_path):
+    (tmp_path / "bin").mkdir()
+    main, burst = _two_accounts(tmp_path)
+    _run(tmp_path, "claude-tmux main claude from-main; claude-burst from-burst")
+    expected = ["from-burst.jsonl", "from-main.jsonl"]
+    assert sorted(p.name for p in (main / "projects/demo").iterdir()) == expected
+    assert sorted(p.name for p in (burst / "projects/demo").iterdir()) == expected
+
+
+def test_a_burst_launch_leaves_the_main_account_untouched(tmp_path):
+    (tmp_path / "bin").mkdir()
+    main, _ = _two_accounts(tmp_path)
+    before = {p.name: p.read_text() for p in main.iterdir() if p.is_file()}
+    _run(tmp_path, "claude-burst")
+    assert {p.name: p.read_text() for p in main.iterdir() if p.is_file()} == before
+    assert not (main / ".claude.json").exists()
+
+
+def test_settings_changed_by_an_install_reach_the_burst_account(tmp_path):
+    _claude_stub(tmp_path)
+    main = _claude_home(tmp_path)
+    _run(tmp_path, "claude-burst")
+    (main / "settings.json").write_text("regenerated")
+    assert (tmp_path / "home/.claude-burst/settings.json").read_text() == "regenerated"
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
