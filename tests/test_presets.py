@@ -86,3 +86,11 @@ def test_resolve_packages_returns_err_for_missing_files(tmp_path):
 def test_shipped_presets_run_footholds_only_on_personal_and_homelab(name, footholds):
     presets_dir = Path(__file__).resolve().parent.parent / "presets"
     assert load_preset(presets_dir, name).value.footholds == footholds
+
+
+@pytest.mark.parametrize("footholds", ["main", [1], {"main": True}])
+def test_load_preset_rejects_a_footholds_value_that_is_not_a_list_of_names(tmp_path, footholds):
+    _write_manifest(tmp_path, "odd", package_files=["apt_common.txt"], footholds=footholds)
+    result = load_preset(tmp_path, "odd")
+    assert isinstance(result, Err)
+    assert "invalid footholds" in result.error

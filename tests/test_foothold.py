@@ -364,6 +364,18 @@ def test_sync_keeps_the_legacy_unit_when_main_fails_to_install(tmp_path):
     assert "claude-foothold-homelab.service" in _units(tmp_path)
 
 
+def test_sync_keeps_the_legacy_unit_when_a_burst_only_preset_cannot_start_burst(tmp_path):
+    (tmp_path / "claude-foothold-homelab.service").write_text("old")
+    _sync(tmp_path, ("burst",), ("homelab",))
+    assert _units(tmp_path) == ["claude-foothold-homelab.service"]
+
+
+def test_sync_retires_the_legacy_unit_once_a_burst_only_preset_starts_burst(tmp_path):
+    (tmp_path / "claude-foothold-homelab.service").write_text("old")
+    _sync(tmp_path, ("burst",), ("homelab",), burst_dir=_logged_in_burst(tmp_path))
+    assert _units(tmp_path) == ["claude-foothold-burst.service"]
+
+
 def test_sync_warns_about_an_unknown_account(tmp_path, capsys):
     _sync(tmp_path, ("main", "spare"))
     assert "Unknown foothold account 'spare'" in capsys.readouterr().out
@@ -374,8 +386,8 @@ def test_restart_footholds_restarts_every_installed_unit(tmp_path):
     _installed_unit(tmp_path, "burst")
     run, calls = _recording_run()
     assert foothold.restart_footholds(Logger(dry_run=False), unit_dir=tmp_path, run=run) is True
-    restarts = [c for c in calls if c[:3] == ("systemctl", "--user", "restart")]
-    assert restarts == [RESTART, ("systemctl", "--user", "restart", "claude-foothold-burst.service")]
+    # One call, so a restart issued from inside the main session still reaches the burst unit.
+    assert calls == [PROBE, RELOAD, (*RESTART, "claude-foothold-burst.service")]
 
 
 def test_restart_footholds_fails_when_none_is_installed(tmp_path, capsys):

@@ -84,11 +84,29 @@ def test_leaves_a_real_directory_alone_with_a_warning(tmp_path):
     assert "burst keeps its own copy" in result.stderr
 
 
-def test_honours_claude_burst_dir(tmp_path):
+def test_never_shares_an_account_file_found_in_the_main_config_dir(tmp_path):
+    claude = _home(tmp_path)
+    (claude / ".claude.json").write_text("main-account")
+    burst = tmp_path / ".claude-burst"
+    burst.mkdir()
+    (burst / ".claude.json").write_text("burst-account")
+    _link(tmp_path)
+    assert not (burst / ".claude.json").is_symlink()
+    assert (burst / ".claude.json").read_text() == "burst-account"
+
+
+def test_ignores_claude_burst_dir_in_the_environment(tmp_path):
     _home(tmp_path)
-    custom = tmp_path / "elsewhere"
-    assert _link(tmp_path, CLAUDE_BURST_DIR=str(custom)).stdout.strip() == str(custom)
-    assert (custom / "settings.json").is_symlink()
+    assert _link(tmp_path, CLAUDE_BURST_DIR=str(tmp_path / ".claude")).stdout.strip() == str(tmp_path / ".claude-burst")
+    assert (tmp_path / ".claude" / "settings.json").read_text() == "settings.json"
+
+
+def test_two_launches_at_once_both_succeed(tmp_path):
+    _home(tmp_path)
+    env = {"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
+    procs = [subprocess.Popen([str(SCRIPT)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(8)]
+    assert all(p.wait() == 0 for p in procs)
+    assert sorted(p.name for p in (tmp_path / ".claude-burst").iterdir()) == ["..odd", ".hidden", "projects", "settings.json"]
 
 
 def test_works_without_a_claude_home(tmp_path):

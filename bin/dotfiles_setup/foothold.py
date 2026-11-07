@@ -151,10 +151,30 @@ def _network_up(logger: Logger, run) -> bool:
     return _run_command(probe, logger, run)
 
 
-def _reload_and_restart(unit: Path, account: str, logger: Logger, run) -> bool:
-    _rewrite_if_stale(unit, account, logger)
-    commands = (("systemctl", "--user", "daemon-reload"), ("systemctl", "--user", "restart", unit.name))
+def _reload_and_restart(units: list[tuple[Path, str]], logger: Logger, run) -> bool:
+    for unit, account in units:
+        _rewrite_if_stale(unit, account, logger)
+    # One restart call queues every job in systemd before any session stops, so running this from inside
+    # a foothold session that the restart ends still restarts the others.
+    restart = ("systemctl", "--user", "restart", *(unit.name for unit, _ in units))
+    commands = (("systemctl", "--user", "daemon-reload"), restart)
     return all(_run_command(argv, logger, run) for argv in commands)
+
+
+def _restart_units(logger: Logger, accounts: list[str], unit_dir: Path, run) -> bool:
+    units = [(unit_dir / unit_name(account), account) for account in accounts]
+    names = ", ".join(unit.name for unit, _ in units)
+    if logger.dry_run_notice(f"Would rewrite {names} if stale, then restart them."):
+        return True
+    try:
+        restarted = _network_up(logger, run) and _reload_and_restart(units, logger, run)
+    except OSError as exc:
+        logger.warn(f"Could not restart {names}: {exc}")
+        return False
+    if restarted:
+        sessions = " or ".join(f"`tmux attach -t {session_name(account)}`" for account in accounts)
+        logger.info(f"Restarted {names}; attach with {sessions}.")
+    return restarted
 
 
 def restart_foothold(logger: Logger, account: str, unit_dir: Path = UNIT_DIR, run=subprocess.run) -> bool:
@@ -166,26 +186,16 @@ def restart_foothold(logger: Logger, account: str, unit_dir: Path = UNIT_DIR, ru
     if not unit.is_file():
         logger.warn(f"{unit.name} is not installed; run `dotfiles-setup install` first.")
         return False
-    if logger.dry_run_notice(f"Would rewrite {unit.name} if stale, then restart it."):
-        return True
-    try:
-        restarted = _network_up(logger, run) and _reload_and_restart(unit, account, logger, run)
-    except OSError as exc:
-        logger.warn(f"Could not restart {unit.name}: {exc}")
-        return False
-    if restarted:
-        logger.info(f"Restarted {unit.name}; attach with `tmux attach -t {session_name(account)}`.")
-    return restarted
+    return _restart_units(logger, [account], unit_dir, run)
 
 
 def restart_footholds(logger: Logger, unit_dir: Path = UNIT_DIR, run=subprocess.run) -> bool:
-    """Restarts every installed account unit. Returns False when none is installed or any restart fails."""
+    """Restarts every installed account unit together. Returns False when none is installed or the restart fails."""
     installed = [account for account in ACCOUNTS if (unit_dir / unit_name(account)).is_file()]
     if not installed:
         logger.warn("No foothold is installed; run `dotfiles-setup install` on a preset that enables one.")
         return False
-    results = [restart_foothold(logger, account, unit_dir, run) for account in installed]
-    return all(results)
+    return _restart_units(logger, installed, unit_dir, run)
 
 
 def install_foothold(
@@ -221,18 +231,17 @@ def sync_footholds(
 ) -> None:
     """Installs the wanted accounts' units and retires the rest, plus any preset-named unit an older install wrote.
 
-    The legacy units are retired only once the main account's replacement is up, or when the preset wants none.
+    A legacy unit ran the main account, so it is retired once the main unit is up, or, for a preset without
+    main, once every wanted unit is up (with none wanted, at once). Otherwise it keeps running until a later install.
     """
     for unknown in sorted(set(wanted) - set(ACCOUNTS)):
         logger.warn(f"Unknown foothold account '{unknown}'; expected one of {', '.join(ACCOUNTS)}.")
-    main_ok = True
+    installed: dict[str, bool] = {}
     for account in ACCOUNTS:
-        if account not in wanted:
+        if account in wanted:
+            installed[account] = install_foothold(logger, account, unit_dir, run, burst_dir)
+        else:
             retire_foothold(logger, account, unit_dir, run)
-            continue
-        installed = install_foothold(logger, account, unit_dir, run, burst_dir)
-        if account == "main":
-            main_ok = installed
-    if main_ok:
+    if installed["main"] if "main" in installed else all(installed.values()):
         for preset_name in dict.fromkeys(legacy_presets):
             retire_legacy_foothold(logger, preset_name, unit_dir, run)
