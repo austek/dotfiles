@@ -177,7 +177,7 @@ def test_keeps_a_worktree_with_uncommitted_changes_and_its_branch(repo):
     result = repo.tidy("--yes")
     assert wt.exists()
     assert repo.branches() == ["feat", "main"]
-    assert "uncommitted changes" in result.stdout
+    assert "uncommitted or ignored files" in result.stdout
 
 
 def test_keeps_a_locked_worktree_and_its_branch(repo):
@@ -255,6 +255,61 @@ def test_detects_a_gone_upstream_without_pruning_the_tracking_ref(repo):
     result = repo.tidy("--dry-run")
     assert "lost  upstream is gone" in result.stdout
     assert "origin/lost" in repo.git("branch", "-r").stdout
+
+
+def test_keeps_a_worktree_holding_an_ignored_file(repo):
+    wt = repo.tmp / "wt-env"
+    repo.git("worktree", "add", "-q", str(wt), "-b", "feat")
+    repo.commit("feat", cwd=wt)
+    (wt / ".gitignore").write_text(".env\n")
+    repo.git("add", ".gitignore", cwd=wt)
+    repo.git("commit", "-q", "-m", "ignore", cwd=wt)
+    (wt / ".env").write_text("SECRET=1")
+    repo.merge("feat")
+    result = repo.tidy("--yes")
+    assert (wt / ".env").exists()
+    assert "feat" in repo.branches()
+    assert "ignored files" in result.stdout
+
+
+def test_a_configured_fetch_prune_does_not_prune(repo):
+    repo.git("switch", "-q", "-c", "lost")
+    repo.commit("lost")
+    repo.git("push", "-q", "-u", "origin", "lost")
+    repo.git("switch", "-q", "main")
+    other = repo.tmp / "other"
+    repo.git("clone", "-q", str(repo.origin), str(other), cwd=repo.tmp)
+    repo.git("push", "-q", "origin", "--delete", "lost", cwd=other)
+    repo.git("config", "fetch.prune", "true")
+    repo.tidy("--dry-run")
+    assert "origin/lost" in repo.git("branch", "-r").stdout
+
+
+def test_a_fully_qualified_remote_base_still_protects_its_local_branch(repo):
+    repo.git("switch", "-q", "-c", "release", "main")
+    repo.git("push", "-q", "-u", "origin", "release")
+    repo.git("switch", "-q", "main")
+    other = repo.tmp / "other"
+    repo.git("clone", "-q", str(repo.origin), str(other), cwd=repo.tmp)
+    repo.git("switch", "-q", "release", cwd=other)
+    repo.commit("ahead", cwd=other)
+    repo.git("push", "-q", "origin", "release", cwd=other)
+    repo.tidy("--yes", "--base", "refs/remotes/origin/release")
+    assert "release" in repo.branches()
+
+
+def test_keeps_a_branch_checked_out_in_two_worktrees(repo):
+    first = repo.tmp / "wt-a"
+    second = repo.tmp / "wt-b"
+    repo.git("worktree", "add", "-q", str(first), "-b", "feat")
+    repo.commit("feat", cwd=first)
+    repo.git("worktree", "add", "-q", "--force", str(second), "feat")
+    (second / "dirty").write_text("work")
+    repo.merge("feat")
+    result = repo.tidy("--yes")
+    assert "feat" in repo.branches()
+    assert (second / "dirty").exists()
+    assert "more than one worktree" in result.stdout
 
 
 def test_refuses_to_run_in_a_bare_repository(repo):

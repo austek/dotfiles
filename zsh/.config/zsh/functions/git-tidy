@@ -3,7 +3,7 @@
 # Usage: git-tidy [-n|--dry-run] [-y|--yes] [--no-fetch] [-b|--base <ref>]
 # The base defaults to origin's default branch. A branch is kept when it is main, master, develop or the base,
 # is checked out in the main or current worktree, still sits at the base tip (just created), or has a worktree
-# that is locked or has uncommitted changes. A branch whose upstream is gone but whose work is not in the base
+# that is locked or holds uncommitted or ignored files. A branch whose upstream is gone but whose work is not in the base
 # is listed and kept. Deleted branches print the commit they were at, so `git branch <name> <sha>` restores one.
 git-tidy() {
   emulate -L zsh
@@ -32,7 +32,12 @@ git-tidy() {
     return 1
   fi
 
-  if [[ -n $fetch ]] && ! git fetch --all --quiet; then
+  if ! git merge-tree --write-tree HEAD HEAD >/dev/null 2>&1; then
+    print -u2 -r -- 'git-tidy: git merge-tree --write-tree is unavailable (needs git 2.38 or newer)'
+    return 1
+  fi
+
+  if [[ -n $fetch ]] && ! git fetch --all --no-prune --quiet; then
     print -u2 -r -- 'git-tidy: fetch failed; using the refs already here'
   fi
 
@@ -51,9 +56,9 @@ git-tidy() {
     return 1
   fi
   base_tree=$(git rev-parse "$base^{tree}")
-  base_branch=$base
-  if git show-ref --verify --quiet "refs/remotes/$base"; then
-    base_branch=${base#*/}
+  base_branch=${${base#refs/remotes/}#refs/heads/}
+  if git show-ref --verify --quiet "refs/remotes/$base_branch"; then
+    base_branch=${base_branch#*/}
   fi
 
   # Branches never offered: the usual trunks plus whatever the main and current worktrees have checked out.
@@ -62,7 +67,7 @@ git-tidy() {
   current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null)
   local -a protected=(main master develop $base_branch $current_branch)
 
-  local -A worktree_for locked_wt
+  local -A worktree_for locked_wt multi_wt prunable_branch
   local -a prunable_paths
   local wt_list
   if ! wt_list=$(git worktree list --porcelain -z); then
@@ -83,9 +88,11 @@ git-tidy() {
           entry_index+=1
           if [[ -n $entry_prunable ]]; then
             prunable_paths+=$entry_path
+            [[ -z $entry_branch ]] || prunable_branch[$entry_branch]=1
           elif (( entry_index == 1 )) || [[ $entry_path == "$current_top" ]]; then
             [[ -z $entry_branch ]] || protected+=$entry_branch
           elif [[ -n $entry_branch ]]; then
+            [[ -z ${worktree_for[$entry_branch]-} ]] || multi_wt[$entry_branch]=1
             worktree_for[$entry_branch]=$entry_path
             [[ -z $entry_locked ]] || locked_wt[$entry_branch]=1
           fi
@@ -133,17 +140,21 @@ git-tidy() {
   done
   unmerged=("${still_unmerged[@]}")
 
-  local wt
+  local wt wt_status
   local -a remove_merged remove_squashed remove_worktrees skipped
   for branch in $merged $squashed; do
     wt=${worktree_for[$branch]-}
+    if [[ -n ${multi_wt[$branch]-} ]]; then
+      skipped+="$branch  it is checked out in more than one worktree"
+      continue
+    fi
     if [[ -n $wt ]]; then
       if [[ -n ${locked_wt[$branch]-} ]]; then
         skipped+="$branch  its worktree is locked ($wt)"
         continue
       fi
-      if [[ -n $(git -C "$wt" status --porcelain 2>/dev/null) ]]; then
-        skipped+="$branch  its worktree has uncommitted changes ($wt)"
+      if ! wt_status=$(git -C "$wt" status --porcelain --ignored 2>/dev/null) || [[ -n $wt_status ]]; then
+        skipped+="$branch  its worktree has uncommitted or ignored files, or cannot be read ($wt)"
         continue
       fi
       remove_worktrees+=$wt
@@ -209,11 +220,21 @@ git-tidy() {
   fi
 
   local -i failed=0
+  local -i prune_ok=1
   if (( ${#prunable_paths} )); then
-    git worktree prune || failed+=1
+    git worktree prune || prune_ok=0
+    [[ $(git worktree list --porcelain) != *$'\n'prunable* ]] || prune_ok=0
+    (( prune_ok )) || { print -u2 -r -- 'git-tidy: could not prune worktree records'; failed+=1; }
   fi
+  local checked_out
   for branch in $remove_merged $remove_squashed; do
     wt=${worktree_for[$branch]-}
+    checked_out=$(git for-each-ref --format='%(worktreepath)' "refs/heads/$branch")
+    if [[ -n $checked_out && $checked_out != "$wt" ]] || { (( ! prune_ok )) && [[ -n ${prunable_branch[$branch]-} ]]; }; then
+      print -u2 -r -- "git-tidy: $branch is in use or has a stale worktree record; keeping it"
+      failed+=1
+      continue
+    fi
     if [[ -n $wt ]] && (( ${remove_worktrees[(Ie)$wt]} )); then
       if ! git worktree remove "$wt"; then
         print -u2 -r -- "git-tidy: could not remove worktree $wt; keeping $branch"
