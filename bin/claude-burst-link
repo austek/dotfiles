@@ -32,7 +32,11 @@ done
 for entry in "$claude_home"/* "$claude_home"/.[!.]* "$claude_home"/..?*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
     name=${entry##*/}
-    case $name in .credentials.json | .claude.json | backups) continue ;; esac
+    # The account's identity, and the per-run state Claude Code keeps in every config dir: each account has its own.
+    case $name in
+        .credentials.json | .claude.json | backups) continue ;;
+        cache | chrome | feedback | file-history | session-env | sessions | shell-snapshots | state) continue ;;
+    esac
     link="$burst_dir/$name"
     if [ -L "$link" ] && [ "$(readlink -- "$link")" = "$entry" ]; then
         continue

@@ -206,6 +206,31 @@ def test_keeps_the_link_to_an_entry_that_is_a_broken_symlink(tmp_path):
     assert link.lstat().st_mtime_ns == 0
 
 
+RUNTIME_STATE = ("cache", "chrome", "feedback", "file-history", "session-env", "sessions", "shell-snapshots", "state")
+
+
+def test_keeps_each_accounts_own_runtime_state_without_a_warning(tmp_path):
+    claude = _home(tmp_path)
+    burst = tmp_path / ".claude-burst"
+    for name in RUNTIME_STATE:
+        (claude / name).mkdir()
+        (burst / name).mkdir(parents=True)
+        (burst / name / "mine").write_text(name)
+    result = _link(tmp_path)
+    assert result.stderr == ""
+    for name in RUNTIME_STATE:
+        assert not (burst / name).is_symlink()
+        assert (burst / name / "mine").read_text() == name
+
+
+def test_does_not_link_runtime_state_the_burst_dir_does_not_have_yet(tmp_path):
+    claude = _home(tmp_path)
+    for name in RUNTIME_STATE:
+        (claude / name).mkdir()
+    _link(tmp_path)
+    assert sorted(p.name for p in (tmp_path / ".claude-burst").iterdir()) == ["..odd", ".hidden", "projects", "settings.json"]
+
+
 def test_works_without_a_claude_home(tmp_path):
     _link(tmp_path)
     assert list((tmp_path / ".claude-burst").iterdir()) == []
