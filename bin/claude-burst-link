@@ -19,11 +19,14 @@ if [ -d "$claude_home" ] && [ "$(cd -P -- "$burst_dir" && pwd)" = "$(cd -P -- "$
     exit 1
 fi
 
-# Drop links whose ~/.claude target is gone.
+# Drop links whose ~/.claude entry is gone. An entry that is itself a broken symlink is still an entry, and
+# another launch's temporary link (below) is never touched.
 for link in "$burst_dir"/* "$burst_dir"/.[!.]* "$burst_dir"/..?*; do
-    if [ -L "$link" ] && [ ! -e "$link" ]; then
-        case $(readlink -- "$link") in "$claude_home"/*) rm -f -- "$link" ;; esac
-    fi
+    case ${link##*/} in .claude-burst-link.*) continue ;; esac
+    [ -L "$link" ] && [ ! -e "$link" ] || continue
+    target=$(readlink -- "$link")
+    case $target in "$claude_home"/*) ;; *) continue ;; esac
+    [ -L "$target" ] || rm -f -- "$link"
 done
 
 for entry in "$claude_home"/* "$claude_home"/.[!.]* "$claude_home"/..?*; do

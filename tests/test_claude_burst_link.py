@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -121,9 +122,9 @@ def test_leaves_a_correct_link_alone(tmp_path):
     _home(tmp_path)
     _link(tmp_path)
     link = tmp_path / ".claude-burst" / "settings.json"
-    before = link.lstat().st_ino
+    os.utime(link, ns=(0, 0), follow_symlinks=False)
     _link(tmp_path)
-    assert link.lstat().st_ino == before
+    assert link.lstat().st_mtime_ns == 0
 
 
 def test_refuses_a_burst_dir_that_is_the_main_dir(tmp_path):
@@ -171,6 +172,38 @@ def test_a_launch_that_loses_the_race_never_deletes_the_winners_link(tmp_path):
     assert not any(str(burst / name) in line for line in removed for name in ("..odd", ".hidden", "projects", "settings.json"))
     assert sorted(p.name for p in burst.iterdir()) == ["..odd", ".hidden", "projects", "settings.json"]
     assert all((burst / p.name).resolve() == (claude / p.name).resolve() for p in burst.iterdir())
+
+
+def test_a_launch_mid_rename_survives_another_launchs_cleanup(tmp_path):
+    claude = _home(tmp_path)
+    (claude / "broken").symlink_to(tmp_path / "nowhere")
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    # Before each rename, a second launch runs from start to finish, cleanup included.
+    (tools / "mv").write_text(
+        "#!/bin/sh\n"
+        f'[ -n "${{NESTED-}}" ] || NESTED=1 {SCRIPT} >/dev/null || exit 9\n'
+        f'exec {shutil.which("mv")} "$@"\n'
+    )
+    (tools / "mv").chmod(0o755)
+    result = subprocess.run(
+        [str(SCRIPT)], env={"HOME": str(tmp_path), "PATH": f"{tools}:/usr/bin:/bin"},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    burst = tmp_path / ".claude-burst"
+    assert sorted(p.name for p in burst.iterdir()) == ["..odd", ".hidden", "broken", "projects", "settings.json"]
+    assert (burst / "broken").is_symlink()
+
+
+def test_keeps_the_link_to_an_entry_that_is_a_broken_symlink(tmp_path):
+    claude = _home(tmp_path)
+    (claude / "broken").symlink_to(tmp_path / "nowhere")
+    _link(tmp_path)
+    link = tmp_path / ".claude-burst" / "broken"
+    os.utime(link, ns=(0, 0), follow_symlinks=False)
+    _link(tmp_path)
+    assert link.lstat().st_mtime_ns == 0
 
 
 def test_works_without_a_claude_home(tmp_path):
