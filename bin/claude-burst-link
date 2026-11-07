@@ -10,6 +10,10 @@ claude_home="$HOME/.claude"
 burst_dir="$HOME/.claude-burst"
 
 mkdir -p -- "$burst_dir"
+if [ -d "$claude_home" ] && [ "$(cd -P -- "$burst_dir" && pwd)" = "$(cd -P -- "$claude_home" && pwd)" ]; then
+    echo "claude-burst: $burst_dir is $claude_home; make it a separate directory" >&2
+    exit 1
+fi
 
 # Drop links whose ~/.claude target is gone.
 for link in "$burst_dir"/* "$burst_dir"/.[!.]* "$burst_dir"/..?*; do

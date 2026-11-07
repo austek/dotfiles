@@ -111,7 +111,7 @@ def _restart(tmp_path, account="main", dry_run=False, run=None):
 
 PROBE = ("curl", "-s", "--max-time", "5", "-o", "/dev/null", foothold.NETWORK_PROBE_URL)
 RELOAD = ("systemctl", "--user", "daemon-reload")
-RESTART = ("systemctl", "--user", "restart", "claude-foothold.service")
+RESTART = ("systemd-run", "--user", "--wait", "--collect", "--quiet", "--", "systemctl", "--user", "restart", "claude-foothold.service")
 
 
 def test_restart_probes_the_network_then_reloads_and_restarts_without_touching_tmux(tmp_path):
@@ -312,26 +312,29 @@ def test_retire_dry_run_changes_nothing(tmp_path):
     assert (tmp_path / "claude-foothold.service").is_file()
 
 
-def test_retire_legacy_removes_the_preset_named_unit_and_session(tmp_path):
-    (tmp_path / "claude-foothold-work.service").write_text("old")
+def test_retire_legacy_removes_every_preset_named_unit_and_session(tmp_path):
+    for preset in ("work", "homelab"):
+        (tmp_path / f"claude-foothold-{preset}.service").write_text("old")
     run, calls = _recording_run()
-    foothold.retire_legacy_foothold(Logger(dry_run=False), "work", unit_dir=tmp_path, run=run)
+    foothold.retire_legacy_footholds(Logger(dry_run=False), unit_dir=tmp_path, run=run)
     assert ("tmux", "kill-session", "-t", "=claude-foothold-work") in calls
-    assert not (tmp_path / "claude-foothold-work.service").exists()
+    assert ("tmux", "kill-session", "-t", "=claude-foothold-homelab") in calls
+    assert _units(tmp_path) == []
 
 
 def test_retire_legacy_never_touches_an_account_unit(tmp_path):
+    _installed_unit(tmp_path, "main")
     _installed_unit(tmp_path, "burst")
     run, calls = _recording_run()
-    foothold.retire_legacy_foothold(Logger(dry_run=False), "burst", unit_dir=tmp_path, run=run)
+    foothold.retire_legacy_footholds(Logger(dry_run=False), unit_dir=tmp_path, run=run)
     assert calls == []
-    assert (tmp_path / "claude-foothold-burst.service").is_file()
+    assert _units(tmp_path) == ["claude-foothold-burst.service", "claude-foothold.service"]
 
 
-def _sync(tmp_path, wanted, legacy=(), run=None, burst_dir=None):
+def _sync(tmp_path, wanted, run=None, burst_dir=None):
     run = run or _recording_run()[0]
     foothold.sync_footholds(
-        Logger(dry_run=False), wanted, legacy, unit_dir=tmp_path, run=run, burst_dir=burst_dir or tmp_path / "no-burst",
+        Logger(dry_run=False), wanted, unit_dir=tmp_path, run=run, burst_dir=burst_dir or tmp_path / "no-burst",
     )
 
 
@@ -341,38 +344,46 @@ def _units(tmp_path):
 
 def test_sync_installs_both_accounts_and_retires_the_legacy_unit(tmp_path):
     (tmp_path / "claude-foothold-homelab.service").write_text("old")
-    _sync(tmp_path, ("main", "burst"), ("homelab",), burst_dir=_logged_in_burst(tmp_path))
+    _sync(tmp_path, ("main", "burst"), burst_dir=_logged_in_burst(tmp_path))
     assert _units(tmp_path) == ["claude-foothold-burst.service", "claude-foothold.service"]
 
 
 def test_sync_without_a_burst_login_still_installs_main_and_retires_the_legacy_unit(tmp_path):
     (tmp_path / "claude-foothold-homelab.service").write_text("old")
-    _sync(tmp_path, ("main", "burst"), ("homelab",))
+    _sync(tmp_path, ("main", "burst"))
     assert _units(tmp_path) == ["claude-foothold.service"]
 
 
 def test_sync_with_no_footholds_retires_every_unit(tmp_path):
     for name in ("claude-foothold.service", "claude-foothold-burst.service", "claude-foothold-work.service"):
         (tmp_path / name).write_text("old")
-    _sync(tmp_path, (), ("work",))
+    _sync(tmp_path, ())
     assert _units(tmp_path) == []
 
 
 def test_sync_keeps_the_legacy_unit_when_main_fails_to_install(tmp_path):
     (tmp_path / "claude-foothold-homelab.service").write_text("old")
-    _sync(tmp_path, ("main",), ("homelab",), run=_recording_run(returncode=1, fail_on="systemctl")[0])
+    _sync(tmp_path, ("main",), run=_recording_run(returncode=1, fail_on="systemctl")[0])
     assert "claude-foothold-homelab.service" in _units(tmp_path)
 
 
 def test_sync_keeps_the_legacy_unit_when_a_burst_only_preset_cannot_start_burst(tmp_path):
     (tmp_path / "claude-foothold-homelab.service").write_text("old")
-    _sync(tmp_path, ("burst",), ("homelab",))
+    _sync(tmp_path, ("burst",))
     assert _units(tmp_path) == ["claude-foothold-homelab.service"]
 
 
 def test_sync_retires_the_legacy_unit_once_a_burst_only_preset_starts_burst(tmp_path):
     (tmp_path / "claude-foothold-homelab.service").write_text("old")
-    _sync(tmp_path, ("burst",), ("homelab",), burst_dir=_logged_in_burst(tmp_path))
+    _sync(tmp_path, ("burst",), burst_dir=_logged_in_burst(tmp_path))
+    assert _units(tmp_path) == ["claude-foothold-burst.service"]
+
+
+def test_a_legacy_unit_left_by_a_failed_install_is_retired_on_a_later_one(tmp_path):
+    (tmp_path / "claude-foothold-oldpreset.service").write_text("old")
+    _sync(tmp_path, ("burst",))
+    assert "claude-foothold-oldpreset.service" in _units(tmp_path)
+    _sync(tmp_path, ("burst",), burst_dir=_logged_in_burst(tmp_path))
     assert _units(tmp_path) == ["claude-foothold-burst.service"]
 
 

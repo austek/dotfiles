@@ -41,9 +41,10 @@ def remote_control_name(account: str) -> str:
     return "%H" if account == "main" else f"%H-{account}"
 
 
-def _legacy_unit_name(preset_name: str) -> str:
-    """Units were named after the preset before they were named after the hostname."""
-    return f"claude-foothold-{preset_name}.service"
+def _legacy_units(unit_dir: Path) -> list[Path]:
+    """Units were named after the preset (claude-foothold-<preset>.service) before they were named after the hostname."""
+    current = {unit_name(account) for account in ACCOUNTS}
+    return sorted(u for u in unit_dir.glob("claude-foothold-*.service") if u.name not in current)
 
 
 def _launch_command(account: str) -> str:
@@ -131,12 +132,10 @@ def retire_foothold(logger: Logger, account: str, unit_dir: Path = UNIT_DIR, run
     _retire_unit(logger, unit_dir / unit_name(account), session_name(account), run)
 
 
-def retire_legacy_foothold(logger: Logger, preset_name: str, unit_dir: Path = UNIT_DIR, run=subprocess.run) -> None:
-    """Retires the preset-named unit an older install wrote. No-op without that unit."""
-    if preset_name in ACCOUNTS:
-        return
-    unit = unit_dir / _legacy_unit_name(preset_name)
-    _retire_unit(logger, unit, unit.name.removesuffix(".service"), run)
+def retire_legacy_footholds(logger: Logger, unit_dir: Path = UNIT_DIR, run=subprocess.run) -> None:
+    """Retires every preset-named unit an older install wrote, whichever preset it was for."""
+    for unit in _legacy_units(unit_dir):
+        _retire_unit(logger, unit, unit.name.removesuffix(".service"), run)
 
 
 def _rewrite_if_stale(unit: Path, account: str, logger: Logger) -> None:
@@ -154,9 +153,12 @@ def _network_up(logger: Logger, run) -> bool:
 def _reload_and_restart(units: list[tuple[Path, str]], logger: Logger, run) -> bool:
     for unit, account in units:
         _rewrite_if_stale(unit, account, logger)
-    # One restart call queues every job in systemd before any session stops, so running this from inside
-    # a foothold session that the restart ends still restarts the others.
-    restart = ("systemctl", "--user", "restart", *(unit.name for unit, _ in units))
+    # systemctl asks for each unit's restart in turn, and ending a foothold session kills a caller running in it
+    # before it asks for the next. A transient unit outside every session issues them all; --wait keeps the result.
+    restart = (
+        "systemd-run", "--user", "--wait", "--collect", "--quiet", "--",
+        "systemctl", "--user", "restart", *(unit.name for unit, _ in units),
+    )
     commands = (("systemctl", "--user", "daemon-reload"), restart)
     return all(_run_command(argv, logger, run) for argv in commands)
 
@@ -226,13 +228,13 @@ def install_foothold(
 
 
 def sync_footholds(
-    logger: Logger, wanted: tuple[str, ...], legacy_presets: tuple[str, ...],
-    unit_dir: Path = UNIT_DIR, run=subprocess.run, burst_dir: Path = BURST_DIR,
+    logger: Logger, wanted: tuple[str, ...], unit_dir: Path = UNIT_DIR, run=subprocess.run, burst_dir: Path = BURST_DIR,
 ) -> None:
     """Installs the wanted accounts' units and retires the rest, plus any preset-named unit an older install wrote.
 
     A legacy unit ran the main account, so it is retired once the main unit is up, or, for a preset without
-    main, once every wanted unit is up (with none wanted, at once). Otherwise it keeps running until a later install.
+    main, once every wanted unit is up (with none wanted, at once). Otherwise it keeps running until a later install
+    finds it again by name.
     """
     for unknown in sorted(set(wanted) - set(ACCOUNTS)):
         logger.warn(f"Unknown foothold account '{unknown}'; expected one of {', '.join(ACCOUNTS)}.")
@@ -243,5 +245,4 @@ def sync_footholds(
         else:
             retire_foothold(logger, account, unit_dir, run)
     if installed["main"] if "main" in installed else all(installed.values()):
-        for preset_name in dict.fromkeys(legacy_presets):
-            retire_legacy_foothold(logger, preset_name, unit_dir, run)
+        retire_legacy_footholds(logger, unit_dir, run)

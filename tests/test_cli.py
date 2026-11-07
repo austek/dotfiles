@@ -129,7 +129,7 @@ def foothold_syncs(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "dotfiles_setup.cli.foothold.sync_footholds",
-        lambda logger, wanted, legacy: calls.append((wanted, legacy)),
+        lambda logger, wanted: calls.append(wanted),
     )
     return calls
 
@@ -904,12 +904,12 @@ def test_install_updates_claude_plugins_after_a_successful_install(isolated_dotf
 
 def test_install_sets_up_the_presets_footholds(isolated_dotfiles, foothold_syncs):
     assert main(["install", "--preset", "homelab"]) == 0
-    assert foothold_syncs == [(("main", "burst"), ("homelab",))]
+    assert foothold_syncs == [("main", "burst")]
 
 
 def test_install_of_a_preset_without_footholds_asks_for_none(isolated_dotfiles, foothold_syncs):
     assert main(["install", "--preset", "work"]) == 0
-    assert foothold_syncs == [((), ("work",))]
+    assert foothold_syncs == [()]
 
 
 def _add_preset(dotfiles_dir, name):
@@ -922,12 +922,12 @@ def _add_preset(dotfiles_dir, name):
     (dotfiles_dir / "claude-profiles" / f"claude_{name}.json").write_text(json.dumps({"enabledPlugins": {}}))
 
 
-def test_install_passes_both_preset_names_for_legacy_retirement_when_the_preset_changes(isolated_dotfiles, foothold_syncs):
+def test_install_syncs_the_new_presets_footholds_when_the_preset_changes(isolated_dotfiles, foothold_syncs):
     dotfiles_dir, _ = isolated_dotfiles
     _add_preset(dotfiles_dir, "personal")
     assert main(["install", "--preset", "homelab"]) == 0
     assert main(["install", "--preset", "personal"]) == 0
-    assert foothold_syncs[-1] == ((), ("personal", "homelab"))
+    assert foothold_syncs == [("main", "burst"), ()]
 
 
 def test_install_skips_the_foothold_when_the_install_fails(isolated_dotfiles, foothold_syncs, monkeypatch):
@@ -1172,7 +1172,7 @@ def test_switching_presets_retires_the_old_optout_file_and_regenerates_state(iso
     assert main(["install", "--preset", "personal"]) == 0
     assert not old.exists()
     assert state.load_state().preset_name == "personal"
-    assert foothold_syncs[-1][1] == ("personal", "homelab")
+    assert foothold_syncs[-1] == ()
 
 
 def _ask(answer):

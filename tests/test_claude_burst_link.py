@@ -125,6 +125,18 @@ def test_leaves_a_correct_link_alone(tmp_path):
     assert link.lstat().st_ino == before
 
 
+def test_refuses_a_burst_dir_that_is_the_main_dir(tmp_path):
+    _home(tmp_path)
+    (tmp_path / ".claude-burst").symlink_to(tmp_path / ".claude")
+    result = subprocess.run(
+        [str(SCRIPT)], env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 1
+    assert "make it a separate directory" in result.stderr
+    assert sorted(p.name for p in (tmp_path / ".claude").iterdir() if p.is_symlink()) == []
+    assert (tmp_path / ".claude" / "settings.json").read_text() == "settings.json"
+
+
 def test_works_without_a_claude_home(tmp_path):
     _link(tmp_path)
     assert list((tmp_path / ".claude-burst").iterdir()) == []

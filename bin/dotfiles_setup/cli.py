@@ -323,9 +323,8 @@ def _save_state(
     ), state.state_file(env.state_dir))
 
 
-def _sync_foothold(logger: Logger, preset: Preset, prior: state.MachineState | None) -> None:
-    legacy = (preset.name, prior.preset_name) if prior else (preset.name,)
-    foothold.sync_footholds(logger, preset.footholds, legacy)
+def _sync_foothold(logger: Logger, preset: Preset) -> None:
+    foothold.sync_footholds(logger, preset.footholds)
 
 
 def _run_install(args: argparse.Namespace, env: Env) -> int:
@@ -630,7 +629,7 @@ def _finish_install(
     inputs: install_flow.FlowInputs,
 ) -> int:
     claude_plugins.update_claude_plugins(logger, claude_settings)
-    _sync_foothold(logger, plan.preset, plan.prior)
+    _sync_foothold(logger, plan.preset)
     if not (args.dry_run or _persist(logger, env, plan, inputs)):
         return 1
     install_flow.print_completion_banner(logger)
