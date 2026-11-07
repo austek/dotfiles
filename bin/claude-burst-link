@@ -1,0 +1,37 @@
+#!/bin/sh
+# Prepares the burst config dir ($CLAUDE_BURST_DIR, default ~/.claude-burst) for a second Claude account
+# and prints its path. Every ~/.claude entry except the login (.credentials.json, and the backups dir of
+# timestamped .claude.json copies) is symlinked in, so the burst account shares the generated settings.json,
+# sessions and plugins and keeps only its own .credentials.json and .claude.json. Run on every launch, so
+# entries created since the last one are picked up. Used by claude-burst and claude-foothold-launch.
+set -eu
+
+claude_home="$HOME/.claude"
+burst_dir="${CLAUDE_BURST_DIR:-$HOME/.claude-burst}"
+
+mkdir -p -- "$burst_dir"
+
+# Drop links whose ~/.claude target is gone.
+for link in "$burst_dir"/* "$burst_dir"/.[!.]* "$burst_dir"/..?*; do
+    if [ -L "$link" ] && [ ! -e "$link" ]; then
+        case $(readlink -- "$link") in "$claude_home"/*) rm -f -- "$link" ;; esac
+    fi
+done
+
+for entry in "$claude_home"/* "$claude_home"/.[!.]* "$claude_home"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    case $name in .credentials.json | backups) continue ;; esac
+    link="$burst_dir/$name"
+    # A regular file here is one claude wrote over the link; the shared copy wins.
+    if [ -L "$link" ] || [ -f "$link" ]; then
+        rm -f -- "$link"
+    fi
+    if [ -e "$link" ]; then
+        echo "claude-burst: $link is a real directory, so burst keeps its own copy; remove it to share ~/.claude/$name" >&2
+        continue
+    fi
+    ln -s -- "$entry" "$link"
+done
+
+printf '%s\n' "$burst_dir"

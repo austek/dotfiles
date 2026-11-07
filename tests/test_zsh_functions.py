@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 FUNCTIONS = Path(__file__).resolve().parent.parent / "zsh" / ".config" / "zsh" / "functions"
+REPO_BIN = Path(__file__).resolve().parent.parent / "bin"
 
 pytestmark = pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
 
@@ -21,7 +22,7 @@ def _run(tmp_path: Path, script: str, env: dict[str, str] | None = None) -> subp
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     full_env = {
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "PATH": f"{bin_dir}:{REPO_BIN}:{os.environ['PATH']}",
         "HOME": str(tmp_path / "home"),
         "LOG": str(tmp_path / "log"),
         **(env or {}),
@@ -106,62 +107,6 @@ def test_claude_burst_runs_claude_with_its_own_config_dir(tmp_path):
     result = _run(tmp_path, "claude-burst --resume abc")
     assert result.returncode == 0
     assert _log(tmp_path) == ["claude --resume abc", f"cfg {tmp_path / 'home' / '.claude-burst'}"]
-
-
-def test_claude_burst_links_everything_except_credentials_and_backups(tmp_path):
-    _claude_stub(tmp_path)
-    claude = _claude_home(tmp_path)
-    _run(tmp_path, "claude-burst")
-    burst = tmp_path / "home" / ".claude-burst"
-    assert sorted(p.name for p in burst.iterdir()) == [".hidden", "projects", "settings.json"]
-    assert all(p.is_symlink() for p in burst.iterdir())
-    assert (burst / "settings.json").resolve() == (claude / "settings.json").resolve()
-
-
-def test_claude_burst_keeps_its_own_login_and_replaces_overwritten_links(tmp_path):
-    _claude_stub(tmp_path)
-    claude = _claude_home(tmp_path)
-    burst = tmp_path / "home" / ".claude-burst"
-    burst.mkdir()
-    (burst / ".credentials.json").write_text("burst-login")
-    (burst / ".claude.json").write_text("burst-account")
-    (burst / "settings.json").write_text("written over the link")
-    _run(tmp_path, "claude-burst")
-    assert (burst / ".credentials.json").read_text() == "burst-login"
-    assert (burst / ".claude.json").read_text() == "burst-account"
-    assert (burst / "settings.json").resolve() == (claude / "settings.json").resolve()
-
-
-def test_claude_burst_picks_up_new_entries_and_drops_dangling_links(tmp_path):
-    _claude_stub(tmp_path)
-    claude = _claude_home(tmp_path)
-    _run(tmp_path, "claude-burst")
-    (claude / ".hidden").unlink()
-    (claude / "plugins").mkdir()
-    _run(tmp_path, "claude-burst")
-    burst = tmp_path / "home" / ".claude-burst"
-    assert sorted(p.name for p in burst.iterdir()) == ["plugins", "projects", "settings.json"]
-
-
-def test_claude_burst_leaves_a_real_directory_alone_with_a_warning(tmp_path):
-    _claude_stub(tmp_path)
-    _claude_home(tmp_path)
-    own = tmp_path / "home" / ".claude-burst" / "projects"
-    own.mkdir(parents=True)
-    (own / "session.jsonl").write_text("burst")
-    result = _run(tmp_path, "claude-burst")
-    assert not own.is_symlink()
-    assert (own / "session.jsonl").read_text() == "burst"
-    assert "burst keeps its own copy" in result.stderr
-
-
-def test_claude_burst_honours_claude_burst_dir(tmp_path):
-    _claude_stub(tmp_path, 'echo "cfg $CLAUDE_CONFIG_DIR" >> "$LOG"')
-    _claude_home(tmp_path)
-    custom = tmp_path / "elsewhere"
-    _run(tmp_path, "claude-burst", env={"CLAUDE_BURST_DIR": str(custom)})
-    assert f"cfg {custom}" in _log(tmp_path)
-    assert (custom / "settings.json").is_symlink()
 
 
 def _two_accounts(tmp_path: Path) -> tuple[Path, Path]:

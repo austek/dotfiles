@@ -1,35 +1,8 @@
 # Runs claude on a second account (burst) that shares everything in ~/.claude except its login.
-# The burst config dir ($CLAUDE_BURST_DIR, default ~/.claude-burst) holds its own .credentials.json
-# and .claude.json; every other ~/.claude entry, including the generated settings.json, sessions and
-# plugins, is symlinked in on each launch, so entries created since the last launch are picked up.
-# Log in once with `claude-burst` then /login. Usage: claude-burst [<claude-args...>]
+# claude-burst-link (in ~/.dotfiles/bin) prepares the config dir, $CLAUDE_BURST_DIR or ~/.claude-burst, on
+# each launch. Log in once with `claude-burst` then /login. Usage: claude-burst [<claude-args...>]
 claude-burst() {
-  local claude_home=$HOME/.claude
-  local burst_dir=${CLAUDE_BURST_DIR:-$HOME/.claude-burst}
-  # Credentials and the timestamped .claude.json backups carry auth; neither may reach the burst profile.
-  local -a excluded=(.credentials.json backups)
-
-  mkdir -p -- "$burst_dir" || return
-
-  local link
-  # Drop links whose ~/.claude target is gone.
-  for link in "$burst_dir"/*(N-@D); do
-    [[ $(readlink -- "$link") == $claude_home/* ]] && rm -f -- "$link"
-  done
-
-  local entry name
-  for entry in "$claude_home"/*(ND); do
-    name=${entry:t}
-    (( ${excluded[(Ie)$name]} )) && continue
-    link=$burst_dir/$name
-    # A regular file here is one claude wrote over the link; the shared copy wins.
-    [[ -L $link || -f $link ]] && rm -f -- "$link"
-    if [[ -e $link ]]; then
-      print -u2 "claude-burst: $link is a real directory, so burst keeps its own copy; remove it to share ~/.claude/$name"
-      continue
-    fi
-    ln -s -- "$entry" "$link"
-  done
-
+  local burst_dir
+  burst_dir=$(claude-burst-link) || return
   claude-tmux burst env CLAUDE_CONFIG_DIR="$burst_dir" claude "$@"
 }

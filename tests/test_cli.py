@@ -125,11 +125,11 @@ def plugin_updates(monkeypatch):
 
 
 @pytest.fixture
-def foothold_installs(monkeypatch):
+def foothold_syncs(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        "dotfiles_setup.cli.foothold.install_foothold",
-        lambda logger, preset_name: calls.append(preset_name) or True,
+        "dotfiles_setup.cli.foothold.sync_footholds",
+        lambda logger, wanted, legacy: calls.append((wanted, legacy)),
     )
     return calls
 
@@ -142,13 +142,6 @@ def stub_subprocess(monkeypatch, returncode=0, stdout="installed", stderr="", ca
         return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
 
     monkeypatch.setattr("dotfiles_setup.tooling.subprocess.run", run)
-    return calls
-
-
-@pytest.fixture
-def foothold_retirements(monkeypatch):
-    calls = []
-    monkeypatch.setattr("dotfiles_setup.cli.foothold.retire_foothold", lambda logger, preset_name: calls.append(preset_name))
     return calls
 
 
@@ -166,7 +159,7 @@ def flow_calls(monkeypatch):
 
 
 @pytest.fixture
-def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothold_installs, foothold_retirements):
+def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothold_syncs):
     """A minimal fake dotfiles_dir with one preset + its package files, plus
     state/overlay redirected into tmp_path so tests never touch the real
     machine's ~/.config/dotfiles or ~/.dotfiles-private."""
@@ -179,6 +172,7 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
         "package_files": ["apt_common.txt"],
         "backend_overrides": {},
         "claude_settings": "claude_homelab.json",
+        "footholds": ["main", "burst"],
     }))
     (dotfiles_dir / "presets" / "work.json").write_text(json.dumps({"package_files": ["apt_common.txt"]}))
     (dotfiles_dir / "packages" / "apt_common.txt").write_text("zsh\ncurl\n")
@@ -862,7 +856,7 @@ def test_install_expands_home_in_the_generated_env_and_its_drift_baseline(
 
 
 def test_install_stops_when_settings_were_edited_since_the_last_install(
-    isolated_dotfiles, plugin_updates, foothold_installs, tmp_path, capsys,
+    isolated_dotfiles, plugin_updates, foothold_syncs, tmp_path, capsys,
 ):
     settings = _install_then_edit_settings(tmp_path)
     edited = settings.read_text()
@@ -870,7 +864,7 @@ def test_install_stops_when_settings_were_edited_since_the_last_install(
     assert settings.read_text() == edited
     assert not list(settings.parent.glob("settings.json.bak-*"))
     assert len(plugin_updates) == 1
-    assert len(foothold_installs) == 1
+    assert len(foothold_syncs) == 1
     assert '+  "hand": "edited"' in capsys.readouterr().out
 
 
@@ -908,9 +902,14 @@ def test_install_updates_claude_plugins_after_a_successful_install(isolated_dotf
     assert len(plugin_updates) == 1
 
 
-def test_install_sets_up_the_foothold_for_the_preset(isolated_dotfiles, foothold_installs):
+def test_install_sets_up_the_presets_footholds(isolated_dotfiles, foothold_syncs):
     assert main(["install", "--preset", "homelab"]) == 0
-    assert foothold_installs == ["homelab"]
+    assert foothold_syncs == [(("main", "burst"), ("homelab",))]
+
+
+def test_install_of_a_preset_without_footholds_asks_for_none(isolated_dotfiles, foothold_syncs):
+    assert main(["install", "--preset", "work"]) == 0
+    assert foothold_syncs == [((), ("work",))]
 
 
 def _add_preset(dotfiles_dir, name):
@@ -923,34 +922,18 @@ def _add_preset(dotfiles_dir, name):
     (dotfiles_dir / "claude-profiles" / f"claude_{name}.json").write_text(json.dumps({"enabledPlugins": {}}))
 
 
-def test_install_retires_the_previous_presets_foothold_when_the_preset_changes(isolated_dotfiles, foothold_retirements):
+def test_install_passes_both_preset_names_for_legacy_retirement_when_the_preset_changes(isolated_dotfiles, foothold_syncs):
     dotfiles_dir, _ = isolated_dotfiles
     _add_preset(dotfiles_dir, "personal")
     assert main(["install", "--preset", "homelab"]) == 0
-    assert foothold_retirements == []
     assert main(["install", "--preset", "personal"]) == 0
-    assert foothold_retirements == ["homelab"]
+    assert foothold_syncs[-1] == ((), ("personal", "homelab"))
 
 
-def test_install_keeps_the_previous_foothold_when_the_replacement_fails(isolated_dotfiles, foothold_retirements, monkeypatch):
-    dotfiles_dir, _ = isolated_dotfiles
-    _add_preset(dotfiles_dir, "personal")
-    assert main(["install", "--preset", "homelab"]) == 0
-    monkeypatch.setattr("dotfiles_setup.cli.foothold.install_foothold", lambda logger, preset_name: False)
-    assert main(["install", "--preset", "personal"]) == 0
-    assert foothold_retirements == []
-
-
-def test_install_keeps_the_foothold_when_the_preset_is_unchanged(isolated_dotfiles, foothold_retirements):
-    assert main(["install", "--preset", "homelab"]) == 0
-    assert main(["install", "--preset", "homelab"]) == 0
-    assert foothold_retirements == []
-
-
-def test_install_skips_the_foothold_when_the_install_fails(isolated_dotfiles, foothold_installs, monkeypatch):
+def test_install_skips_the_foothold_when_the_install_fails(isolated_dotfiles, foothold_syncs, monkeypatch):
     fail_flow(monkeypatch, "boom")
     main(["install", "--preset", "homelab"])
-    assert foothold_installs == []
+    assert foothold_syncs == []
 
 
 def test_install_skips_claude_plugin_update_when_the_install_fails(isolated_dotfiles, plugin_updates, monkeypatch):
@@ -1072,19 +1055,17 @@ def test_foothold_requires_subcommand():
         parser.parse_args(["foothold"])
 
 
-def test_main_foothold_restart_restarts_the_saved_presets_foothold(tmp_path, monkeypatch):
-    _save_preset(tmp_path, "work")
+def test_main_foothold_restart_restarts_the_installed_footholds(tmp_path, monkeypatch):
+    _save_preset(tmp_path, "homelab")
     restarted = []
-    monkeypatch.setattr(
-        "dotfiles_setup.cli.foothold.restart_foothold", lambda logger, preset, run: restarted.append(preset) or True
-    )
+    monkeypatch.setattr("dotfiles_setup.cli.foothold.restart_footholds", lambda logger, run: restarted.append(run) or True)
     assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 0
-    assert restarted == ["work"]
+    assert len(restarted) == 1
 
 
 def test_main_foothold_restart_fails_when_the_restart_fails(tmp_path, monkeypatch):
-    _save_preset(tmp_path, "work")
-    monkeypatch.setattr("dotfiles_setup.cli.foothold.restart_foothold", lambda logger, preset, run: False)
+    _save_preset(tmp_path, "homelab")
+    monkeypatch.setattr("dotfiles_setup.cli.foothold.restart_footholds", lambda logger, run: False)
     assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 1
 
 
@@ -1183,7 +1164,7 @@ def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):
     assert not (tmp_path / "state" / "claude-profiles").exists()
 
 
-def test_switching_presets_retires_the_old_optout_file_and_regenerates_state(isolated_dotfiles, foothold_retirements):
+def test_switching_presets_retires_the_old_optout_file_and_regenerates_state(isolated_dotfiles, foothold_syncs):
     dotfiles_dir, tmp_path = isolated_dotfiles
     _add_preset(dotfiles_dir, "personal")
     old = _write_optouts(tmp_path, f"{optouts.HEADER}\ncurl\n")
@@ -1191,7 +1172,7 @@ def test_switching_presets_retires_the_old_optout_file_and_regenerates_state(iso
     assert main(["install", "--preset", "personal"]) == 0
     assert not old.exists()
     assert state.load_state().preset_name == "personal"
-    assert foothold_retirements == ["homelab"]
+    assert foothold_syncs[-1][1] == ("personal", "homelab")
 
 
 def _ask(answer):

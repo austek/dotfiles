@@ -23,73 +23,95 @@ def _recording_run(returncode=0, stderr="", fail_on=None):
     return run, calls
 
 
-def _install(tmp_path, preset="homelab", dry_run=False, run=None):
+def _install(tmp_path, account="main", dry_run=False, run=None, burst_dir=None):
     run = run or _recording_run()[0]
-    return foothold.install_foothold(Logger(dry_run=dry_run), preset, unit_dir=tmp_path, run=run)
+    return foothold.install_foothold(
+        Logger(dry_run=dry_run), account, unit_dir=tmp_path, run=run, burst_dir=burst_dir or tmp_path / "no-burst",
+    )
 
 
-def test_names_append_the_preset_to_foothold():
-    assert foothold.foothold_name("work") == "foothold-work"
-    assert foothold.session_name("work") == "claude-foothold-work"
-    assert foothold.unit_name("work") == "claude-foothold-work.service"
+def _logged_in_burst(tmp_path):
+    burst = tmp_path / "burst"
+    burst.mkdir(exist_ok=True)
+    (burst / ".credentials.json").write_text("{}")
+    return burst
 
 
-def test_rendered_unit_launches_the_named_remote_control_session():
-    unit = foothold.render_unit("personal")
-    assert "claude-foothold-launch foothold-personal'" in unit
+def test_main_names_are_plain_foothold_and_the_hostname():
+    assert foothold.session_name("main") == "claude-foothold"
+    assert foothold.unit_name("main") == "claude-foothold.service"
+    assert foothold.remote_control_name("main") == "%H"
+
+
+def test_burst_names_append_burst():
+    assert foothold.session_name("burst") == "claude-foothold-burst"
+    assert foothold.unit_name("burst") == "claude-foothold-burst.service"
+    assert foothold.remote_control_name("burst") == "%H-burst"
+
+
+def test_rendered_main_unit_names_the_remote_control_session_after_the_hostname():
+    unit = foothold.render_unit("main")
+    assert "claude-foothold-launch %H'" in unit
     assert "--settings" not in unit
-    assert "tmux new-session -d -s claude-foothold-personal" in unit
+    assert "tmux new-session -d -s claude-foothold -c" in unit
+
+
+def test_rendered_burst_unit_runs_the_burst_account_as_hostname_burst():
+    unit = foothold.render_unit("burst")
+    assert "claude-foothold-launch %H-burst burst'" in unit
+    assert "tmux new-session -d -s claude-foothold-burst -c" in unit
+    assert "ExecStop=-/usr/bin/env tmux kill-session -t =claude-foothold-burst\n" in unit
 
 
 def test_rendered_unit_waits_for_connectivity_before_launching():
-    unit = foothold.render_unit("personal")
+    unit = foothold.render_unit("main")
     assert unit.index("ExecStartPre=") < unit.index("ExecStart=/bin/sh")
     assert foothold.NETWORK_PROBE_URL in unit
     assert "TimeoutStartSec=300" in unit
 
 
 def test_rendered_unit_quotes_the_working_directory_for_the_shell():
-    assert '-c "%h/Workspace"' in foothold.render_unit("personal")
+    assert '-c "%h/Workspace"' in foothold.render_unit("main")
 
 
 def test_rendered_unit_resolves_curl_through_path():
-    assert "ExecStartPre=/usr/bin/env curl " in foothold.render_unit("personal")
+    assert "ExecStartPre=/usr/bin/env curl " in foothold.render_unit("main")
 
 
 def test_rendered_unit_retries_after_a_failed_connectivity_probe():
-    unit = foothold.render_unit("personal")
+    unit = foothold.render_unit("main")
     assert "Restart=on-failure" in unit
     assert "RestartSec=30" in unit
 
 
 def test_rendered_unit_puts_the_sonarqube_cli_on_path():
-    assert "%h/.local/share/sonarqube-cli/bin" in foothold.render_unit("personal")
+    assert "%h/.local/share/sonarqube-cli/bin" in foothold.render_unit("main")
 
 
 def test_rendered_unit_loads_the_secrets_env_file_optionally():
-    assert "EnvironmentFile=-%h/.config/dotfiles/secrets.env" in foothold.render_unit("personal")
+    assert "EnvironmentFile=-%h/.config/dotfiles/secrets.env" in foothold.render_unit("main")
 
 
 def test_rendered_unit_launches_claude_through_the_launcher():
-    unit = foothold.render_unit("personal")
+    unit = foothold.render_unit("main")
     assert "%h/.dotfiles/bin/claude-foothold-launch" in unit
     assert "claude --remote-control" not in unit
 
 
-def _installed_unit(tmp_path, preset="homelab", content=None):
-    unit = tmp_path / foothold.unit_name(preset)
-    unit.write_text(foothold.render_unit(preset) if content is None else content)
+def _installed_unit(tmp_path, account="main", content=None):
+    unit = tmp_path / foothold.unit_name(account)
+    unit.write_text(foothold.render_unit(account) if content is None else content)
     return unit
 
 
-def _restart(tmp_path, preset="homelab", dry_run=False, run=None):
+def _restart(tmp_path, account="main", dry_run=False, run=None):
     run = run or _recording_run()[0]
-    return foothold.restart_foothold(Logger(dry_run=dry_run), preset, unit_dir=tmp_path, run=run)
+    return foothold.restart_foothold(Logger(dry_run=dry_run), account, unit_dir=tmp_path, run=run)
 
 
 PROBE = ("curl", "-s", "--max-time", "5", "-o", "/dev/null", foothold.NETWORK_PROBE_URL)
 RELOAD = ("systemctl", "--user", "daemon-reload")
-RESTART = ("systemctl", "--user", "restart", "claude-foothold-homelab.service")
+RESTART = ("systemctl", "--user", "restart", "claude-foothold.service")
 
 
 def test_restart_probes_the_network_then_reloads_and_restarts_without_touching_tmux(tmp_path):
@@ -100,17 +122,17 @@ def test_restart_probes_the_network_then_reloads_and_restarts_without_touching_t
 
 
 def test_rendered_unit_ends_the_session_only_on_stop_never_on_start():
-    unit = foothold.render_unit("personal")
-    assert "ExecStop=-/usr/bin/env tmux kill-session -t =claude-foothold-personal" in unit
+    unit = foothold.render_unit("main")
+    assert "ExecStop=-/usr/bin/env tmux kill-session -t =claude-foothold\n" in unit
     assert "ExecStartPre=-" not in unit
-    assert "has-session -t =claude-foothold-personal" in unit
+    assert "has-session -t =claude-foothold " in unit
 
 
 def test_restart_rewrites_a_stale_unit_and_reloads_before_restarting(tmp_path):
     unit = _installed_unit(tmp_path, content="[Service]\nExecStart=old\n")
     run, calls = _recording_run()
     assert _restart(tmp_path, run=run) is True
-    assert unit.read_text() == foothold.render_unit("homelab")
+    assert unit.read_text() == foothold.render_unit("main")
     assert calls == [PROBE, RELOAD, RESTART]
 
 
@@ -207,60 +229,160 @@ def test_launcher_runs_claude_without_a_secrets_file(tmp_path):
     assert _run_launcher(tmp_path, "echo ok", ["n"]) == "ok"
 
 
-def test_rendered_unit_hardcodes_no_home_directory():
-    assert "/home/" not in foothold.render_unit("personal")
+def test_launcher_runs_the_burst_account_with_its_config_dir(tmp_path):
+    out = _run_launcher(tmp_path, 'echo "$CLAUDE_CONFIG_DIR|$1|$2"', ["host-burst", "burst"])
+    burst = tmp_path / "home" / ".claude-burst"
+    assert out == f"{burst}|--remote-control|host-burst"
+    assert burst.is_dir()
+
+
+def test_launcher_runs_the_main_account_without_a_config_dir(tmp_path):
+    assert _run_launcher(tmp_path, 'echo "[${CLAUDE_CONFIG_DIR-}]"', ["host"]) == "[]"
+
+
+@pytest.mark.parametrize("account", foothold.ACCOUNTS)
+def test_rendered_unit_hardcodes_no_home_directory(account):
+    assert "/home/" not in foothold.render_unit(account)
 
 
 def test_install_writes_the_unit_enables_linger_and_starts_it(tmp_path):
     run, calls = _recording_run()
     _install(tmp_path, run=run)
-    assert (tmp_path / "claude-foothold-homelab.service").is_file()
+    assert (tmp_path / "claude-foothold.service").is_file()
     assert calls == [
         ("loginctl", "enable-linger"),
         ("systemctl", "--user", "daemon-reload"),
-        ("systemctl", "--user", "enable", "--now", "claude-foothold-homelab.service"),
+        ("systemctl", "--user", "enable", "--now", "claude-foothold.service"),
     ]
+
+
+def test_install_skips_the_burst_unit_until_the_burst_account_has_logged_in(tmp_path, capsys):
+    run, calls = _recording_run()
+    assert _install(tmp_path, account="burst", run=run) is False
+    assert calls == []
+    assert not (tmp_path / "claude-foothold-burst.service").exists()
+    assert "claude-burst" in capsys.readouterr().out
+
+
+def test_install_sets_up_the_burst_unit_once_logged_in(tmp_path):
+    run, calls = _recording_run()
+    assert _install(tmp_path, account="burst", run=run, burst_dir=_logged_in_burst(tmp_path)) is True
+    assert (tmp_path / "claude-foothold-burst.service").read_text() == foothold.render_unit("burst")
+    assert calls[-1] == ("systemctl", "--user", "enable", "--now", "claude-foothold-burst.service")
 
 
 def test_install_is_idempotent(tmp_path):
     _install(tmp_path)
-    unit = tmp_path / "claude-foothold-homelab.service"
+    unit = tmp_path / "claude-foothold.service"
     os.utime(unit, ns=(0, 0))
     _install(tmp_path)
     assert unit.stat().st_mtime_ns == 0
 
 
 def test_install_rewrites_a_stale_unit(tmp_path):
-    unit = tmp_path / "claude-foothold-homelab.service"
+    unit = tmp_path / "claude-foothold.service"
     unit.write_text("stale")
     _install(tmp_path)
     assert "stale" not in unit.read_text()
 
 
 def test_retire_disables_ends_the_session_and_removes_the_unit(tmp_path):
-    _install(tmp_path, preset="work")
+    _install(tmp_path, account="burst", burst_dir=_logged_in_burst(tmp_path))
     run, calls = _recording_run()
-    foothold.retire_foothold(Logger(dry_run=False), "work", unit_dir=tmp_path, run=run)
+    foothold.retire_foothold(Logger(dry_run=False), "burst", unit_dir=tmp_path, run=run)
     assert calls == [
-        ("systemctl", "--user", "disable", "--now", "claude-foothold-work.service"),
-        ("tmux", "kill-session", "-t", "=claude-foothold-work"),
+        ("systemctl", "--user", "disable", "--now", "claude-foothold-burst.service"),
+        ("tmux", "kill-session", "-t", "=claude-foothold-burst"),
         ("systemctl", "--user", "daemon-reload"),
     ]
-    assert not (tmp_path / "claude-foothold-work.service").exists()
+    assert not (tmp_path / "claude-foothold-burst.service").exists()
 
 
 def test_retire_is_a_no_op_without_that_unit(tmp_path):
     run, calls = _recording_run()
-    foothold.retire_foothold(Logger(dry_run=False), "work", unit_dir=tmp_path, run=run)
+    foothold.retire_foothold(Logger(dry_run=False), "main", unit_dir=tmp_path, run=run)
     assert calls == []
 
 
 def test_retire_dry_run_changes_nothing(tmp_path):
-    _install(tmp_path, preset="work")
+    _install(tmp_path)
     run, calls = _recording_run()
-    foothold.retire_foothold(Logger(dry_run=True), "work", unit_dir=tmp_path, run=run)
+    foothold.retire_foothold(Logger(dry_run=True), "main", unit_dir=tmp_path, run=run)
     assert calls == []
-    assert (tmp_path / "claude-foothold-work.service").is_file()
+    assert (tmp_path / "claude-foothold.service").is_file()
+
+
+def test_retire_legacy_removes_the_preset_named_unit_and_session(tmp_path):
+    (tmp_path / "claude-foothold-work.service").write_text("old")
+    run, calls = _recording_run()
+    foothold.retire_legacy_foothold(Logger(dry_run=False), "work", unit_dir=tmp_path, run=run)
+    assert ("tmux", "kill-session", "-t", "=claude-foothold-work") in calls
+    assert not (tmp_path / "claude-foothold-work.service").exists()
+
+
+def test_retire_legacy_never_touches_an_account_unit(tmp_path):
+    _installed_unit(tmp_path, "burst")
+    run, calls = _recording_run()
+    foothold.retire_legacy_foothold(Logger(dry_run=False), "burst", unit_dir=tmp_path, run=run)
+    assert calls == []
+    assert (tmp_path / "claude-foothold-burst.service").is_file()
+
+
+def _sync(tmp_path, wanted, legacy=(), run=None, burst_dir=None):
+    run = run or _recording_run()[0]
+    foothold.sync_footholds(
+        Logger(dry_run=False), wanted, legacy, unit_dir=tmp_path, run=run, burst_dir=burst_dir or tmp_path / "no-burst",
+    )
+
+
+def _units(tmp_path):
+    return sorted(p.name for p in tmp_path.glob("*.service"))
+
+
+def test_sync_installs_both_accounts_and_retires_the_legacy_unit(tmp_path):
+    (tmp_path / "claude-foothold-homelab.service").write_text("old")
+    _sync(tmp_path, ("main", "burst"), ("homelab",), burst_dir=_logged_in_burst(tmp_path))
+    assert _units(tmp_path) == ["claude-foothold-burst.service", "claude-foothold.service"]
+
+
+def test_sync_without_a_burst_login_still_installs_main_and_retires_the_legacy_unit(tmp_path):
+    (tmp_path / "claude-foothold-homelab.service").write_text("old")
+    _sync(tmp_path, ("main", "burst"), ("homelab",))
+    assert _units(tmp_path) == ["claude-foothold.service"]
+
+
+def test_sync_with_no_footholds_retires_every_unit(tmp_path):
+    for name in ("claude-foothold.service", "claude-foothold-burst.service", "claude-foothold-work.service"):
+        (tmp_path / name).write_text("old")
+    _sync(tmp_path, (), ("work",))
+    assert _units(tmp_path) == []
+
+
+def test_sync_keeps_the_legacy_unit_when_main_fails_to_install(tmp_path):
+    (tmp_path / "claude-foothold-homelab.service").write_text("old")
+    _sync(tmp_path, ("main",), ("homelab",), run=_recording_run(returncode=1, fail_on="systemctl")[0])
+    assert "claude-foothold-homelab.service" in _units(tmp_path)
+
+
+def test_sync_warns_about_an_unknown_account(tmp_path, capsys):
+    _sync(tmp_path, ("main", "spare"))
+    assert "Unknown foothold account 'spare'" in capsys.readouterr().out
+
+
+def test_restart_footholds_restarts_every_installed_unit(tmp_path):
+    _installed_unit(tmp_path, "main")
+    _installed_unit(tmp_path, "burst")
+    run, calls = _recording_run()
+    assert foothold.restart_footholds(Logger(dry_run=False), unit_dir=tmp_path, run=run) is True
+    restarts = [c for c in calls if c[:3] == ("systemctl", "--user", "restart")]
+    assert restarts == [RESTART, ("systemctl", "--user", "restart", "claude-foothold-burst.service")]
+
+
+def test_restart_footholds_fails_when_none_is_installed(tmp_path, capsys):
+    run, calls = _recording_run()
+    assert foothold.restart_footholds(Logger(dry_run=False), unit_dir=tmp_path, run=run) is False
+    assert calls == []
+    assert "No foothold is installed" in capsys.readouterr().out
 
 
 def test_dry_run_changes_nothing(tmp_path, capsys):
@@ -268,7 +390,7 @@ def test_dry_run_changes_nothing(tmp_path, capsys):
     _install(tmp_path, dry_run=True, run=run)
     assert calls == []
     assert list(tmp_path.iterdir()) == []
-    assert "claude-foothold-homelab.service" in capsys.readouterr().out
+    assert "claude-foothold.service" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("tool", foothold.REQUIRED_TOOLS)
@@ -303,4 +425,4 @@ def test_an_unwritable_unit_dir_warns_without_raising(tmp_path, capsys):
     blocker = tmp_path / "file"
     blocker.write_text("")
     _install(blocker)
-    assert "Could not set up foothold-homelab" in capsys.readouterr().out
+    assert "Could not set up claude-foothold.service" in capsys.readouterr().out

@@ -4,7 +4,7 @@ local -a commands presets
 commands=(
   'install:install packages and dotfiles for a machine profile'
   'private:manage the optional private overlay repo'
-  'foothold:manage the Claude remote foothold of this machine'
+  'foothold:manage the Claude remote footholds of this machine'
 )
 presets=( ${${(f)"$(print -l -- $HOME/.dotfiles/presets/*.json(N:t:r))"}:-work personal homelab} )
 
@@ -49,7 +49,7 @@ case $state in
         ;;
       foothold)
         if (( CURRENT == 2 )); then
-          _values 'foothold-command' 'restart[kill the tmux session and restart the foothold unit]'
+          _values 'foothold-command' 'restart[kill the tmux sessions and restart the foothold units]'
         else
           _arguments \
             '--dry-run[show what would be done without executing commands]' \

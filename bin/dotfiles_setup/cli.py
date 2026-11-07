@@ -161,7 +161,7 @@ def _build_private_parser(sub: Any) -> None:
 
 def _build_restart_parser(foothold_sub: Any) -> None:
     restart_p = foothold_sub.add_parser(
-        "restart", help="kill the foothold's tmux session and restart its systemd unit"
+        "restart", help="kill each foothold's tmux session and restart its systemd unit"
     )
     restart_p.add_argument("--dry-run", action="store_true", help=_DRY_RUN_HELP)
     restart_p.add_argument(
@@ -172,7 +172,7 @@ def _build_restart_parser(foothold_sub: Any) -> None:
 
 def _build_foothold_parser(sub: Any) -> None:
     foothold_p = sub.add_parser(
-        "foothold", help="manage the Claude remote foothold of this machine's saved preset"
+        "foothold", help="manage the Claude remote footholds of this machine's saved preset"
     )
     foothold_sub = foothold_p.add_subparsers(dest="foothold_command", metavar="foothold-command", required=True)
     _build_restart_parser(foothold_sub)
@@ -324,9 +324,8 @@ def _save_state(
 
 
 def _sync_foothold(logger: Logger, preset: Preset, prior: state.MachineState | None) -> None:
-    installed = foothold.install_foothold(logger, preset.name)
-    if installed and prior and prior.preset_name != preset.name:
-        foothold.retire_foothold(logger, prior.preset_name)
+    legacy = (preset.name, prior.preset_name) if prior else (preset.name,)
+    foothold.sync_footholds(logger, preset.footholds, legacy)
 
 
 def _run_install(args: argparse.Namespace, env: Env) -> int:
@@ -732,7 +731,7 @@ def _run_foothold_restart(args: argparse.Namespace, env: Env) -> int:
     if saved is None:
         logger.error("No preset saved on this machine; run 'dotfiles-setup install --preset <name>' first.")
         return 2
-    return 0 if foothold.restart_foothold(logger, saved.preset_name, run=env.run) else 1
+    return 0 if foothold.restart_footholds(logger, run=env.run) else 1
 
 
 def main(argv: list[str] | None = None, env: Env | None = None) -> int:

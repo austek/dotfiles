@@ -15,6 +15,7 @@ class Preset:
     package_files: tuple[str, ...]
     backend_overrides: dict[str, dict[str, str]]
     claude_settings: str | None
+    footholds: tuple[str, ...] = ()
 
 
 def load_preset(presets_dir: Path, name: str) -> Result[Preset]:
@@ -28,6 +29,7 @@ def load_preset(presets_dir: Path, name: str) -> Result[Preset]:
         package_files=tuple(data.get("package_files", ())),
         backend_overrides=data.get("backend_overrides", {}),
         claude_settings=data.get("claude_settings"),
+        footholds=tuple(data.get("footholds", ())),
     ))
 
 
