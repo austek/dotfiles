@@ -42,7 +42,7 @@ git-tidy() {
     print -u2 -r -- 'git-tidy: fetch failed; using the refs already here'
   fi
 
-  local candidate base_tip base_tree base_branch
+  local candidate base_tip base_tree base_branch base_remote=
   [[ -n $base ]] || base=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
   if [[ -z $base ]]; then
     for candidate in origin/main origin/master main master; do
@@ -59,6 +59,7 @@ git-tidy() {
   base_tree=$(git rev-parse "$base^{tree}")
   base_branch=${${base#refs/remotes/}#refs/heads/}
   if git show-ref --verify --quiet "refs/remotes/$base_branch"; then
+    base_remote=${base_branch%%/*}
     base_branch=${base_branch#*/}
   fi
 
@@ -126,9 +127,12 @@ git-tidy() {
   # Later commits on the base can rewrite what a squash merged, so the tree check misses the branch. A tip that
   # equals the head of a PR merged into the base is done whatever the base looks like now.
   local -A merged_pr_head
-  local pr_heads
+  local pr_heads base_url=
+  [[ -z $base_remote ]] || base_url=$(git remote get-url "$base_remote" 2>/dev/null)
   if [[ -n $fetch ]] && (( ${#unmerged} )) && command -v gh >/dev/null; then
-    if pr_heads=$(gh pr list --state merged --base "$base_branch" --limit 500 --json headRefOid --jq '.[].headRefOid' 2>/dev/null); then
+    if [[ -z $base_url ]]; then
+      print -u2 -r -- 'git-tidy: base repository unknown; skipping the merged-PR check'
+    elif pr_heads=$(gh pr list --repo "$base_url" --state merged --base "$base_branch" --limit 500 --json headRefOid --jq '.[].headRefOid' 2>/dev/null); then
       for tip in ${(f)pr_heads}; do merged_pr_head[$tip]=1; done
     else
       print -u2 -r -- 'git-tidy: gh pr list failed; skipping the merged-PR check'

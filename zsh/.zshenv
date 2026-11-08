@@ -1,10 +1,11 @@
 [[ -r "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
-export DENGJEN_ESPEAKNG_DATA_DIRECTORY=/usr/lib/x86_64-linux-gnu
+export DENGJEN_ESPEAKNG_DATA_DIRECTORY=${DENGJEN_ESPEAKNG_DATA_DIRECTORY:-/usr/lib/x86_64-linux-gnu}
 
 # PATH lives here, not in .zshrc, so non-interactive shells (IDE-launched agents) get it.
 # typeset -U keeps entries unique across nested shells.
 typeset -U path PATH
 # A candidate the inherited PATH already selects (sdk use, a parent shell) keeps that version.
+path=( ${^path}(N-/) )
 typeset -a sdkman_default=()
 typeset sdkman_tool=''
 for sdkman_tool in sbt kotlin gradle java; do
