@@ -1,21 +1,6 @@
 """Regression tests for bypasses found while reviewing the hook hardening."""
-import importlib.util
-import json
-import subprocess
-import sys
-
-sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed hooks package
-
-from pathlib import Path
-
 import pytest
-
-HOOKS = Path(__file__).resolve().parent.parent / "claude" / ".claude" / "hooks"
-spec = importlib.util.spec_from_file_location("allow_compound_bash", HOOKS / "allow-compound-bash.py")
-hook = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(hook)
-
-RULES = {"allow": [hook.to_regex(p) for p in ("git *", "gh *", "find *")], "deny": [hook.to_regex("git push * main*")], "ask": []}
+from hook_support import HOOKS, RULES, hook, run_hook
 
 
 @pytest.mark.parametrize("command", [
@@ -46,14 +31,6 @@ def test_symlinks_into_secrets_are_refused_for_every_argument_shape(tmp_path, mo
     (tmp_path / "keyl").symlink_to(tmp_path / ".ssh" / "key")
     monkeypatch.chdir(tmp_path)
     assert not hook.should_allow(command, RULES)
-
-
-def run_hook(name, payload, home, hooks=HOOKS):
-    done = subprocess.run(
-        [sys.executable, "-I", str(hooks / name)], input=json.dumps(payload), capture_output=True, text=True,
-        env={"HOME": str(home), "PATH": "/usr/bin:/bin"}, cwd=home, check=False,
-    )
-    return done.stdout.strip()
 
 
 @pytest.mark.parametrize("settings", ["{not json", '{"permissions": []}', '{"permissions": {"deny": "x"}}'])

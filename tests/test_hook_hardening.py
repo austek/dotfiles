@@ -1,23 +1,12 @@
 """Properties of the allow hook that the verdict table cannot show: fuzzed input run under bash with stub tools."""
-import importlib.util
 import os
 import random
 import shutil
 import subprocess
-import sys
-
-sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed hooks package
-
-from pathlib import Path
 
 import pytest
+from hook_support import RULES, hook
 
-HOOKS = Path(__file__).resolve().parent.parent / "claude" / ".claude" / "hooks"
-spec = importlib.util.spec_from_file_location("allow_compound_bash", HOOKS / "allow-compound-bash.py")
-hook = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(hook)
-
-RULES = {"allow": [hook.to_regex(p) for p in ("git *", "gh *", "find *")], "deny": [hook.to_regex("git push * main*")], "ask": []}
 BASH = shutil.which("bash")
 ALLOWED_NAMES = hook.SAFE_COMMANDS | {"git", "gh", "find", "xargs"}
 FUZZ_PIECES = [
