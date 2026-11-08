@@ -106,6 +106,8 @@ echo "GITHUB_TOKEN='your-secret-token'" >> ~/.config/dotfiles/secrets.env
 
 The setup stows `~/.dotfiles/git/.gitconfig` to `~/.gitconfig`, which carries no identity of its own. Running `dotfiles-setup install --preset <name>` (above) is what supplies it: the first time you run it on a machine, it prompts for your git name, email, and (optionally) an SSH signing key, and writes them to `~/.gitconfig.local`, which `.gitconfig` includes unconditionally. `.gitconfig` also conditionally includes `~/.dotfiles-private/git/gitconfig-work` — from the optional private overlay described below — to override `user.email` when your remote points at a Collibra `github.com` repo.
 
+`git tidy` (the zsh function `git-tidy`) cleans up after merged work: it fetches without pruning your remote-tracking refs, then deletes local branches already merged into origin's default branch, including squash- and rebase-merged ones, and removes their worktrees. It shows the plan and asks first (`--yes` skips the prompt, `--dry-run` only shows it, `--base <ref>` picks another base). It keeps `main`, `master`, `develop`, anything checked out in the main or current worktree, a branch still at the base tip, a worktree that is locked or has uncommitted changes, and a branch whose upstream is gone but whose work is not in the base.
+
 === Restart Your Shell
 
 Open a new terminal or run `zsh` to load your new environment.

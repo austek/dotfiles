@@ -77,6 +77,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 ### Git Configuration
 - The repository uses a layered Git configuration.
 - `~/.dotfiles/git/.gitconfig` is stowed to `~/.gitconfig` and carries the shared non-identity settings (`core`, `gpg`, `commit`, `tag`, credential helpers) directly.
+- The `git tidy` alias in `git/.gitconfig` runs the zsh function `git-tidy` (`zsh/.config/zsh/functions/git-tidy`) in a bare `zsh -f`, so the function must not depend on anything from `~/.zshrc`. It deletes local branches whose work is in the base branch (an ancestor, or a merge that changes nothing, which is how a squash or rebase merge looks) and removes their worktrees. It asks before changing anything and never touches unmerged work: a dirty or locked worktree, an unmerged branch and a branch with a gone upstream whose work is not in the base are listed and kept. Keep it that way, and keep `tests/test_git_tidy.py` in step.
 - `git/.gitconfig` carries no identity of its own — it includes `~/.gitconfig.local` (written by `dotfiles-setup install` on first run) for name/email, and conditionally includes `~/.dotfiles-private/git/gitconfig-work` (an optional sibling repo, not part of this one) for a work-specific override.
 
 ## Maintenance & Workflows

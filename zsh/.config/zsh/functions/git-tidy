@@ -1,0 +1,255 @@
+# Deletes local branches whose work is already in the base branch, including squash and rebase merges, and
+# removes their worktrees. Shows the plan first and asks before changing anything; also run as `git tidy`.
+# Usage: git-tidy [-n|--dry-run] [-y|--yes] [--no-fetch] [-b|--base <ref>]
+# The base defaults to origin's default branch. A branch is kept when it is main, master, develop or the base,
+# is checked out in the main or current worktree, still sits at the base tip (just created), or has a worktree
+# that is locked or holds uncommitted or ignored files. A branch whose upstream is gone but whose work is not in the base
+# is listed and kept. Deleted branches print the commit they were at, so `git branch <name> <sha>` restores one.
+git-tidy() {
+  emulate -L zsh
+  local usage='Usage: git-tidy [-n|--dry-run] [-y|--yes] [--no-fetch] [-b|--base <ref>]'
+  local dry_run= assume_yes= fetch=1 base=
+  while (( $# )); do
+    case $1 in
+      -n|--dry-run) dry_run=1 ;;
+      -y|--yes) assume_yes=1 ;;
+      --no-fetch) fetch= ;;
+      -b|--base)
+        if (( $# < 2 )); then
+          print -u2 -r -- "git-tidy: $1 needs a ref"
+          return 2
+        fi
+        base=$2
+        shift ;;
+      -h|--help) print -r -- "$usage"; return 0 ;;
+      *) print -u2 -r -- "git-tidy: unknown argument '$1'"; print -u2 -r -- "$usage"; return 2 ;;
+    esac
+    shift
+  done
+
+  if [[ $(git rev-parse --is-inside-work-tree 2>/dev/null) != true ]]; then
+    print -u2 -r -- 'git-tidy: not inside a git work tree'
+    return 1
+  fi
+
+  if ! git merge-tree --write-tree HEAD HEAD >/dev/null 2>&1; then
+    print -u2 -r -- 'git-tidy: git merge-tree --write-tree is unavailable (needs git 2.38 or newer)'
+    return 1
+  fi
+
+  if [[ -n $fetch ]] && ! git fetch --all --no-prune --quiet; then
+    print -u2 -r -- 'git-tidy: fetch failed; using the refs already here'
+  fi
+
+  local candidate base_tip base_tree base_branch
+  [[ -n $base ]] || base=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+  if [[ -z $base ]]; then
+    for candidate in origin/main origin/master main master; do
+      if git rev-parse --verify --quiet "$candidate^{commit}" >/dev/null; then
+        base=$candidate
+        break
+      fi
+    done
+  fi
+  if [[ -z $base ]] || ! base_tip=$(git rev-parse --verify --quiet "$base^{commit}"); then
+    print -u2 -r -- 'git-tidy: no base branch found; pass one with --base'
+    return 1
+  fi
+  base_tree=$(git rev-parse "$base^{tree}")
+  base_branch=${${base#refs/remotes/}#refs/heads/}
+  if git show-ref --verify --quiet "refs/remotes/$base_branch"; then
+    base_branch=${base_branch#*/}
+  fi
+
+  # Branches never offered: the usual trunks plus whatever the main and current worktrees have checked out.
+  local current_top current_branch
+  current_top=$(git rev-parse --show-toplevel)
+  current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null)
+  local -a protected=(main master develop $base_branch $current_branch)
+
+  local -A worktree_for locked_wt multi_wt prunable_branch
+  local -a prunable_paths
+  local wt_list
+  if ! wt_list=$(git worktree list --porcelain -z); then
+    print -u2 -r -- 'git-tidy: could not list worktrees (needs git 2.38 or newer)'
+    return 1
+  fi
+  local -a lines=("${(@0)wt_list}" "")
+  local line entry_path= entry_branch= entry_locked= entry_prunable=
+  local -i entry_index=0
+  for line in "${lines[@]}"; do
+    case $line in
+      'worktree '*) entry_path=${line#worktree } ;;
+      'branch refs/heads/'*) entry_branch=${line#branch refs/heads/} ;;
+      locked*) entry_locked=1 ;;
+      prunable*) entry_prunable=1 ;;
+      '')
+        if [[ -n $entry_path ]]; then
+          entry_index+=1
+          if [[ -n $entry_prunable ]]; then
+            prunable_paths+=$entry_path
+            [[ -z $entry_branch ]] || prunable_branch[$entry_branch]=1
+          elif (( entry_index == 1 )) || [[ $entry_path == "$current_top" ]]; then
+            [[ -z $entry_branch ]] || protected+=$entry_branch
+          elif [[ -n $entry_branch ]]; then
+            [[ -z ${worktree_for[$entry_branch]-} ]] || multi_wt[$entry_branch]=1
+            worktree_for[$entry_branch]=$entry_path
+            [[ -z $entry_locked ]] || locked_wt[$entry_branch]=1
+          fi
+        fi
+        entry_path= entry_branch= entry_locked= entry_prunable=
+        ;;
+    esac
+  done
+
+  # A branch counts as done when it is an ancestor of the base, or when merging it into the base changes
+  # nothing, which is how a squash or rebase merge looks.
+  local -a merged squashed gone_unmerged unmerged
+  local -A tip_of
+  local ref branch tip tree
+  for ref in ${(f)"$(git for-each-ref --format='%(refname)' refs/heads)"}; do
+    branch=${ref#refs/heads/}
+    (( ${protected[(Ie)$branch]} )) && continue
+    tip=$(git rev-parse --verify --quiet "$ref^{commit}") || continue
+    [[ $tip == "$base_tip" ]] && continue
+    tip_of[$branch]=$tip
+    if git merge-base --is-ancestor "$tip" "$base_tip"; then
+      merged+=$branch
+    elif tree=$(git merge-tree --write-tree "$tip" "$base_tip" 2>/dev/null) && [[ $tree == "$base_tree" ]]; then
+      squashed+=$branch
+    else
+      unmerged+=$branch
+    fi
+  done
+
+  # The remote is asked directly, so no tracking ref is pruned before the user approves the plan.
+  local up_remote up_ref
+  local -i rc
+  local -a still_unmerged
+  for branch in $unmerged; do
+    ref=refs/heads/$branch
+    up_remote=$(git for-each-ref --format='%(upstream:remotename)' "$ref")
+    up_ref=$(git for-each-ref --format='%(upstream:remoteref)' "$ref")
+    rc=0
+    [[ -n $fetch && -n $up_ref ]] && { git ls-remote --exit-code --heads "$up_remote" "$up_ref" >/dev/null 2>&1 || rc=$?; }
+    if [[ $(git for-each-ref --format='%(upstream:track)' "$ref") == '[gone]' ]] || (( rc == 2 )); then
+      gone_unmerged+=$branch
+    else
+      still_unmerged+=$branch
+    fi
+  done
+  unmerged=("${still_unmerged[@]}")
+
+  local wt wt_status
+  local -a remove_merged remove_squashed remove_worktrees skipped
+  for branch in $merged $squashed; do
+    wt=${worktree_for[$branch]-}
+    if [[ -n ${multi_wt[$branch]-} ]]; then
+      skipped+="$branch  it is checked out in more than one worktree"
+      continue
+    fi
+    if [[ -n $wt ]]; then
+      if [[ -n ${locked_wt[$branch]-} ]]; then
+        skipped+="$branch  its worktree is locked ($wt)"
+        continue
+      fi
+      if ! wt_status=$(git -C "$wt" status --porcelain --ignored 2>/dev/null) || [[ -n $wt_status ]]; then
+        skipped+="$branch  its worktree has uncommitted or ignored files, or cannot be read ($wt)"
+        continue
+      fi
+      remove_worktrees+=$wt
+    fi
+    if (( ${squashed[(Ie)$branch]} )); then
+      remove_squashed+=$branch
+    else
+      remove_merged+=$branch
+    fi
+  done
+  for branch in $gone_unmerged; do
+    skipped+="$branch  upstream is gone but its work is not in $base"
+  done
+  for branch in $unmerged; do
+    skipped+="$branch  its work is not in $base"
+  done
+
+  local -i nothing=0
+  (( ${#remove_merged} + ${#remove_squashed} + ${#prunable_paths} )) || nothing=1
+
+  print -r -- "Base: $base"
+  if (( ${#remove_merged} )); then
+    print -r -- 'Merged branches to delete:'
+    for branch in $remove_merged; do print -r -- "  $branch"; done
+  fi
+  if (( ${#remove_squashed} )); then
+    print -r -- 'Squash- or rebase-merged branches to delete:'
+    for branch in $remove_squashed; do print -r -- "  $branch"; done
+  fi
+  if (( ${#remove_worktrees} )); then
+    print -r -- 'Worktrees to remove:'
+    for wt in $remove_worktrees; do print -r -- "  $wt"; done
+  fi
+  if (( ${#prunable_paths} )); then
+    print -r -- 'Worktree records to prune (directory is gone):'
+    for wt in $prunable_paths; do print -r -- "  $wt"; done
+  fi
+  if (( ${#skipped} )); then
+    print -r -- 'Kept:'
+    for line in $skipped; do print -r -- "  $line"; done
+  fi
+  if (( nothing )); then
+    print -r -- 'Nothing to tidy.'
+    return 0
+  fi
+  if [[ -n $dry_run ]]; then
+    print -r -- 'Dry run: nothing changed.'
+    return 0
+  fi
+
+  if [[ -z $assume_yes ]]; then
+    if [[ ! -t 0 ]]; then
+      print -u2 -r -- 'git-tidy: not a terminal; re-run with --yes to apply'
+      return 1
+    fi
+    local reply
+    if ! read -q 'reply?Apply? [y/N] '; then
+      print
+      print -r -- 'Aborted.'
+      return 1
+    fi
+    print
+  fi
+
+  local -i failed=0
+  local -i prune_ok=1
+  if (( ${#prunable_paths} )); then
+    git worktree prune || prune_ok=0
+    [[ $(git worktree list --porcelain) != *$'\n'prunable* ]] || prune_ok=0
+    (( prune_ok )) || { print -u2 -r -- 'git-tidy: could not prune worktree records'; failed+=1; }
+  fi
+  local checked_out
+  for branch in $remove_merged $remove_squashed; do
+    wt=${worktree_for[$branch]-}
+    checked_out=$(git for-each-ref --format='%(worktreepath)' "refs/heads/$branch")
+    if [[ -n $checked_out && $checked_out != "$wt" ]] || { (( ! prune_ok )) && [[ -n ${prunable_branch[$branch]-} ]]; }; then
+      print -u2 -r -- "git-tidy: $branch is in use or has a stale worktree record; keeping it"
+      failed+=1
+      continue
+    fi
+    if [[ -n $wt ]] && (( ${remove_worktrees[(Ie)$wt]} )); then
+      if ! git worktree remove "$wt"; then
+        print -u2 -r -- "git-tidy: could not remove worktree $wt; keeping $branch"
+        failed+=1
+        continue
+      fi
+    fi
+    # update-ref with the classified tip fails when the branch moved while the prompt was open.
+    if git update-ref -d "refs/heads/$branch" "${tip_of[$branch]}"; then
+      git config --remove-section "branch.$branch" 2>/dev/null
+      print -r -- "Deleted branch $branch (was ${tip_of[$branch][1,7]})."
+    else
+      print -u2 -r -- "git-tidy: $branch moved since it was checked; keeping it"
+      failed+=1
+    fi
+  done
+  (( failed == 0 ))
+}

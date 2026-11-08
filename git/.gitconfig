@@ -48,3 +48,6 @@
 	helper = !gh auth git-credential
 [rebase]
 	autoStash = true
+
+[alias]
+	tidy = "!zsh -fc 'fpath=(\"$HOME/.config/zsh/functions\" $fpath); autoload -Uz git-tidy; git-tidy \"$@\"' git-tidy"
