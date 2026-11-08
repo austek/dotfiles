@@ -23,6 +23,12 @@ GUARDED_TOOLS = {
 # execute_run_configuration carries no `command`; its overrides are the only shell text visible.
 COMMAND_FIELDS = ("command", "programArguments")
 
+# Direct children of the home directory whose loss is hard to undo; other children (~/scratchpad, ~/.cache) stay allowed.
+PROTECTED_HOME_DIR = (
+    r"(?:\.ssh|\.gnupg|\.aws|\.kube|\.docker|\.config|\.local|\.claude|\.dotfiles(?:-private)?"
+    r"|Workspace|Documents|Desktop|Pictures|Music|Videos)"
+)
+
 # Targets considered catastrophic: filesystem root, home shorthand/env var,
 # and other top-level system directories with no further sub-path given.
 RISKY_TARGET = re.compile(
@@ -35,6 +41,7 @@ RISKY_TARGET = re.compile(
     r"|/home/?\*?"
     r"|/(?:etc|usr|bin|sbin|boot|var|lib|lib64|opt|srv|mnt|run|snap|System|Library|Applications|Users|proc|sys|dev)/?\*?"
     r"|/home/[^/]+/?\*?"
+    r"|(?:/home/[^/]+|/root|~)/" + PROTECTED_HOME_DIR + r"/?\*?"
     r"|/[^/]*[*?\[{][^/]*/?"
     r"|(?:\.\./?)+\*?"
     r"|\."
@@ -118,12 +125,23 @@ def has_substitution(seg: list[str]) -> bool:
     return any("`" in t for t in seg) or any(a.endswith("$") and b == "(" for a, b in pairs)
 
 
+def cleans_ignored_files(seg: list[str]) -> bool:
+    """True for `git clean` that forces removal and includes ignored files (-x/-X), unless it is a dry run."""
+    if "clean" not in seg or not any(posixpath.basename(t) == "git" for t in seg):
+        return False
+    shorts = "".join(t[1:] for t in seg if t.startswith("-") and not t.startswith("--"))
+    dry_run = "n" in shorts or "--dry-run" in seg
+    return "f" in shorts and bool(set(shorts) & {"x", "X"}) and not dry_run
+
+
 def check_segment(seg: list[str]) -> str | None:
     if any(posixpath.basename(t) in SHELL_WRAPPERS for t in seg):
         for tok in seg:
             verdict = check(tok) if re.search(r"\s", tok) else None
             if verdict:
                 return verdict
+    if cleans_ignored_files(seg):
+        return deny(seg, "", "that also removes ignored files (`git clean -x`), such as .env and build output")
     if not is_force_recursive(seg):
         return None
     if has_substitution(seg) or any(posixpath.basename(t) == "xargs" for t in seg):

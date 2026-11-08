@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 
 sys.dont_write_bytecode = True  # a __pycache__ here would land inside the stowed package
@@ -17,7 +18,11 @@ SAFE_SINK = re.compile(r"^(/dev/null|/tmp/[^\s$`]*)$")
 SENSITIVE = re.compile(
     r"\.ssh|\.aws|\.gnupg|\.kube|\.netrc|id_rsa|/etc/shadow|secrets\.env|\.credentials"
     r"|\.git-credentials|\.npmrc|gh/hosts\.yml|/proc/[^/]*/environ|/dev/(?:tcp|udp)/|\.env(?:\W|$)"
+    r"|\.config/(?:gcloud|rclone)|\.(?:docker|azure)(?:/|$)|\.pgpass|\.local/share/keyrings"
 )
+JQ_FILE_FLAG = re.compile(r"^(?:-[A-Za-z]*f[A-Za-z]*|--from-file|--rawfile|--slurpfile)$")
+QUOTE_OR_BRACE_EXPANSION = re.compile(r"\$['\"]|\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}")
+TRANSFORM_EXPANSION = re.compile(r"\$\{[^}]*@")
 ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
 UNSAFE_NAME = re.compile(r"^(PATH|IFS|SHELL|ENV|HOME|PROMPT_COMMAND|LD_.*|BASH_.*|GIT_.*|PYTHON.*|NODE_.*|_?JAVA.*)$")
 JQ_ENV = re.compile(r"\benv\b|\$ENV|\$__loc__|input_filename")
@@ -162,7 +167,7 @@ def expands(word: str) -> bool:
 
 
 def has_unsafe_flag(words: list[str]) -> bool:
-    if words[0] == "jq" and any(JQ_ENV.search(w) for w in words[1:]):
+    if words[0] == "jq" and any(JQ_ENV.search(w) or JQ_FILE_FLAG.match(w) for w in words[1:]):
         return True
     pattern = UNSAFE_FLAGS.get(words[0])
     if pattern and any(expands(w) for w in words[1:]):
@@ -218,9 +223,15 @@ def gradle_allowed(words: list[str]) -> bool:
     return tasks > 0
 
 
+def resolved_paths(words: list[str]) -> str:
+    """The path-like arguments with `~`, `..` and symlinks resolved, so a link into a secret dir is seen."""
+    paths = (w for w in words[1:] if "/" in w or w.startswith(("~", ".")))
+    return " ".join(os.path.realpath(os.path.expanduser(p)) for p in paths)
+
+
 def command_allowed(words: list[str], rules: dict) -> bool:
     text = join_words(words)
-    if SENSITIVE.search(text) or words[0].startswith("$"):
+    if SENSITIVE.search(text) or SENSITIVE.search(resolved_paths(words)) or words[0].startswith("$"):
         return False
     if matches(text, rules["deny"]) or matches(text, rules["ask"]):
         return False
@@ -261,6 +272,46 @@ def analyze(command, rules, depth=0):
     return segments is not None and all(segment_allowed(s, rules) for s in segments)
 
 
+def unquoted_expansion(command: str) -> bool:
+    """True when bash would expand `$'..'`, `$".."`, `{a,b}` or `${x@op}` in a way the tokenizer does not model."""
+    outside, expandable, quote, i = [], [], None, 0
+    while i < len(command):
+        ch = command[i]
+        if ch == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote is None and ch in "'\"":
+            quote = ch
+            outside.append(ch)
+        elif quote == ch:
+            quote = None
+        else:
+            if quote is None:
+                outside.append(ch)
+            if quote != "'":
+                expandable.append(ch)
+        i += 1
+    return bool(QUOTE_OR_BRACE_EXPANSION.search("".join(outside)) or TRANSFORM_EXPANSION.search("".join(expandable)))
+
+
+def parses_as_bash(command: str) -> bool:
+    """Asks bash itself (`-n` parses without running anything) so the tokenizer never allows what bash rejects."""
+    try:
+        parsed = subprocess.run(
+            ["bash", "-n", "-c", command], capture_output=True, timeout=2, check=False,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return parsed.returncode == 0
+
+
+def should_allow(command: str, rules: dict) -> bool:
+    if any(marker in command for marker in ("`", "<<", "<(", ">(")) or unquoted_expansion(command):
+        return False
+    return analyze(command, rules) and parses_as_bash(command)
+
+
 def allow_decision():
     return json.dumps({
         "hookSpecificOutput": {
@@ -279,10 +330,7 @@ def main():
     command = (data.get("tool_input") or {}).get("command")
     if data.get("tool_name") != "Bash" or not isinstance(command, str):
         return 0
-    if any(marker in command for marker in ("`", "<<", "<(", ">(")):
-        return 0
-    rules = load_rules(data.get("cwd") or os.getcwd())
-    if analyze(command, rules):
+    if should_allow(command, load_rules(data.get("cwd") or os.getcwd())):
         print(allow_decision())
     return 0
 
