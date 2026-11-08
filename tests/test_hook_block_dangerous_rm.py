@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
-"""Tests for block-dangerous-rm.py. Run: python3 test_block_dangerous_rm.py"""
+"""Tests for claude/.claude/hooks/block-dangerous-rm.py."""
 import sys
 
-sys.dont_write_bytecode = True  # keep __pycache__ out of the stow package
+sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed hooks package
 
 import contextlib
 import importlib.util
@@ -12,7 +11,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-HOOK_DIR = Path(__file__).resolve().parent
+HOOK_DIR = Path(__file__).resolve().parent.parent / "claude" / ".claude" / "hooks"
 SETTINGS = HOOK_DIR.parent / "settings.json"
 HOOK_PATH = HOOK_DIR / "block-dangerous-rm.py"
 
@@ -187,7 +186,3 @@ class TestSettingsInSync(unittest.TestCase):
                 continue
             matched.update(group.get("matcher", "").split("|"))
         self.assertEqual(matched, hook.GUARDED_TOOLS)
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)

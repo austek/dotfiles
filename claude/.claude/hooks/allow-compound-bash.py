@@ -5,16 +5,25 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 
+sys.dont_write_bytecode = True  # a __pycache__ here would land inside the stowed package
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _shell import SEPARATORS, tokenize
+
 SETTINGS_FILES = ("~/.claude/settings.json", ".claude/settings.json", ".claude/settings.local.json")
-SEPARATORS = {"&&", "||", ";", "|"}
 OPERATOR_CHARS = set("();<>|&")
 SAFE_SINK = re.compile(r"^(/dev/null|/tmp/[^\s$`]*)$")
 SENSITIVE = re.compile(
     r"\.ssh|\.aws|\.gnupg|\.kube|\.netrc|id_rsa|/etc/shadow|secrets\.env|\.credentials"
     r"|\.git-credentials|\.npmrc|gh/hosts\.yml|/proc/[^/]*/environ|/dev/(?:tcp|udp)/|\.env(?:\W|$)"
+    r"|\.config/(?:gcloud|rclone)|\.(?:docker|azure)(?![\w.-])|\.pgpass|\.local/share/keyrings"
 )
+JQ_FILE_FLAG = re.compile(r"^(?:-[A-Za-z]*f[A-Za-z]*|--from-file|--rawfile|--slurpfile)$")
+QUOTE_OR_BRACE_EXPANSION = re.compile(r"\$['\"]|\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}|\\[|;&<>()]")
+TRANSFORM_EXPANSION = re.compile(r"\$\{[^}]*[@\[]|\$\{\(|\$\[")
+PARSERS = (("bash", "-n", "-c"), ("zsh", "-f", "-n", "-c"))
 ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
 UNSAFE_NAME = re.compile(r"^(PATH|IFS|SHELL|ENV|HOME|PROMPT_COMMAND|LD_.*|BASH_.*|GIT_.*|PYTHON.*|NODE_.*|_?JAVA.*)$")
 JQ_ENV = re.compile(r"\benv\b|\$ENV|\$__loc__|input_filename")
@@ -32,17 +41,38 @@ UNSAFE_FLAGS = {
 EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"}
 
 
+class SettingsError(Exception):
+    """A settings file exists but cannot be read as rules, so its deny and ask rules are unknown."""
+
+
+def read_permissions(path: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as error:
+        raise SettingsError(f"{path}: {error}") from error
+    permissions = data.get("permissions", {}) if isinstance(data, dict) else None
+    if not isinstance(permissions, dict):
+        raise SettingsError(f"{path}: no permissions object")
+    return permissions
+
+
+def bash_rules(path: str, permissions: dict, kind: str) -> list:
+    entries = permissions.get(kind, [])
+    if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
+        raise SettingsError(f"{path}: permissions.{kind} is not a list of strings")
+    return [to_regex(e[5:-1]) for e in entries if e.startswith("Bash(") and e.endswith(")")]
+
+
 def load_rules(cwd):
     rules = {"allow": [], "deny": [], "ask": []}
     for path in SETTINGS_FILES:
         full = os.path.expanduser(path) if path.startswith("~") else os.path.join(cwd, path)
-        try:
-            with open(full, encoding="utf-8") as handle:
-                permissions = json.load(handle).get("permissions", {})
-        except (OSError, json.JSONDecodeError):
-            continue
+        permissions = read_permissions(full)
         for kind in rules:
-            rules[kind] += [to_regex(e[5:-1]) for e in permissions.get(kind, []) if e.startswith("Bash(") and e.endswith(")")]
+            rules[kind] += bash_rules(full, permissions, kind)
     return rules
 
 
@@ -111,6 +141,15 @@ def extract_substitutions(command):
     return "".join(out), inner
 
 
+def sensitive_path(path: str) -> bool:
+    """True when `path`, as written or after resolving `~`, `..` and symlinks, names a secret; unresolvable counts."""
+    try:
+        resolved = os.path.realpath(os.path.expanduser(path))
+    except ValueError:
+        return True
+    return bool(SENSITIVE.search(path) or SENSITIVE.search(resolved))
+
+
 def redirect_ok(op, target):
     if target is None:
         return False
@@ -118,7 +157,7 @@ def redirect_ok(op, target):
         return bool(SAFE_SINK.match(target)) and ".." not in target
     if op == ">&":
         return target.isdigit() or target in ("-", "/dev/null")
-    return op == "<" and not SENSITIVE.search(target)
+    return op == "<" and not sensitive_path(target)
 
 
 def build_segments(tokens):
@@ -140,13 +179,6 @@ def build_segments(tokens):
     return segments + [current]
 
 
-def tokenize(command):
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
-    lex.commenters = ""
-    return list(lex)
-
-
 def strip_assignments(words):
     i = 0
     while i < len(words) and ASSIGNMENT.match(words[i]):
@@ -166,7 +198,7 @@ def expands(word: str) -> bool:
 
 
 def has_unsafe_flag(words: list[str]) -> bool:
-    if words[0] == "jq" and any(JQ_ENV.search(w) for w in words[1:]):
+    if words[0] == "jq" and any(JQ_ENV.search(w) or JQ_FILE_FLAG.match(w) for w in words[1:]):
         return True
     pattern = UNSAFE_FLAGS.get(words[0])
     if pattern and any(expands(w) for w in words[1:]):
@@ -222,9 +254,33 @@ def gradle_allowed(words: list[str]) -> bool:
     return tasks > 0
 
 
+def attached_values(flag: str) -> list[str]:
+    """The text a flag may carry as its file operand: `--file=PATH` gives PATH, `-fPATH` gives every suffix after `-f`."""
+    value = flag.partition("=")[2]
+    return [value] if value else [flag[i:] for i in range(2, len(flag))]
+
+
+def path_operands(args: list[str]) -> list[str]:
+    """Non-flag words, every word after `--`, and the values attached to flags."""
+    operands, after_dashes = [], False
+    for word in args:
+        if after_dashes or not word.startswith("-"):
+            operands.append(word)
+        elif word == "--":
+            after_dashes = True
+        else:
+            operands += attached_values(word)
+    return operands
+
+
+def names_secret(words: list[str]) -> bool:
+    """True when the command text, or any operand resolved against the working directory, names a secret."""
+    return bool(SENSITIVE.search(join_words(words))) or any(sensitive_path(w) for w in path_operands(words[1:]))
+
+
 def command_allowed(words: list[str], rules: dict) -> bool:
     text = join_words(words)
-    if SENSITIVE.search(text) or words[0].startswith("$"):
+    if names_secret(words) or words[0].startswith("$"):
         return False
     if matches(text, rules["deny"]) or matches(text, rules["ask"]):
         return False
@@ -256,13 +312,71 @@ def analyze(command, rules, depth=0):
     if extracted is None:
         return False
     stripped, inner = extracted
-    if not all(analyze(c, rules, depth + 1) for c in inner):
+    if unquoted_expansion(stripped) or not all(analyze(c, rules, depth + 1) for c in inner):
         return False
     try:
         segments = build_segments(tokenize(stripped))
     except ValueError:
         return False
     return segments is not None and all(segment_allowed(s, rules) for s in segments)
+
+
+def quote_views(command: str) -> tuple[str, str]:
+    """The text outside every quote (opening quotes kept) and the text outside single quotes."""
+    outside, expandable, quote, i = [], [], None, 0
+    while i < len(command):
+        ch = command[i]
+        if ch == "\\" and quote != "'":
+            escaped = command[i + 1:i + 2]
+            if quote is None and escaped and escaped in "|;&<>()":
+                outside.append(ch + escaped)
+            i += 2
+            continue
+        if quote is None and ch in "'\"":
+            quote = ch
+            outside.append(ch)
+        elif quote == ch:
+            quote = None
+        else:
+            if quote is None:
+                outside.append(ch)
+            if quote != "'":
+                expandable.append(ch)
+        i += 1
+    return "".join(outside), "".join(expandable)
+
+
+def unquoted_expansion(command: str) -> bool:
+    """True for `$'..'`, `$".."`, `{a,b}`, `{a..b}` or an escaped operator such as `\\|` outside quotes, or `${x@op}`, `${(f)x}`, `${a[i]}`, `$[..]` outside single quotes."""
+    outside, expandable = quote_views(command)
+    return bool(QUOTE_OR_BRACE_EXPANSION.search(outside) or TRANSFORM_EXPANSION.search(expandable))
+
+
+def parses_as(parser: tuple[str, ...], command: str) -> bool | None:
+    """True when the parser's `-n` run accepts `command` (zsh's "not found" for `=====` is not a syntax error); None when not installed."""
+    try:
+        parsed = subprocess.run(
+            [*parser, command], capture_output=True, timeout=2, check=False,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        )
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return False
+    errors = parsed.stderr.decode(errors="replace").splitlines()
+    return parsed.returncode == 0 or bool(errors) and all(line.endswith("not found") for line in errors)
+
+
+def parses_in_shells(command: str) -> bool:
+    """True when bash accepts `command` and zsh, if installed, does too; the Bash tool runs either."""
+    bash, zsh = (parses_as(parser, command) for parser in PARSERS)
+    return bash is True and zsh is not False
+
+
+def should_allow(command: str, rules: dict) -> bool:
+    if any(marker in command for marker in ("`", "<<", "<(", ">(")):
+        return False
+    return analyze(command, rules) and parses_in_shells(command)
 
 
 def allow_decision():
@@ -280,13 +394,20 @@ def main():
         data = json.load(sys.stdin)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return 0
-    command = (data.get("tool_input") or {}).get("command")
+    if not isinstance(data, dict):
+        return 0
+    tool_input = data.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if data.get("tool_name") != "Bash" or not isinstance(command, str):
         return 0
-    if any(marker in command for marker in ("`", "<<", "<(", ">(")):
+    cwd = data.get("cwd") if isinstance(data.get("cwd"), str) else os.getcwd()
+    try:
+        os.chdir(cwd)
+        rules = load_rules(cwd)
+    except (OSError, SettingsError) as error:
+        print(f"allow-compound-bash: no decision, {error}", file=sys.stderr)
         return 0
-    rules = load_rules(data.get("cwd") or os.getcwd())
-    if analyze(command, rules):
+    if should_allow(command, rules):
         print(allow_decision())
     return 0
 

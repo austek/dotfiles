@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
-"""Tests for allow-compound-bash.py. Run: python3 test_allow_compound_bash.py"""
+"""Tests for claude/.claude/hooks/allow-compound-bash.py."""
 import sys
 
-sys.dont_write_bytecode = True  # keep __pycache__ out of the stow package
+sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed hooks package
 
 import importlib.util
 import os
@@ -10,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-HOOK = Path(__file__).resolve().parent / "allow-compound-bash.py"
+HOOK = Path(__file__).resolve().parent.parent / "claude" / ".claude" / "hooks" / "allow-compound-bash.py"
 spec = importlib.util.spec_from_file_location("allow_compound_bash", HOOK)
 hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
@@ -87,7 +86,7 @@ class TestAuditBypasses(unittest.TestCase):
                 self.assertFalse(allowed(command))
 
     def test_patterns_that_are_not_paths_stay_allowed(self):
-        for command in ("jq '.a[0]' f.json", "grep 'a[0-9]*' f.txt", "tr '[:lower:]' '[:upper:]'", "echo {a,b}",
+        for command in ("jq '.a[0]' f.json", "grep 'a[0-9]*' f.txt", "tr '[:lower:]' '[:upper:]'",
                         "grep 'a.*b' file.txt", "grep -rn 'a[0-9]' src"):
             with self.subTest(command=command):
                 self.assertTrue(allowed(command))
@@ -150,7 +149,3 @@ class TestSubstitutionsAndVariables(unittest.TestCase):
     def test_for_loop_body_is_checked(self):
         self.assertTrue(allowed("for f in a b; do git show $f; done"))
         self.assertFalse(allowed("for f in a b; do rm $f; done"))
-
-
-if __name__ == "__main__":
-    unittest.main()
