@@ -344,6 +344,42 @@ def test_awscli_extraction_keeps_the_installer_executable(tmp_path):
     assert (tmp_path / "aws/install").stat().st_mode & 0o111
 
 
+def test_zip_extraction_never_chmods_outside_the_target_dir(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    victim = tmp_path / "victim"
+    victim.write_text("keep")
+    victim.chmod(0o600)
+    artifact = tmp_path / "evil.zip"
+    artifact.write_bytes(zipball("../victim", 0o777))
+    ri._extract_zip(artifact, work)
+    assert victim.stat().st_mode & 0o777 == 0o600
+    assert (work / "victim").stat().st_mode & 0o777 == 0o777
+
+
+def zip_with(path, entries):
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, mode, body in entries:
+            info = zipfile.ZipInfo(name)
+            info.external_attr = mode << 16
+            archive.writestr(info, body)
+
+
+def test_zip_extraction_leaves_directories_writable(tmp_path):
+    artifact, out = tmp_path / "a.zip", tmp_path / "out"
+    zip_with(artifact, [("d/", 0o40500, ""), ("d/f", 0o100755, "x")])
+    ri._extract_zip(artifact, out)
+    assert (out / "d").stat().st_mode & 0o200
+    assert (out / "d/f").stat().st_mode & 0o111
+
+
+def test_zip_symlink_members_are_not_materialised_as_links(tmp_path):
+    artifact, out = tmp_path / "a.zip", tmp_path / "out"
+    zip_with(artifact, [("l", 0o120777, "/etc/passwd")])
+    ri._extract_zip(artifact, out)
+    assert not (out / "l").is_symlink()
+
+
 def test_an_archive_the_filter_rejects_names_the_reason(tmp_path, capsys):
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:

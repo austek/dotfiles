@@ -103,11 +103,11 @@ def skip(t: Tooling, error: str) -> bool:
 
 def _extract_zip(artifact: Path, temp_dir: Path) -> None:
     with zipfile.ZipFile(artifact) as archive:
-        archive.extractall(temp_dir)
         for info in archive.infolist():
+            extracted = Path(archive.extract(info, temp_dir))
             mode = info.external_attr >> 16
-            if mode:
-                (temp_dir / info.filename).chmod(mode & 0o777)
+            if mode and not info.is_dir():
+                extracted.chmod(mode & 0o777)
 
 
 def _extract_targz(artifact: Path, temp_dir: Path) -> None:
