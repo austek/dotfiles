@@ -131,7 +131,8 @@ def cleans_ignored_files(seg: list[str]) -> bool:
         return False
     shorts = "".join(t[1:] for t in seg if t.startswith("-") and not t.startswith("--"))
     dry_run = "n" in shorts or "--dry-run" in seg
-    return "f" in shorts and bool(set(shorts) & {"x", "X"}) and not dry_run
+    forced = "f" in shorts or "--force" in seg or "clean.requireForce=false" in seg
+    return forced and bool(set(shorts) & {"x", "X"}) and not dry_run
 
 
 def check_segment(seg: list[str]) -> str | None:

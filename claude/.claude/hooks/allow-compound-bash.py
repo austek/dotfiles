@@ -18,7 +18,7 @@ SAFE_SINK = re.compile(r"^(/dev/null|/tmp/[^\s$`]*)$")
 SENSITIVE = re.compile(
     r"\.ssh|\.aws|\.gnupg|\.kube|\.netrc|id_rsa|/etc/shadow|secrets\.env|\.credentials"
     r"|\.git-credentials|\.npmrc|gh/hosts\.yml|/proc/[^/]*/environ|/dev/(?:tcp|udp)/|\.env(?:\W|$)"
-    r"|\.config/(?:gcloud|rclone)|\.(?:docker|azure)(?:/|$)|\.pgpass|\.local/share/keyrings"
+    r"|\.config/(?:gcloud|rclone)|\.(?:docker|azure)(?![\w.-])|\.pgpass|\.local/share/keyrings"
 )
 JQ_FILE_FLAG = re.compile(r"^(?:-[A-Za-z]*f[A-Za-z]*|--from-file|--rawfile|--slurpfile)$")
 QUOTE_OR_BRACE_EXPANSION = re.compile(r"\$['\"]|\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}")
