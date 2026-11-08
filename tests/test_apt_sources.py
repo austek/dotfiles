@@ -40,9 +40,10 @@ def make(tmp_path, machine, packages=(), dry_run=False, fetch=lambda url: f"KEY:
 
 def test_each_selected_package_gets_its_signing_key_dearmored_into_its_keyring(tmp_path):
     machine = Machine()
-    ctx = make(tmp_path, machine, packages=["google-chrome-stable", "code", "docker-ce", "gh"])
+    ctx = make(tmp_path, machine, packages=["google-chrome-stable", "code", "docker-ce", "gh", "mise"])
     assert aps.download_apt_gpg_keys(ctx)
     for destination, url in (
+        ("/usr/share/keyrings/mise-archive-keyring.gpg", "https://mise.jdx.dev/gpg-key.pub"),
         ("/usr/share/keyrings/google-chrome-keyring.gpg", "https://dl.google.com/linux/linux_signing_key.pub"),
         ("/usr/share/keyrings/packages.microsoft.gpg", "https://packages.microsoft.com/keys/microsoft.asc"),
         ("/usr/share/keyrings/docker.gpg", "https://download.docker.com/linux/ubuntu/gpg"),
@@ -144,6 +145,7 @@ def test_unneeded_source_files_are_ignored_by_the_apt_stow(tmp_path):
     assert r"--ignore=1password\.sources$" in argv
     assert r"--ignore=vscode\.sources$" in argv
     assert not any("github-cli" in arg for arg in argv)
+    assert r"--ignore=mise\.sources$" in argv
     assert argv[:4] == ["sudo", "stow", f"--dir={tmp_path / 'repo'}", "--restow"]
     assert ctx.changes.entries() == ["STOW_ROOT:apt"]
 

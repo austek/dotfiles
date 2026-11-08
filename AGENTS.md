@@ -61,7 +61,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 ### Zsh Configuration
 - Custom Zsh functions must be stored in `~/.config/zsh/functions`.
 - They are efficiently loaded using `fpath` and `autoload`.
-- Add to `PATH` with `path_prepend` / `path_append`, never `export PATH=...`. They skip directories that do not exist, and `typeset -U path` keeps entries unique.
+- The base `PATH` lives in `zsh/.zshenv`, not `.zshrc`, so non-interactive shells (IDE-launched agents) get it. Edit its `path=(...)` array; `typeset -U path` keeps entries unique and `path=( ${^path}(N-/) )` drops directories that do not exist. Use `path_prepend` / `path_append` only for additions in `.zshrc` (e.g. tool installers), never `export PATH=...`.
 
 ### No Machine-Specific Paths
 - **Never** hardcode an absolute home directory (`/home/<user>`, `/Users/<user>`). Use `$HOME` or `~`, so the file works on every machine.
@@ -96,7 +96,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 
 ### Development Tasks
 - `mise.toml` pins the dev tools (`python`, `uv`, `shellcheck`) and defines the tasks CI runs: `mise run lint-shell`, `lint-python`, `test`, `smoke`, `completions`, `check-python`, `ci`, and `e2e <preset>` for the container install. CI calls these tasks, so a local `mise run ci` reproduces it.
-- `mise` is a developer and CI dependency only. `dotfiles-setup` must keep working on a bare machine without it, and the machine's own tools are still installed by `dotfiles-setup`, not `mise`.
+- `mise` is in the default `apt_common.txt` package list and installs from its own apt repository (with `apt/etc/apt/sources.list.d/mise.sources`), but `dotfiles-setup` must keep working on a bare machine without it, and the machine's own tools are still installed by `dotfiles-setup`, not `mise`.
 - Renovate bumps the `mise.toml` pins; `uv` is grouped with the installer URL in `vendor_installers.py`, whose digest in `packages/checksums.txt` Renovate cannot recompute. After such a bump run `mise run pin` (optionally with a URL substring to limit it), which re-records the stale digests from the live downloads, and review the diff: it trusts whatever the URLs serve now. `pin` only updates the digest of a URL that is already listed: Renovate rewrites the listed URL in its own bump PR, but after a hand bump change the URL in `checksums.txt` first, or the installer refuses it with "no digest recorded". A line that does not parse as `<sha256>  <url>` is reported as an error. `mise run pin-check` only reports and exits non-zero on drift; the scheduled `pin-check` workflow runs it nightly, outside the PR checks, so a moving installer URL (rtk, oh-my-zsh, rustup, SDKMAN, CodeRabbit) shows up as a red nightly before it breaks an install. The logic is `dotfiles_setup/pin_checksums.py`.
 
 ### Saving Changes

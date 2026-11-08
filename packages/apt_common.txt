@@ -14,6 +14,7 @@ iotop
 jq
 lazydocker
 lm-sensors
+mise
 nethogs
 nvm
 oh-my-zsh

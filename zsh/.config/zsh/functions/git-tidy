@@ -1,5 +1,6 @@
-# Deletes local branches whose work is already in the base branch, including squash and rebase merges, and
-# removes their worktrees. Shows the plan first and asks before changing anything; also run as `git tidy`.
+# Deletes local branches whose work is already in the base branch, including squash and rebase merges and
+# branches whose tip is the head of a merged PR (found with `gh`; skipped with --no-fetch or when gh fails),
+# and removes their worktrees. Shows the plan first and asks before changing anything; also run as `git tidy`.
 # Usage: git-tidy [-n|--dry-run] [-y|--yes] [--no-fetch] [-b|--base <ref>]
 # The base defaults to origin's default branch. A branch is kept when it is main, master, develop or the base,
 # is checked out in the main or current worktree, still sits at the base tip (just created), or has a worktree
@@ -41,7 +42,7 @@ git-tidy() {
     print -u2 -r -- 'git-tidy: fetch failed; using the refs already here'
   fi
 
-  local candidate base_tip base_tree base_branch
+  local candidate base_tip base_tree base_branch base_remote=
   [[ -n $base ]] || base=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
   if [[ -z $base ]]; then
     for candidate in origin/main origin/master main master; do
@@ -58,6 +59,7 @@ git-tidy() {
   base_tree=$(git rev-parse "$base^{tree}")
   base_branch=${${base#refs/remotes/}#refs/heads/}
   if git show-ref --verify --quiet "refs/remotes/$base_branch"; then
+    base_remote=${base_branch%%/*}
     base_branch=${base_branch#*/}
   fi
 
@@ -121,6 +123,36 @@ git-tidy() {
       unmerged+=$branch
     fi
   done
+
+  # Later commits on the base can rewrite what a squash merged, so the tree check misses the branch. A tip that
+  # equals the head of a PR merged into the base is done, provided that PR's merge commit is in the base tip.
+  local -A merged_pr_head
+  local pr_pairs pr_head merge_oid base_url=
+  [[ -z $base_remote ]] || base_url=$(git remote get-url "$base_remote" 2>/dev/null)
+  if [[ -n $base_url ]]; then
+    [[ $base_url == *://* ]] && base_url=${base_url#*://} || base_url=${base_url/:/\/}
+    base_url=${${base_url##*@}%.git}
+  fi
+  if [[ -n $fetch ]] && (( ${#unmerged} )) && command -v gh >/dev/null; then
+    if [[ -z $base_url ]]; then
+      print -u2 -r -- 'git-tidy: base repository unknown; skipping the merged-PR check'
+    elif pr_pairs=$(gh pr list --repo "$base_url" --state merged --base "$base_branch" --limit 500 --json headRefOid,mergeCommit --jq '.[] | select(.mergeCommit != null) | "\(.headRefOid) \(.mergeCommit.oid)"' 2>/dev/null); then
+      for pr_head merge_oid in ${=pr_pairs}; do
+        git merge-base --is-ancestor "$merge_oid" "$base_tip" 2>/dev/null && merged_pr_head[$pr_head]=1
+      done
+    else
+      print -u2 -r -- 'git-tidy: gh pr list failed; skipping the merged-PR check'
+    fi
+  fi
+  local -a open_work
+  for branch in $unmerged; do
+    if [[ -n ${merged_pr_head[${tip_of[$branch]}]-} ]]; then
+      squashed+=$branch
+    else
+      open_work+=$branch
+    fi
+  done
+  unmerged=("${open_work[@]}")
 
   # The remote is asked directly, so no tracking ref is pruned before the user approves the plan.
   local up_remote up_ref

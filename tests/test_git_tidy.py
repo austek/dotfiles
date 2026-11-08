@@ -41,9 +41,18 @@ class Repo:
         (self.home / ".config" / "zsh" / "functions").symlink_to(FUNCTIONS)
         config = tmp_path / "gitconfig"
         config.write_text(CONFIG)
+        self.gh_heads = tmp_path / "gh_heads.txt"
+        self.gh_log = tmp_path / "gh_calls.txt"
+        stub_bin = tmp_path / "bin"
+        stub_bin.mkdir()
+        stub = stub_bin / "gh"
+        stub.write_text('#!/bin/sh\necho "$@" >> "$GH_STUB_LOG"\n[ -z "$GH_STUB_FAIL" ] || exit 1\ncat "$GH_STUB_HEADS"\n')
+        stub.chmod(0o755)
+        self.gh_heads.write_text("")
         self.env = {
-            "PATH": os.environ["PATH"], "HOME": str(self.home), "GIT_CONFIG_GLOBAL": str(config),
+            "PATH": f"{stub_bin}:{os.environ['PATH']}", "HOME": str(self.home), "GIT_CONFIG_GLOBAL": str(config),
             "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+            "GH_STUB_HEADS": str(self.gh_heads), "GH_STUB_LOG": str(self.gh_log),
         }
         self.origin = tmp_path / "origin.git"
         self.work = tmp_path / "work"
@@ -121,6 +130,84 @@ def test_deletes_a_rebase_merged_branch(repo):
     repo.git("push", "-q", "origin", "main")
     assert repo.tidy("--yes").returncode == 0
     assert repo.branches() == ["main"]
+
+
+def squash_merged_then_rewritten_on_main(repo) -> tuple[str, str]:
+    repo.branch_with_commit("feat")
+    tip = repo.git("rev-parse", "feat").stdout.strip()
+    repo.merge("feat", squash=True)
+    merge = repo.git("rev-parse", "HEAD").stdout.strip()
+    (repo.work / "feat").write_text("rewritten later")
+    repo.git("commit", "-q", "-am", "rewrite feat")
+    repo.git("push", "-q", "origin", "main")
+    return tip, merge
+
+
+def test_deletes_a_branch_whose_tip_is_the_head_of_a_merged_pr(repo):
+    tip, merge = squash_merged_then_rewritten_on_main(repo)
+    assert repo.tidy("--yes").returncode == 0
+    assert repo.branches() == ["feat", "main"], "without the PR head the tree check cannot see this branch"
+    repo.gh_heads.write_text(f"{tip} {merge}\n")
+    result = repo.tidy("--yes")
+    assert result.returncode == 0, result.stderr
+    assert repo.branches() == ["main"]
+    assert "Squash- or rebase-merged" in result.stdout
+    assert "--state merged --base main" in repo.gh_log.read_text()
+
+
+def test_keeps_a_branch_whose_tip_is_not_a_merged_pr_head(repo):
+    _, merge = squash_merged_then_rewritten_on_main(repo)
+    repo.gh_heads.write_text(f"0123456789abcdef0123456789abcdef01234567 {merge}\n")
+    assert repo.tidy("--yes").returncode == 0
+    assert repo.branches() == ["feat", "main"]
+
+
+def test_keeps_a_branch_whose_pr_merge_commit_is_not_in_the_base(repo):
+    tip, _ = squash_merged_then_rewritten_on_main(repo)
+    repo.gh_heads.write_text(f"{tip} 0123456789abcdef0123456789abcdef01234567\n")
+    assert repo.tidy("--yes").returncode == 0
+    assert repo.branches() == ["feat", "main"]
+
+
+@pytest.mark.parametrize("url, expected", [
+    ("https://user:secret@127.0.0.1:1/owner/name.git", "127.0.0.1:1/owner/name"),
+    ("git@127.0.0.1:owner/name.git", "127.0.0.1/owner/name"),
+])
+def test_passes_gh_a_credential_free_repository(repo, url, expected):
+    repo.env["GIT_SSH_COMMAND"] = "false"
+    tip, merge = squash_merged_then_rewritten_on_main(repo)
+    repo.git("remote", "set-url", "origin", url)
+    repo.gh_heads.write_text(f"{tip} {merge}\n")
+    result = repo.tidy("--yes")
+    assert result.returncode == 0, result.stderr
+    calls = repo.gh_log.read_text()
+    assert f"--repo {expected} " in calls
+    assert "secret" not in calls
+
+
+def test_skips_the_merged_pr_check_with_no_fetch(repo):
+    tip, merge = squash_merged_then_rewritten_on_main(repo)
+    repo.gh_heads.write_text(f"{tip} {merge}\n")
+    assert repo.tidy("--yes", "--no-fetch").returncode == 0
+    assert repo.branches() == ["feat", "main"]
+    assert not repo.gh_log.exists()
+
+
+def test_a_failing_gh_warns_and_keeps_the_branch(repo):
+    tip, merge = squash_merged_then_rewritten_on_main(repo)
+    repo.gh_heads.write_text(f"{tip} {merge}\n")
+    repo.env["GH_STUB_FAIL"] = "1"
+    result = repo.tidy("--yes")
+    assert result.returncode == 0, result.stderr
+    assert repo.branches() == ["feat", "main"]
+    assert "gh pr list failed" in result.stderr
+
+
+def test_does_not_call_gh_when_every_branch_is_already_classified(repo):
+    repo.branch_with_commit("feat")
+    repo.merge("feat")
+    assert repo.tidy("--yes").returncode == 0
+    assert not repo.gh_log.exists()
 
 
 def test_keeps_a_branch_with_unmerged_work(repo):
