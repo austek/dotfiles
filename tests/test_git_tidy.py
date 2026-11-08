@@ -132,21 +132,22 @@ def test_deletes_a_rebase_merged_branch(repo):
     assert repo.branches() == ["main"]
 
 
-def squash_merged_then_rewritten_on_main(repo) -> str:
+def squash_merged_then_rewritten_on_main(repo) -> tuple[str, str]:
     repo.branch_with_commit("feat")
     tip = repo.git("rev-parse", "feat").stdout.strip()
     repo.merge("feat", squash=True)
+    merge = repo.git("rev-parse", "HEAD").stdout.strip()
     (repo.work / "feat").write_text("rewritten later")
     repo.git("commit", "-q", "-am", "rewrite feat")
     repo.git("push", "-q", "origin", "main")
-    return tip
+    return tip, merge
 
 
 def test_deletes_a_branch_whose_tip_is_the_head_of_a_merged_pr(repo):
-    tip = squash_merged_then_rewritten_on_main(repo)
+    tip, merge = squash_merged_then_rewritten_on_main(repo)
     assert repo.tidy("--yes").returncode == 0
     assert repo.branches() == ["feat", "main"], "without the PR head the tree check cannot see this branch"
-    repo.gh_heads.write_text(f"{tip}\n")
+    repo.gh_heads.write_text(f"{tip} {merge}\n")
     result = repo.tidy("--yes")
     assert result.returncode == 0, result.stderr
     assert repo.branches() == ["main"]
@@ -155,23 +156,30 @@ def test_deletes_a_branch_whose_tip_is_the_head_of_a_merged_pr(repo):
 
 
 def test_keeps_a_branch_whose_tip_is_not_a_merged_pr_head(repo):
-    squash_merged_then_rewritten_on_main(repo)
-    repo.gh_heads.write_text("0123456789abcdef0123456789abcdef01234567\n")
+    _, merge = squash_merged_then_rewritten_on_main(repo)
+    repo.gh_heads.write_text(f"0123456789abcdef0123456789abcdef01234567 {merge}\n")
+    assert repo.tidy("--yes").returncode == 0
+    assert repo.branches() == ["feat", "main"]
+
+
+def test_keeps_a_branch_whose_pr_merge_commit_is_not_in_the_base(repo):
+    tip, _ = squash_merged_then_rewritten_on_main(repo)
+    repo.gh_heads.write_text(f"{tip} 0123456789abcdef0123456789abcdef01234567\n")
     assert repo.tidy("--yes").returncode == 0
     assert repo.branches() == ["feat", "main"]
 
 
 def test_skips_the_merged_pr_check_with_no_fetch(repo):
-    tip = squash_merged_then_rewritten_on_main(repo)
-    repo.gh_heads.write_text(f"{tip}\n")
+    tip, merge = squash_merged_then_rewritten_on_main(repo)
+    repo.gh_heads.write_text(f"{tip} {merge}\n")
     assert repo.tidy("--yes", "--no-fetch").returncode == 0
     assert repo.branches() == ["feat", "main"]
     assert not repo.gh_log.exists()
 
 
 def test_a_failing_gh_warns_and_keeps_the_branch(repo):
-    tip = squash_merged_then_rewritten_on_main(repo)
-    repo.gh_heads.write_text(f"{tip}\n")
+    tip, merge = squash_merged_then_rewritten_on_main(repo)
+    repo.gh_heads.write_text(f"{tip} {merge}\n")
     repo.env["GH_STUB_FAIL"] = "1"
     result = repo.tidy("--yes")
     assert result.returncode == 0, result.stderr

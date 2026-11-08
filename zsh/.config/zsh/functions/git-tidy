@@ -125,15 +125,17 @@ git-tidy() {
   done
 
   # Later commits on the base can rewrite what a squash merged, so the tree check misses the branch. A tip that
-  # equals the head of a PR merged into the base is done whatever the base looks like now.
+  # equals the head of a PR merged into the base is done, provided that PR's merge commit is in the base tip.
   local -A merged_pr_head
-  local pr_heads base_url=
+  local pr_pairs pr_head merge_oid base_url=
   [[ -z $base_remote ]] || base_url=$(git remote get-url "$base_remote" 2>/dev/null)
   if [[ -n $fetch ]] && (( ${#unmerged} )) && command -v gh >/dev/null; then
     if [[ -z $base_url ]]; then
       print -u2 -r -- 'git-tidy: base repository unknown; skipping the merged-PR check'
-    elif pr_heads=$(gh pr list --repo "$base_url" --state merged --base "$base_branch" --limit 500 --json headRefOid --jq '.[].headRefOid' 2>/dev/null); then
-      for tip in ${(f)pr_heads}; do merged_pr_head[$tip]=1; done
+    elif pr_pairs=$(gh pr list --repo "$base_url" --state merged --base "$base_branch" --limit 500 --json headRefOid,mergeCommit --jq '.[] | select(.mergeCommit != null) | "\(.headRefOid) \(.mergeCommit.oid)"' 2>/dev/null); then
+      for pr_head merge_oid in ${=pr_pairs}; do
+        git merge-base --is-ancestor "$merge_oid" "$base_tip" 2>/dev/null && merged_pr_head[$pr_head]=1
+      done
     else
       print -u2 -r -- 'git-tidy: gh pr list failed; skipping the merged-PR check'
     fi
