@@ -29,6 +29,6 @@ RULES = {
 def run_hook(name, payload, home, hooks=HOOKS):
     done = subprocess.run(
         [sys.executable, "-I", str(hooks / name)], input=json.dumps(payload), capture_output=True, text=True,
-        env={"HOME": str(home), "PATH": "/usr/bin:/bin"}, cwd=home, check=False,
+        env={"HOME": str(home), "PATH": "/usr/bin:/bin"}, cwd=home, check=True,
     )
     return done.stdout.strip()

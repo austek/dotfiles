@@ -11,9 +11,9 @@ import sys
 sys.dont_write_bytecode = True  # a __pycache__ here would land inside the stowed package
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
-    from _shell import split_segments, tokenize
+    from _shell import command_lines, split_segments, tokenize
 except ImportError:
-    split_segments = tokenize = None
+    command_lines = split_segments = tokenize = None
 
 # Any tool that takes a shell command; the IDE terminal bypasses a Bash-only matcher.
 GUARDED_TOOLS = {
@@ -26,7 +26,12 @@ GUARDED_TOOLS = {
 # execute_run_configuration carries no `command`; its overrides are the only shell text visible.
 COMMAND_FIELDS = ("command", "programArguments")
 
-HOME_PREFIX = r"(?:/home/[^/]+|/root|~[\w.+-]*)"
+def _home_prefix() -> str:
+    own = os.path.expanduser("~").rstrip("/")
+    return r"(?:/home/[^/]+|/root|~[\w.+-]*" + (f"|{re.escape(own)}" if own.startswith("/") else "") + ")"
+
+
+HOME_PREFIX = _home_prefix()
 # Home-directory children that `rm -rf` must never target; RISKY_TARGET anchors them with HOME_PREFIX.
 PROTECTED_HOME_DIR = (
     r"(?:\.ssh|\.gnupg|\.aws|\.kube|\.docker|\.config|\.local|\.claude|\.dotfiles(?:-private)?"
@@ -45,6 +50,7 @@ RISKY_TARGET = re.compile(
     r"|/home/?\*?"
     r"|/(?:etc|usr|bin|sbin|boot|var|lib|lib64|opt|srv|mnt|run|snap|System|Library|Applications|Users|proc|sys|dev)/?\*?"
     r"|/home/[^/]+/?\*?"
+    r"|" + HOME_PREFIX + r"/?\*?"
     r"|" + HOME_PREFIX + r"/" + PROTECTED_HOME_DIR + r"/?\*?"
     r"|" + HOME_PREFIX + r"/[^/]*[*?\[{][^/]*/?"
     r"|/[^/]*[*?\[{][^/]*/?"
@@ -57,7 +63,10 @@ SAFE_VAR_PREFIX = re.compile(r"^\$(?:\{TMPDIR\}|TMPDIR)/(?!.*\.\.)[^$`]+$")
 FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 FIND_GLOBAL_OPTS = {"-H", "-L", "-P"}
 SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash", "ksh", "eval", "ssh"}
-RM_WORD = re.compile(r"\brm\b")
+RISKY_WORD = re.compile(r"\brm\b|\bgit\b.*\bclean\b")
+GIT_VALUE_OPTIONS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+COMMAND_WRAPPERS = {"sudo", "rtk", "env", "command", "nohup", "time", "exec", "nice"}
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 
 # Bare variable/parameter expansion (e.g. $VAR, ${VAR}) — its value is unknown
 # at hook time; if empty or unexpected, `rm -rf "$VAR"/*` can delete anything.
@@ -130,14 +139,43 @@ def has_substitution(seg: list[str]) -> bool:
     return any("`" in t for t in seg) or any(a.endswith("$") and b == "(" for a, b in pairs)
 
 
+def git_subcommand(seg: list[str]) -> tuple[str, list[str]] | None:
+    """The git subcommand and its arguments when the segment runs git (behind wrappers and assignments), else None."""
+    words = list(seg)
+    while words and (ASSIGNMENT.match(words[0]) or words[0].startswith("-") or posixpath.basename(words[0]) in COMMAND_WRAPPERS):
+        words.pop(0)
+    if not words or posixpath.basename(words[0]) != "git":
+        return None
+    rest, i = words[1:], 0
+    while i < len(rest) and rest[i].startswith("-"):
+        i += 2 if rest[i] in GIT_VALUE_OPTIONS else 1
+    return (rest[i], rest[i + 1:]) if i < len(rest) else None
+
+
+def clean_options(args: list[str]) -> tuple[bool, bool]:
+    """(removes ignored files, is a dry run) for `git clean` arguments; `-e PATTERN` operands and `--` are honoured."""
+    ignored = dry_run = False
+    i = 0
+    while i < len(args) and args[i] != "--":
+        arg = args[i]
+        if arg.startswith("--"):
+            dry_run = dry_run or arg == "--dry-run"
+            i += arg == "--exclude"
+        elif arg.startswith("-") and arg != "-":
+            cluster, has_pattern, attached = arg[1:].partition("e")
+            ignored, dry_run = ignored or bool(set(cluster) & {"x", "X"}), dry_run or "n" in cluster
+            i += bool(has_pattern) and not attached
+        i += 1
+    return ignored, dry_run
+
+
 def cleans_ignored_files(seg: list[str]) -> bool:
-    """True for `git clean` forced by -f, --force or clean.requireForce=false that removes ignored files (-x/-X), unless -n or --dry-run."""
-    if "clean" not in seg or not any(posixpath.basename(t) == "git" for t in seg):
+    """True for `git clean -x/-X` that is not a dry run; forced or not, since without -f git only refuses."""
+    invocation = git_subcommand(seg)
+    if invocation is None or invocation[0] != "clean":
         return False
-    shorts = "".join(t[1:] for t in seg if t.startswith("-") and not t.startswith("--"))
-    dry_run = "n" in shorts or "--dry-run" in seg
-    forced = "f" in shorts or "--force" in seg or "clean.requireForce=false" in seg
-    return forced and bool(set(shorts) & {"x", "X"}) and not dry_run
+    ignored, dry_run = clean_options(invocation[1])
+    return ignored and not dry_run
 
 
 def check_segment(seg: list[str]) -> str | None:
@@ -202,24 +240,28 @@ def check_find_paths(segments: list[list[str]], inners: list[list[str]]) -> str 
     return None
 
 
-def check(command: str) -> str | None:
-    if tokenize is None:
-        return deny([command], "", "while the hook cannot load _shell.py") if RM_WORD.search(command) else None
+def check_line(line: str) -> str | None:
     try:
-        tokens = tokenize(command)
+        tokens = tokenize(line)
     except ValueError:
-        return deny([command], "", "in an unparseable command") if RM_WORD.search(command) else None
+        return deny([line], "", "in an unparseable command") if RISKY_WORD.search(line) else None
     outer, inners = extract_exec(tokens)
     segments = split_segments(outer)
     verdicts = map(check_segment, segments + inners)
     return next((v for v in verdicts if v), None) or check_find_paths(segments, inners)
 
 
+def check(command: str) -> str | None:
+    if tokenize is None:
+        return deny([command], "", "while the hook cannot load _shell.py") if RISKY_WORD.search(command) else None
+    return next((v for v in map(check_line, command_lines(command)) if v), None)
+
+
 def guarded_check(command: str) -> str | None:
     try:
         return check(command)
     except Exception as error:  # noqa: BLE001 - a bug here must not turn a risky rm into silence
-        return deny([command], "", f"because the hook failed ({error!r})") if RM_WORD.search(command) else None
+        return deny([command], "", f"because the hook failed ({error!r})") if RISKY_WORD.search(command) else None
 
 
 def main():

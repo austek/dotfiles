@@ -254,9 +254,28 @@ def gradle_allowed(words: list[str]) -> bool:
     return tasks > 0
 
 
+def attached_values(flag: str) -> list[str]:
+    """The text a flag may carry as its file operand: `--file=PATH` gives PATH, `-fPATH` gives every suffix after `-f`."""
+    value = flag.partition("=")[2]
+    return [value] if value else [flag[i:] for i in range(2, len(flag))]
+
+
+def path_operands(args: list[str]) -> list[str]:
+    """Non-flag words, every word after `--`, and the values attached to flags."""
+    operands, after_dashes = [], False
+    for word in args:
+        if after_dashes or not word.startswith("-"):
+            operands.append(word)
+        elif word == "--":
+            after_dashes = True
+        else:
+            operands += attached_values(word)
+    return operands
+
+
 def names_secret(words: list[str]) -> bool:
-    """True when the command text, or any non-flag argument resolved against the working directory, names a secret."""
-    return bool(SENSITIVE.search(join_words(words))) or any(sensitive_path(w) for w in words[1:] if not w.startswith("-"))
+    """True when the command text, or any operand resolved against the working directory, names a secret."""
+    return bool(SENSITIVE.search(join_words(words))) or any(sensitive_path(w) for w in path_operands(words[1:]))
 
 
 def command_allowed(words: list[str], rules: dict) -> bool:

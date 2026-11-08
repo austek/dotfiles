@@ -48,6 +48,33 @@ def test_a_missing_settings_file_is_not_an_error(tmp_path):
     assert '"allow"' in run_hook("allow-compound-bash.py", payload, tmp_path)
 
 
+@pytest.mark.parametrize("command", ["grep -fkeyl in.txt", "grep --file=keyl in.txt", "grep -rnfkeyl .", "cat -- -key"])
+def test_secret_file_operands_attached_to_flags_or_after_double_dash_are_refused(tmp_path, monkeypatch, command):
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "key").write_text("x")
+    (tmp_path / "keyl").symlink_to(tmp_path / ".ssh" / "key")
+    (tmp_path / "-key").symlink_to(tmp_path / ".ssh" / "key")
+    monkeypatch.chdir(tmp_path)
+    assert not hook.should_allow(command, RULES)
+
+
+def test_the_rm_hook_denies_a_protected_child_of_a_home_outside_home_and_root(tmp_path):
+    home = tmp_path / "srv" / "alice"
+    home.mkdir(parents=True)
+    protected = {"tool_name": "Bash", "tool_input": {"command": f"rm -rf {home}/Documents"}}
+    scratch = {"tool_name": "Bash", "tool_input": {"command": f"rm -rf {home}/scratch"}}
+    assert '"deny"' in run_hook("block-dangerous-rm.py", protected, home)
+    assert run_hook("block-dangerous-rm.py", scratch, home) == ""
+
+
+def test_the_rm_hook_still_denies_git_clean_x_when_the_shared_module_is_missing(tmp_path):
+    copy = tmp_path / "hooks"
+    copy.mkdir()
+    (copy / "block-dangerous-rm.py").write_text((HOOKS / "block-dangerous-rm.py").read_text())
+    clean = {"tool_name": "Bash", "tool_input": {"command": "git clean -fdx"}}
+    assert '"deny"' in run_hook("block-dangerous-rm.py", clean, tmp_path, hooks=copy)
+
+
 def test_the_rm_hook_still_denies_when_the_shared_module_is_missing(tmp_path):
     copy = tmp_path / "hooks"
     copy.mkdir()
