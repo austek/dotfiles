@@ -19,6 +19,7 @@ SOURCE_FILES = (
     ("google-chrome-stable", "google-chrome.sources"),
     ("code", "vscode.sources"),
     ("gh", "github-cli.sources"),
+    ("mise", "mise.sources"),
 )
 DIRECTORIES = (
     "/usr/share/keyrings",
@@ -56,6 +57,8 @@ KEYS = (
     KeySpec("Docker", "https://download.docker.com/linux/ubuntu/gpg", ("/usr/share/keyrings/docker.gpg",), "docker-ce"),
     KeySpec("GitHub CLI", "https://cli.github.com/packages/githubcli-archive-keyring.gpg",
             ("/usr/share/keyrings/githubcli-archive-keyring.gpg",), "gh"),
+    KeySpec("mise", "https://mise.jdx.dev/gpg-key.pub",
+            ("/usr/share/keyrings/mise-archive-keyring.gpg",), "mise"),
     KeySpec("Teleport", "https://apt.releases.teleport.dev/gpg",
             ("/usr/share/keyrings/teleport-archive-keyring.gpg",), "teleport", prefix=True),
     KeySpec("pgAdmin", "https://www.pgadmin.org/static/packages_pgadmin_org.pub",
