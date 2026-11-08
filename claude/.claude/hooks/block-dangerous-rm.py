@@ -12,7 +12,7 @@ sys.dont_write_bytecode = True  # a __pycache__ here would land inside the stowe
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
     from _shell import command_lines, split_segments, tokenize
-except ImportError:
+except Exception:  # noqa: BLE001 - any load failure keeps the risky-word fallback active
     command_lines = split_segments = tokenize = None
 
 # Any tool that takes a shell command; the IDE terminal bypasses a Bash-only matcher.

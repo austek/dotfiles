@@ -76,6 +76,15 @@ def test_the_rm_hook_still_denies_these_when_the_shared_module_is_missing(tmp_pa
     assert '"deny"' in run_hook("block-dangerous-rm.py", payload, tmp_path, hooks=copy)
 
 
+def test_the_rm_hook_still_denies_when_the_shared_module_fails_to_import(tmp_path):
+    copy = tmp_path / "hooks"
+    copy.mkdir()
+    (copy / "block-dangerous-rm.py").write_text((HOOKS / "block-dangerous-rm.py").read_text())
+    (copy / "_shell.py").write_text("def broken(:\n")
+    payload = {"tool_name": "Bash", "tool_input": {"command": "git clean -fdx"}}
+    assert '"deny"' in run_hook("block-dangerous-rm.py", payload, tmp_path, hooks=copy)
+
+
 def test_the_rm_hook_still_denies_when_the_shared_module_is_missing(tmp_path):
     copy = tmp_path / "hooks"
     copy.mkdir()
