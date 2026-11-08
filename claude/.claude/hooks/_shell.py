@@ -7,7 +7,7 @@ SEPARATORS = frozenset({"&&", "||", ";", "|"})
 
 
 def tokenize(command: str) -> list[str]:
-    """Splits `command` like a POSIX shell, keeping operators as their own tokens; raises ValueError on bad quoting."""
+    """Splits `command` into words and operator tokens (`&&`, `|`, `;`, `>`, ...) with POSIX quoting; `#` is not a comment. Raises ValueError on bad quoting."""
     lex = shlex.shlex(command, posix=True, punctuation_chars=True)
     lex.whitespace_split = True
     lex.commenters = ""

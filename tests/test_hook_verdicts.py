@@ -22,6 +22,7 @@ SETTINGS = {
 VERDICTS = [
     ("ls | grep foo && echo done", "none", "allow"),
     ("git status && git diff", "none", "allow"),
+    ("git status; echo =====; git diff", "none", "allow"),
     ("git push origin main", "none", "none"),
     ("echo hi > /tmp/out.txt", "none", "allow"),
     ("echo hi > ~/file", "none", "none"),
@@ -47,7 +48,7 @@ VERDICTS = [
     ("date -s '2020-01-01'", "none", "none"),
     ("printf -v x hi", "none", "none"),
     ("find . -name '*.py' -delete", "none", "none"),
-    ("find . -name '*.py' -exec rm {} ;", "none", "none"),
+    ("find . -name '*.py' -exec rm {} \\;", "none", "none"),
     ("xargs rm < files.txt", "none", "none"),
     ("for f in a b; do echo $f; done", "none", "none"),
     ("FOO=bar ls", "none", "none"),
@@ -89,6 +90,24 @@ VERDICTS = [
     ("rm -rf ~/.gnupg", "deny", "none"),
     ("rm -rf /home/user/Documents", "deny", "none"),
     ("rm -rf /home/user/Documents/old", "none", "none"),
+    *[
+        (f"rm -rf {root}/{name}", "deny", "none")
+        for root in ("/home/user", "/root", "~", "~root")
+        for name in (
+            ".ssh", ".gnupg", ".aws", ".kube", ".docker", ".config", ".local", ".claude", ".dotfiles",
+            ".dotfiles-private", "Workspace", "Documents", "Desktop", "Pictures", "Music", "Videos",
+        )
+    ],
+    ("rm -rf /root/.cache/x", "none", "none"),
+    ("rm -rf ~/scratchpad", "none", "none"),
+    ("rm -rf ~root", "deny", "none"),
+    ("rm -rf ~/Work*", "deny", "none"),
+    ("rm -rf ~/.ss?", "deny", "none"),
+    ("rm -rf ~/{Workspace,x}", "deny", "none"),
+    ("rm -rf $TMPDIR/../x", "deny", "none"),
+    ("git clean -x", "none", "allow"),
+    ("/usr/bin/git clean -fdx", "deny", "none"),
+    ("git -c clean.requireForce=false clean -dx", "deny", "allow"),
     ("rm -rf ./build", "none", "none"),
     ("rm -rf /tmp/x", "none", "none"),
     ("rm -rf .", "deny", "none"),

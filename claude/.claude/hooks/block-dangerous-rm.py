@@ -10,7 +10,10 @@ import sys
 
 sys.dont_write_bytecode = True  # a __pycache__ here would land inside the stowed package
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from _shell import split_segments, tokenize
+try:
+    from _shell import split_segments, tokenize
+except ImportError:
+    split_segments = tokenize = None
 
 # Any tool that takes a shell command; the IDE terminal bypasses a Bash-only matcher.
 GUARDED_TOOLS = {
@@ -23,7 +26,8 @@ GUARDED_TOOLS = {
 # execute_run_configuration carries no `command`; its overrides are the only shell text visible.
 COMMAND_FIELDS = ("command", "programArguments")
 
-# Direct children of the home directory whose loss is hard to undo; other children (~/scratchpad, ~/.cache) stay allowed.
+HOME_PREFIX = r"(?:/home/[^/]+|/root|~[\w.+-]*)"
+# Home-directory children that `rm -rf` must never target; RISKY_TARGET anchors them with HOME_PREFIX.
 PROTECTED_HOME_DIR = (
     r"(?:\.ssh|\.gnupg|\.aws|\.kube|\.docker|\.config|\.local|\.claude|\.dotfiles(?:-private)?"
     r"|Workspace|Documents|Desktop|Pictures|Music|Videos)"
@@ -34,14 +38,15 @@ PROTECTED_HOME_DIR = (
 RISKY_TARGET = re.compile(
     r"^(?:"
     r"/\*?"
-    r"|~/?\*?"
+    r"|~[\w.+-]*/?\*?"
     r"|\$HOME/?\*?"
     r"|\$\{HOME\}/?\*?"
     r"|/root/?\*?"
     r"|/home/?\*?"
     r"|/(?:etc|usr|bin|sbin|boot|var|lib|lib64|opt|srv|mnt|run|snap|System|Library|Applications|Users|proc|sys|dev)/?\*?"
     r"|/home/[^/]+/?\*?"
-    r"|(?:/home/[^/]+|/root|~)/" + PROTECTED_HOME_DIR + r"/?\*?"
+    r"|" + HOME_PREFIX + r"/" + PROTECTED_HOME_DIR + r"/?\*?"
+    r"|" + HOME_PREFIX + r"/[^/]*[*?\[{][^/]*/?"
     r"|/[^/]*[*?\[{][^/]*/?"
     r"|(?:\.\./?)+\*?"
     r"|\."
@@ -126,7 +131,7 @@ def has_substitution(seg: list[str]) -> bool:
 
 
 def cleans_ignored_files(seg: list[str]) -> bool:
-    """True for `git clean` that forces removal and includes ignored files (-x/-X), unless it is a dry run."""
+    """True for `git clean` forced by -f, --force or clean.requireForce=false that removes ignored files (-x/-X), unless -n or --dry-run."""
     if "clean" not in seg or not any(posixpath.basename(t) == "git" for t in seg):
         return False
     shorts = "".join(t[1:] for t in seg if t.startswith("-") and not t.startswith("--"))
@@ -198,6 +203,8 @@ def check_find_paths(segments: list[list[str]], inners: list[list[str]]) -> str 
 
 
 def check(command: str) -> str | None:
+    if tokenize is None:
+        return deny([command], "", "while the hook cannot load _shell.py") if RM_WORD.search(command) else None
     try:
         tokens = tokenize(command)
     except ValueError:
@@ -206,6 +213,13 @@ def check(command: str) -> str | None:
     segments = split_segments(outer)
     verdicts = map(check_segment, segments + inners)
     return next((v for v in verdicts if v), None) or check_find_paths(segments, inners)
+
+
+def guarded_check(command: str) -> str | None:
+    try:
+        return check(command)
+    except Exception as error:  # noqa: BLE001 - a bug here must not turn a risky rm into silence
+        return deny([command], "", f"because the hook failed ({error!r})") if RM_WORD.search(command) else None
 
 
 def main():
@@ -223,7 +237,7 @@ def main():
         value = tool_input.get(field)
         if not isinstance(value, str) or not value:
             continue
-        verdict = check(value)
+        verdict = guarded_check(value)
         if verdict:
             print(verdict)
             return 0

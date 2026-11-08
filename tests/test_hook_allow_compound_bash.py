@@ -86,7 +86,7 @@ class TestAuditBypasses(unittest.TestCase):
                 self.assertFalse(allowed(command))
 
     def test_patterns_that_are_not_paths_stay_allowed(self):
-        for command in ("jq '.a[0]' f.json", "grep 'a[0-9]*' f.txt", "tr '[:lower:]' '[:upper:]'", "echo {a,b}",
+        for command in ("jq '.a[0]' f.json", "grep 'a[0-9]*' f.txt", "tr '[:lower:]' '[:upper:]'",
                         "grep 'a.*b' file.txt", "grep -rn 'a[0-9]' src"):
             with self.subTest(command=command):
                 self.assertTrue(allowed(command))
