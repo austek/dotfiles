@@ -64,14 +64,21 @@ FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 FIND_GLOBAL_OPTS = {"-H", "-L", "-P"}
 SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash", "ksh", "eval", "ssh"}
 RISKY_WORD = re.compile(r"\brm\b|\bgit\b.*\bclean\b|\bfind\b.*-delete\b")
+REDIRECT = re.compile(r"\d*(?:[<>]+&?|&>+)")
+
+
+def is_risky(text: str) -> bool:
+    """Whether `text` mentions a deletion command, once line continuations are joined."""
+    return bool(RISKY_WORD.search(text.replace("\\\n", "")))
 GIT_VALUE_OPTIONS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
 WRAPPER_VALUE_OPTIONS = {
     "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-C", "-p", "--prompt", "-r", "-t", "-U"},
     "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
     "nice": {"-n", "--adjustment"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "time": {"-f", "--format", "-o", "--output"},
     "exec": {"-a"},
-    "rtk": set(), "command": set(), "nohup": set(), "time": set(),
+    "rtk": set(), "command": set(), "nohup": set(),
 }
 SHELL_PREFIXES = {"(", "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
@@ -154,6 +161,14 @@ def skip_wrappers(seg: list[str]) -> list[str]:
         wrapper = posixpath.basename(seg[i])
         if ASSIGNMENT.match(seg[i]) or seg[i] in SHELL_PREFIXES:
             i += 1
+        elif REDIRECT.fullmatch(seg[i]):
+            i += 2
+        elif seg[i].isdigit() and REDIRECT.fullmatch(seg[i + 1] if i + 1 < len(seg) else ""):
+            i += 3
+        elif seg[i] == "case" and ")" in seg[i:]:
+            i = seg.index(")", i) + 1
+        elif seg[i + 1:i + 2] == [")"]:
+            i += 2
         elif wrapper in WRAPPER_VALUE_OPTIONS:
             i += 1
             while i < len(seg) and seg[i].startswith("-"):
@@ -277,7 +292,7 @@ def check_line(line: str) -> str | None:
     try:
         tokens = tokenize(line)
     except ValueError:
-        return deny([line], "", "in an unparseable command") if RISKY_WORD.search(line) else None
+        return deny([line], "", "in an unparseable command") if is_risky(line) else None
     outer, inners = extract_exec(tokens)
     segments = split_segments(outer)
     verdicts = map(check_segment, segments + inners)
@@ -286,7 +301,7 @@ def check_line(line: str) -> str | None:
 
 def check(command: str) -> str | None:
     if tokenize is None:
-        return deny([command], "", "while the hook cannot load _shell.py") if RISKY_WORD.search(command) else None
+        return deny([command], "", "while the hook cannot load _shell.py") if is_risky(command) else None
     return next((v for v in map(check_line, command_lines(command)) if v), None)
 
 
@@ -294,7 +309,7 @@ def guarded_check(command: str) -> str | None:
     try:
         return check(command)
     except Exception as error:  # noqa: BLE001 - a bug here must not turn a risky rm into silence
-        return deny([command], "", f"because the hook failed ({error!r})") if RISKY_WORD.search(command) else None
+        return deny([command], "", f"because the hook failed ({error!r})") if is_risky(command) else None
 
 
 def main():

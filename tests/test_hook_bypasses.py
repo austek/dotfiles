@@ -67,7 +67,9 @@ def test_the_rm_hook_denies_a_protected_child_of_a_home_outside_home_and_root(tm
     assert run_hook("block-dangerous-rm.py", scratch, home) == ""
 
 
-@pytest.mark.parametrize("command", ["git clean -fdx", "find / -delete", "find ~ -delete"])
+@pytest.mark.parametrize("command", [
+    "git clean -fdx", "find / -delete", "find ~ -delete", "git \\\nclean -fdx", "find / \\\n-delete",
+])
 def test_the_rm_hook_still_denies_these_when_the_shared_module_is_missing(tmp_path, command):
     copy = tmp_path / "hooks"
     copy.mkdir()
