@@ -1,4 +1,8 @@
 """Tests for claude/.claude/hooks/block-dangerous-rm.py."""
+import sys
+
+sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed hooks package
+
 import contextlib
 import importlib.util
 import io

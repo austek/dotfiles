@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 import posixpath
 import re
-import shlex
 import sys
 
-SEPARATORS = {"&&", "||", ";", "|"}
+sys.dont_write_bytecode = True  # a __pycache__ here would land inside the stowed package
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _shell import split_segments, tokenize
 
 # Any tool that takes a shell command; the IDE terminal bypasses a Bash-only matcher.
 GUARDED_TOOLS = {
@@ -54,31 +56,11 @@ BARE_VAR = re.compile(
 )
 
 
-def tokenize(command: str) -> list[str]:
-    # punctuation_chars=True keeps shell operators separate while still
-    # respecting quoting, so text inside a quoted value is never split
-    # into separate tokens.
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
-    lex.commenters = ""
-    return list(lex)
-
-
 def normalize(tok: str) -> str:
     return posixpath.normpath(re.sub(r"/{2,}", "/", tok))
 
 
-def split_segments(tokens):
-    segments = [[]]
-    for tok in tokens:
-        if tok in SEPARATORS:
-            segments.append([])
-        else:
-            segments[-1].append(tok)
-    return segments
-
-
-def _is_rm(tok):
+def _is_rm(tok: str) -> bool:
     return posixpath.basename(tok) == "rm"
 
 

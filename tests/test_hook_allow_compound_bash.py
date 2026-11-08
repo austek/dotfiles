@@ -1,4 +1,8 @@
 """Tests for claude/.claude/hooks/allow-compound-bash.py."""
+import sys
+
+sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed hooks package
+
 import importlib.util
 import os
 import unittest

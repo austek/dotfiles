@@ -7,8 +7,11 @@ import re
 import shlex
 import sys
 
+sys.dont_write_bytecode = True  # a __pycache__ here would land inside the stowed package
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _shell import SEPARATORS, tokenize
+
 SETTINGS_FILES = ("~/.claude/settings.json", ".claude/settings.json", ".claude/settings.local.json")
-SEPARATORS = {"&&", "||", ";", "|"}
 OPERATOR_CHARS = set("();<>|&")
 SAFE_SINK = re.compile(r"^(/dev/null|/tmp/[^\s$`]*)$")
 SENSITIVE = re.compile(
@@ -138,13 +141,6 @@ def build_segments(tokens):
             current.append(tok)
         i += 1
     return segments + [current]
-
-
-def tokenize(command):
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
-    lex.commenters = ""
-    return list(lex)
 
 
 def strip_assignments(words):
