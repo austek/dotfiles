@@ -65,8 +65,15 @@ FIND_GLOBAL_OPTS = {"-H", "-L", "-P"}
 SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash", "ksh", "eval", "ssh"}
 RISKY_WORD = re.compile(r"\brm\b|\bgit\b.*\bclean\b|\bfind\b.*-delete\b")
 GIT_VALUE_OPTIONS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
-COMMAND_WRAPPERS = {"sudo", "rtk", "env", "command", "nohup", "time", "exec", "nice", "timeout"}
-WRAPPER_VALUE_OPTIONS = {"-u", "--unset", "-C", "--chdir", "-g", "-h", "-p", "-n", "-a", "-k", "-s", "--signal"}
+WRAPPER_VALUE_OPTIONS = {
+    "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-C", "-p", "--prompt", "-r", "-t", "-U"},
+    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+    "nice": {"-n", "--adjustment"},
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "exec": {"-a"},
+    "rtk": set(), "command": set(), "nohup": set(), "time": set(),
+}
+SHELL_PREFIXES = {"(", "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 
 # Bare variable/parameter expansion (e.g. $VAR, ${VAR}) — its value is unknown
@@ -144,14 +151,14 @@ def skip_wrappers(seg: list[str]) -> list[str]:
     """The segment without leading assignments and wrapper commands (`sudo -u root`, `env -u X`, `timeout 5`, ...)."""
     i = 0
     while i < len(seg):
-        if ASSIGNMENT.match(seg[i]):
+        wrapper = posixpath.basename(seg[i])
+        if ASSIGNMENT.match(seg[i]) or seg[i] in SHELL_PREFIXES:
             i += 1
-        elif posixpath.basename(seg[i]) in COMMAND_WRAPPERS:
-            takes_duration = posixpath.basename(seg[i]) == "timeout"
+        elif wrapper in WRAPPER_VALUE_OPTIONS:
             i += 1
             while i < len(seg) and seg[i].startswith("-"):
-                i += 2 if seg[i] in WRAPPER_VALUE_OPTIONS else 1
-            i += takes_duration
+                i += 2 if seg[i] in WRAPPER_VALUE_OPTIONS[wrapper] else 1
+            i += wrapper == "timeout"
         else:
             break
     return seg[i:]

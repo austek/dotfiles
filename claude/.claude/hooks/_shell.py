@@ -5,7 +5,7 @@ import re
 import shlex
 
 SEPARATORS = frozenset({"&&", "||", ";", "|"})
-CONTROL_OPERATOR = re.compile(r"[&|;]+")
+CONTROL_OPERATOR = re.compile(r"[()]*[&|;][()&|;]*")
 
 
 def tokenize(command: str) -> list[str]:
