@@ -63,9 +63,10 @@ SAFE_VAR_PREFIX = re.compile(r"^\$(?:\{TMPDIR\}|TMPDIR)/(?!.*\.\.)[^$`]+$")
 FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 FIND_GLOBAL_OPTS = {"-H", "-L", "-P"}
 SHELL_WRAPPERS = {"bash", "sh", "zsh", "dash", "ksh", "eval", "ssh"}
-RISKY_WORD = re.compile(r"\brm\b|\bgit\b.*\bclean\b")
-GIT_VALUE_OPTIONS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
-COMMAND_WRAPPERS = {"sudo", "rtk", "env", "command", "nohup", "time", "exec", "nice"}
+RISKY_WORD = re.compile(r"\brm\b|\bgit\b.*\bclean\b|\bfind\b.*-delete\b")
+GIT_VALUE_OPTIONS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
+COMMAND_WRAPPERS = {"sudo", "rtk", "env", "command", "nohup", "time", "exec", "nice", "timeout"}
+WRAPPER_VALUE_OPTIONS = {"-u", "--unset", "-C", "--chdir", "-g", "-h", "-p", "-n", "-a", "-k", "-s", "--signal"}
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 
 # Bare variable/parameter expansion (e.g. $VAR, ${VAR}) — its value is unknown
@@ -139,17 +140,41 @@ def has_substitution(seg: list[str]) -> bool:
     return any("`" in t for t in seg) or any(a.endswith("$") and b == "(" for a, b in pairs)
 
 
+def skip_wrappers(seg: list[str]) -> list[str]:
+    """The segment without leading assignments and wrapper commands (`sudo -u root`, `env -u X`, `timeout 5`, ...)."""
+    i = 0
+    while i < len(seg):
+        if ASSIGNMENT.match(seg[i]):
+            i += 1
+        elif posixpath.basename(seg[i]) in COMMAND_WRAPPERS:
+            takes_duration = posixpath.basename(seg[i]) == "timeout"
+            i += 1
+            while i < len(seg) and seg[i].startswith("-"):
+                i += 2 if seg[i] in WRAPPER_VALUE_OPTIONS else 1
+            i += takes_duration
+        else:
+            break
+    return seg[i:]
+
+
 def git_subcommand(seg: list[str]) -> tuple[str, list[str]] | None:
     """The git subcommand and its arguments when the segment runs git (behind wrappers and assignments), else None."""
-    words = list(seg)
-    while words and (ASSIGNMENT.match(words[0]) or words[0].startswith("-") or posixpath.basename(words[0]) in COMMAND_WRAPPERS):
-        words.pop(0)
+    words = skip_wrappers(seg)
     if not words or posixpath.basename(words[0]) != "git":
         return None
     rest, i = words[1:], 0
     while i < len(rest) and rest[i].startswith("-"):
         i += 2 if rest[i] in GIT_VALUE_OPTIONS else 1
     return (rest[i], rest[i + 1:]) if i < len(rest) else None
+
+
+def long_option_dry_run(name: str, current: bool) -> bool:
+    """Whether the dry run is on after `git clean --NAME`; git accepts unambiguous abbreviations and a `no-` prefix."""
+    negated = name.startswith("no-")
+    target = name[3:] if negated else name
+    if not target or not "dry-run".startswith(target):
+        return current
+    return not negated
 
 
 def clean_options(args: list[str]) -> tuple[bool, bool]:
@@ -159,8 +184,9 @@ def clean_options(args: list[str]) -> tuple[bool, bool]:
     while i < len(args) and args[i] != "--":
         arg = args[i]
         if arg.startswith("--"):
-            dry_run = dry_run or arg == "--dry-run"
-            i += arg == "--exclude"
+            name = arg[2:].partition("=")[0]
+            dry_run = long_option_dry_run(name, dry_run)
+            i += "=" not in arg and bool(name) and "exclude".startswith(name)
         elif arg.startswith("-") and arg != "-":
             cluster, has_pattern, attached = arg[1:].partition("e")
             ignored, dry_run = ignored or bool(set(cluster) & {"x", "X"}), dry_run or "n" in cluster
