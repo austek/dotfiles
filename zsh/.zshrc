@@ -61,17 +61,7 @@ fpath=( ~/.config/zsh/functions "${fpath[@]}" )
 autoload -Uz $fpath[1]/*(:t)
 # --- END NEW FUNCTION LOADING ---
 
-# --- PATH ---
-# Must follow the autoload block above: path_prepend/path_append live in $fpath.
-# typeset -U keeps entries unique, so nested shells can't accumulate duplicates.
-typeset -U path PATH
-path_prepend "$HOME/.local/bin"
-path_prepend "$HOME/bin"
-path_prepend "$HOME/.dotfiles/bin"
-path_append "$HOME/.local/share/JetBrains/Toolbox/bin" "$HOME/.local/share/JetBrains/Toolbox/scripts"
-path_append "$HOME/.krew/bin"
-path_append "/usr/local/go/bin"
-# --- END PATH ---
+# Base PATH is defined in .zshenv.
 
 alias claude='claude-tmux main claude'
 alias claude-chrome='CLAUDE_CONFIG_DIR=~/.claude-chrome claude --chrome'
@@ -126,5 +116,3 @@ if [[ -r $HOME/.sdkman ]]; then
     export SDKMAN_DIR="$HOME/.sdkman"
     [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
 fi
-
-path_prepend "$HOME/.local/share/sonarqube-cli/bin"

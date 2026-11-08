@@ -61,7 +61,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 ### Zsh Configuration
 - Custom Zsh functions must be stored in `~/.config/zsh/functions`.
 - They are efficiently loaded using `fpath` and `autoload`.
-- Add to `PATH` with `path_prepend` / `path_append`, never `export PATH=...`. They skip directories that do not exist, and `typeset -U path` keeps entries unique.
+- The base `PATH` lives in `zsh/.zshenv`, not `.zshrc`, so non-interactive shells (IDE-launched agents) get it. Edit its `path=(...)` array; `typeset -U path` keeps entries unique and `path=( ${^path}(N-/) )` drops directories that do not exist. Use `path_prepend` / `path_append` only for additions in `.zshrc` (e.g. tool installers), never `export PATH=...`.
 
 ### No Machine-Specific Paths
 - **Never** hardcode an absolute home directory (`/home/<user>`, `/Users/<user>`). Use `$HOME` or `~`, so the file works on every machine.
