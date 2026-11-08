@@ -2,24 +2,33 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 import shutil
 import tarfile
 import tempfile
 import zipfile
+import zlib
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from dotfiles_setup.checksums import DigestMismatchError
+from dotfiles_setup.checksums import ChecksumError, DigestMismatchError, verify_file
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
 MSG_CONTINUING_SETUP = "Continuing with setup..."
-LAZYDOCKER_API = "https://api.github.com/repos/jesseduffield/lazydocker/releases/latest"
-ZOOM_URL = "https://zoom.us/client/latest/zoom_amd64.deb"
-SLACK_PAGE = "https://slack.com/downloads/linux"
-JETBRAINS_API = "https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release"
+SUPPORTED_ARCH = "x86_64"
+EXTRACT_ERRORS = (
+    tarfile.TarError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, OSError,
+)
+LAZYDOCKER_VERSION = "0.25.2"
+ZOOM_VERSION = "7.2.5.6661"
+ZOOM_URL = f"https://cdn.zoom.us/prod/{ZOOM_VERSION}/zoom_amd64.deb"
+SLACK_VERSION = "4.53.276"
+ISTIOCTL_VERSION = "1.31.4"
+AWSCLI_VERSION = "2.39.6"
+JETBRAINS_VERSION = "3.9.1.89198"
 SLACK_APT_SOURCES = ("/etc/apt/sources.list.d/slack.sources", "/etc/apt/sources.list.d/slack.list")
 
 
@@ -34,7 +43,7 @@ class Resolved:
 class ReleaseSpec:
     name: str
     is_installed: Callable[[Tooling], bool]
-    resolve: Callable[[Tooling], Resolved | None]
+    resolve: Callable[[Tooling], Resolved]
     kind: Literal["targz", "zip", "deb"]
     install: Callable[[Tooling, Path, Path, Resolved], bool]
 
@@ -57,6 +66,13 @@ def _store_in_cache(cache_dir: Path, cache_key: str, artifact: Path) -> None:
         pass
 
 
+def _discard(t: Tooling, cached: Path) -> None:
+    try:
+        cached.unlink(missing_ok=True)
+    except OSError as error:
+        t.logger.warn(f"Could not remove {cached}: {error}")
+
+
 def download_with_cache(
     t: Tooling, tool: str, resolved: Resolved, dest: Path, verify: Callable[[Path], None] = lambda _: None,
 ) -> bool:
@@ -68,8 +84,9 @@ def download_with_cache(
             shutil.copy(cached, dest)
             verify(dest)
             return True
-    except DigestMismatchError:
-        cached.unlink(missing_ok=True)
+    except DigestMismatchError as error:
+        t.logger.warn(f"Discarding the cached {tool} download: {error}")
+        _discard(t, cached)
     except OSError:
         pass
     t.download(resolved.url, dest)
@@ -105,8 +122,8 @@ def _unpack(t: Tooling, spec: ReleaseSpec, artifact: Path, temp_dir: Path) -> bo
     extract, phrase = extractors[spec.kind]
     try:
         extract(artifact, temp_dir)
-    except (tarfile.TarError, zipfile.BadZipFile, OSError):
-        skip(t, f"Failed to extract {spec.name} {phrase}.")
+    except EXTRACT_ERRORS as error:
+        skip(t, f"Failed to extract {spec.name} {phrase}: {type(error).__name__}: {error}")
         return False
     return True
 
@@ -116,9 +133,14 @@ def _fetch_and_install(t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_d
     suffix = f" v{resolved.version}" if resolved.version else ""
     t.logger.info(f"Fetching {spec.name}{suffix}...")
     try:
-        cache_hit = download_with_cache(t, spec.name, resolved, artifact)
-    except (OSError, ValueError):
-        skip(t, f"Failed to download {spec.name} from {resolved.url}")
+        cache_hit = download_with_cache(
+            t, spec.name, resolved, artifact, lambda path: verify_file(t.checksums, resolved.url, path),
+        )
+    except ChecksumError as error:
+        skip(t, f"Refusing {spec.name} download: {error}")
+        return
+    except (OSError, ValueError) as error:
+        skip(t, f"Failed to download {spec.name} from {resolved.url}: {error}")
         return
     if cache_hit:
         t.logger.info("(using cached download)")
@@ -130,26 +152,26 @@ def _fetch_and_install(t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_d
     t.logger.success(f"{spec.name} installed successfully{suffix}.")
 
 
+def _supported_arch(t: Tooling, spec: ReleaseSpec) -> bool:
+    if platform.machine() == SUPPORTED_ARCH:
+        return True
+    t.logger.warn(f"Skipping {spec.name}: its release is built for {SUPPORTED_ARCH} only.")
+    return False
+
+
 def install_release(t: Tooling, spec: ReleaseSpec) -> bool:
     t.logger.info(f"Installing {spec.name}...")
     if spec.is_installed(t):
         t.logger.info(f"{spec.name} is already installed. Skipping.")
         return True
-    if dry_run_all(t, f"Would fetch {spec.name} latest release", f"Would download and install {spec.name}"):
+    if not _supported_arch(t, spec):
         return True
     resolved = spec.resolve(t)
-    if resolved is None:
-        return skip(t, f"Failed to resolve {spec.name} download URL.")
+    if dry_run_all(t, f"Would download and install {spec.name} v{resolved.version}"):
+        return True
     with tempfile.TemporaryDirectory() as temp_dir:
         _fetch_and_install(t, spec, resolved, Path(temp_dir))
     return True
-
-
-def _fetch_or_none(t: Tooling, url: str) -> str | None:
-    try:
-        return t.fetch(url)
-    except (OSError, ValueError):
-        return None
 
 
 def _dpkg_listing(t: Tooling) -> str:
@@ -179,29 +201,19 @@ def _install_deb_or_fix_broken(t: Tooling, deb: Path, package_pattern: str) -> b
     return _dpkg_has(t, package_pattern)
 
 
-def _lazydocker_resolve(t: Tooling) -> Resolved | None:
-    body = _fetch_or_none(t, LAZYDOCKER_API)
-    match = re.search(r'"tag_name":\s*"v([^"]*)"', body or "")
-    if not match:
-        return None
-    version = match.group(1)
-    base = "https://github.com/jesseduffield/lazydocker/releases/latest/download"
-    return Resolved(version, f"{base}/lazydocker_{version}_Linux_x86_64.tar.gz", f"{version}.tar.gz")
+def _lazydocker_resolve(_t: Tooling) -> Resolved:
+    base = f"https://github.com/jesseduffield/lazydocker/releases/download/v{LAZYDOCKER_VERSION}"
+    return Resolved(
+        LAZYDOCKER_VERSION, f"{base}/lazydocker_{LAZYDOCKER_VERSION}_Linux_x86_64.tar.gz", f"{LAZYDOCKER_VERSION}.tar.gz",
+    )
 
 
 def _sudo_install(t: Tooling, binary: Path) -> bool:
     return t.run(["sudo", "install", str(binary), "/usr/local/bin"]).returncode == 0
 
 
-def _github_tag(t: Tooling, repo: str) -> str | None:
-    match = re.search(r'"tag_name":\s*"([^"]*)"', _fetch_or_none(t, f"https://api.github.com/repos/{repo}/releases/latest") or "")
-    return match.group(1) if match else None
-
-
-def _istioctl_resolve(t: Tooling) -> Resolved | None:
-    tag = _github_tag(t, "istio/istio")
-    if not tag:
-        return None
+def _istioctl_resolve(_t: Tooling) -> Resolved:
+    tag = ISTIOCTL_VERSION
     url = f"https://github.com/istio/istio/releases/download/{tag}/istio-{tag}-linux-amd64.tar.gz"
     return Resolved(tag, url, f"istio-{tag}-linux-amd64.tar.gz")
 
@@ -211,19 +223,16 @@ def _istioctl_install(t: Tooling, temp_dir: Path, _artifact: Path, resolved: Res
 
 
 def _awscli_resolve(_t: Tooling) -> Resolved:
-    # AWS exposes no version endpoint; the fixed cache key is safe because this only runs while `aws` is absent.
-    return Resolved("", "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip", "awscliv2.zip")
+    url = f"https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{AWSCLI_VERSION}.zip"
+    return Resolved(AWSCLI_VERSION, url, f"awscliv2-{AWSCLI_VERSION}.zip")
 
 
 def _awscli_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
     return t.run(["sudo", str(temp_dir / "aws" / "install")]).returncode == 0
 
 
-def _github_binary_spec(name: str, repo: str, asset: str, binary: str) -> ReleaseSpec:
-    def resolve(t: Tooling) -> Resolved | None:
-        tag = _github_tag(t, repo)
-        if not tag:
-            return None
+def _github_binary_spec(name: str, repo: str, tag: str, asset: str, binary: str) -> ReleaseSpec:
+    def resolve(_t: Tooling) -> Resolved:
         return Resolved(tag, f"https://github.com/{repo}/releases/download/{tag}/{asset}", f"{name}-{tag}.tar.gz")
 
     return ReleaseSpec(
@@ -236,25 +245,19 @@ def _lazydocker_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: 
     return _sudo_install(t, temp_dir / "lazydocker")
 
 
-def _zoom_resolve(t: Tooling) -> Resolved:
-    location = t.redirect(ZOOM_URL) or ""
-    match = re.search(r"/prod/([0-9.]+)", location)
-    version = match.group(1) if match else "latest"
-    return Resolved(version, ZOOM_URL, f"zoom_amd64-{version}.deb")
+def _zoom_resolve(_t: Tooling) -> Resolved:
+    return Resolved(ZOOM_VERSION, ZOOM_URL, f"zoom_amd64-{ZOOM_VERSION}.deb")
 
 
-def _slack_resolve(t: Tooling) -> Resolved | None:
-    match = re.search(r"Version (\d+\.\d+\.\d+)", _fetch_or_none(t, SLACK_PAGE) or "")
-    if not match:
-        return None
-    version = match.group(1)
+def _slack_resolve(_t: Tooling) -> Resolved:
+    version = SLACK_VERSION
     url = f"https://downloads.slack-edge.com/desktop-releases/linux/x64/{version}/slack-desktop-{version}-amd64.deb"
     return Resolved(version, url, f"slack-desktop-{version}-amd64.deb")
 
 
 def _slack_install(t: Tooling, _temp_dir: Path, artifact: Path, _resolved: Resolved) -> bool:
     installed = _install_deb_or_fix_broken(t, artifact, "slack-desktop")
-    # The postinst apt repo file has no Signed-By key and trips apt's warning; updates come from the .deb.
+    # The .deb's /etc/cron.daily/slack recreates this repo file, which has no Signed-By; removal only quiets apt's warning until it runs.
     t.run(["sudo", "rm", "-f", *SLACK_APT_SOURCES])
     return installed
 
@@ -263,11 +266,9 @@ def _jetbrains_binary(home: Path) -> Path:
     return home / ".local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
 
 
-def _jetbrains_resolve(t: Tooling) -> Resolved | None:
-    match = re.search(r'"linux":\{"link":"([^"]+)"', _fetch_or_none(t, JETBRAINS_API) or "")
-    if not match:
-        return None
-    return Resolved("", match.group(1), match.group(1).rsplit("/", 1)[-1])
+def _jetbrains_resolve(_t: Tooling) -> Resolved:
+    name = f"jetbrains-toolbox-{JETBRAINS_VERSION}.tar.gz"
+    return Resolved(JETBRAINS_VERSION, f"https://download.jetbrains.com/toolbox/{name}", name)
 
 
 def _jetbrains_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
@@ -298,8 +299,12 @@ ISTIOCTL = ReleaseSpec(
 AWSCLI = ReleaseSpec(
     "AWS CLI", lambda t: shutil.which("aws") is not None, _awscli_resolve, "zip", _awscli_install,
 )
-ZIZMOR = _github_binary_spec("zizmor", "zizmorcore/zizmor", "zizmor-x86_64-unknown-linux-gnu.tar.gz", "zizmor")
-MCP_GRAFANA = _github_binary_spec("mcp-grafana", "grafana/mcp-grafana", "mcp-grafana_Linux_x86_64.tar.gz", "mcp-grafana")
+ZIZMOR = _github_binary_spec(
+    "zizmor", "zizmorcore/zizmor", "v1.32.0", "zizmor-x86_64-unknown-linux-gnu.tar.gz", "zizmor",
+)
+MCP_GRAFANA = _github_binary_spec(
+    "mcp-grafana", "grafana/mcp-grafana", "v2.2.0", "mcp-grafana_Linux_x86_64.tar.gz", "mcp-grafana",
+)
 SLACK = ReleaseSpec(
     "Slack", lambda t: re.search(r"^ii {2}slack-desktop ", _dpkg_listing(t), re.MULTILINE) is not None,
     _slack_resolve, "deb", _slack_install,
@@ -322,27 +327,27 @@ RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = (
 RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = tuple(
     (package, lambda t, spec=spec: install_release(t, spec)) for package, spec in RELEASE_SPECS
 )
-# The package name doubles as the dpkg package the .deb installs.
-UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = tuple(
-    (package, spec) for package, spec in RELEASE_SPECS if spec.kind == "deb"
-)
+# Slack is not listed: its .deb registers an apt repo that dist-upgrade updates from.
+UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = (("zoom", ZOOM),)
 
 
-def _latest_release(t: Tooling, spec: ReleaseSpec) -> Resolved | None:
-    resolved = spec.resolve(t)
-    if resolved is None or not re.fullmatch(r"\d[\w.+~-]*", resolved.version):
-        t.logger.warn(f"Could not determine the latest {spec.name} version. Skipping upgrade.")
-        return None
-    return resolved
+def _is_older(t: Tooling, installed: str, pinned: str) -> bool | None:
+    """None when dpkg could not compare the two versions."""
+    code = t.run(["dpkg", "--compare-versions", installed, "lt", pinned]).returncode
+    return {0: True, 1: False}.get(code)
 
 
 def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:
     installed = _dpkg_version(t, package)
-    resolved = _latest_release(t, spec) if installed else None
-    if installed is None or resolved is None:
+    if installed is None or not _supported_arch(t, spec):
         return
-    if deb_is_current(installed, resolved.version):
-        t.logger.info(f"{spec.name} is already at v{installed}. Skipping.")
+    resolved = spec.resolve(t)
+    older = _is_older(t, installed, resolved.version)
+    if older is None:
+        t.logger.warn(f"Could not compare {spec.name} v{installed} with the pinned v{resolved.version}. Skipping upgrade.")
+        return
+    if not older:
+        t.logger.info(f"{spec.name} v{installed} is not older than the pinned v{resolved.version}. Skipping.")
         return
     if dry_run_all(t, f"Would upgrade {spec.name} from v{installed} to v{resolved.version}"):
         return
@@ -351,7 +356,7 @@ def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:
 
 
 def upgrade_vendor_debs(t: Tooling, package_names: Collection[str]) -> None:
-    """Reinstalls each wanted, installed vendor .deb whose latest vendor version differs from dpkg's."""
+    """Installs the pinned version of each wanted vendor .deb whose installed version is older than the pin."""
     for package, spec in UPGRADABLE_DEBS:
         if package in package_names:
             upgrade_release(t, spec, package)

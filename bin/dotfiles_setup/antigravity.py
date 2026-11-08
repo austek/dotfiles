@@ -2,19 +2,18 @@
 from __future__ import annotations
 
 import platform
-import re
 import subprocess
 import tarfile
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotfiles_setup.checksums import ChecksumError, verify_file
 from dotfiles_setup.release_installers import Resolved, download_with_cache, skip
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
-DOWNLOAD_PAGE = "https://antigravity.google/download"
 PINNED_BUILD = "2.6.0-5526304964083712"
-ARCH_DIRS = {"x86_64": "linux-x64", "aarch64": "linux-arm", "arm64": "linux-arm"}
+ARCH_DIRS = {"x86_64": "linux-x64"}
 CACHE_TOOL = "antigravity-ide"
 DESKTOP_ENTRY = """[Desktop Entry]
 Type=Application
@@ -80,21 +79,9 @@ def _tarball_url(arch_dir: str, build: str) -> str:
     return f"https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/{build}/{arch_dir}/Antigravity%20IDE.tar.gz"
 
 
-def resolve_build(t: Tooling, arch_dir: str) -> Resolved:
-    t.logger.info("Resolving the latest Antigravity IDE build...")
-    pattern = (
-        r"https://edgedl\.me\.gvt1\.com/edgedl/release2/[^\"'\\ /]+/antigravity/stable/[0-9][^\"'\\ ]*/"
-        + re.escape(arch_dir) + r"/Antigravity%20IDE\.tar\.gz"
-    )
-    try:
-        match = re.search(pattern, t.fetch(DOWNLOAD_PAGE))
-    except (OSError, ValueError):
-        match = None
-    if match is None:
-        t.logger.warn("Could not resolve the latest build. Falling back to the pinned URL.")
-    url = match.group(0) if match else _tarball_url(arch_dir, PINNED_BUILD)
-    build = re.search(r"antigravity/stable/([^/]+)", url).group(1)
-    return Resolved(build.split("-")[0], url, f"{build}.tar.gz")
+def resolve_build(arch_dir: str) -> Resolved:
+    url = _tarball_url(arch_dir, PINNED_BUILD)
+    return Resolved(PINNED_BUILD.split("-")[0], url, f"{PINNED_BUILD}.tar.gz")
 
 
 def _find_binary(temp_dir: Path) -> Path | None:
@@ -106,17 +93,22 @@ def fetch_and_extract(t: Tooling, resolved: Resolved, temp_dir: Path) -> Path | 
     tarball = temp_dir / "antigravity-ide.tar.gz"
     version = resolved.version or "unknown"
     try:
-        hit = download_with_cache(t, CACHE_TOOL, resolved, tarball)
-    except (OSError, ValueError):
-        skip(t, f"Failed to download Antigravity IDE from {resolved.url}")
+        hit = download_with_cache(
+            t, CACHE_TOOL, resolved, tarball, lambda path: verify_file(t.checksums, resolved.url, path),
+        )
+    except ChecksumError as error:
+        skip(t, f"Refusing Antigravity IDE download: {error}")
+        return None
+    except (OSError, ValueError) as error:
+        skip(t, f"Failed to download Antigravity IDE from {resolved.url}: {error}")
         return None
     t.logger.info(f"Using cached Antigravity IDE {version} tarball." if hit else f"Downloaded Antigravity IDE {version}.")
     t.logger.info("Extracting Antigravity IDE...")
     try:
         with tarfile.open(tarball) as archive:
             archive.extractall(temp_dir, filter="data")
-    except (tarfile.TarError, OSError):
-        skip(t, "Failed to extract Antigravity IDE.")
+    except (tarfile.TarError, EOFError, OSError) as error:
+        skip(t, f"Failed to extract Antigravity IDE: {type(error).__name__}: {error}")
         return None
     binary = _find_binary(temp_dir)
     if binary is None:
@@ -234,13 +226,14 @@ def install_antigravity_ide(t: Tooling, layout: Layout | None = None, machine: s
     arch = machine or platform.machine()
     arch_dir = ARCH_DIRS.get(arch)
     if arch_dir is None:
-        return skip(t, f"No Antigravity IDE build for architecture {arch}.")
+        t.logger.warn(f"Skipping Antigravity IDE: no build for architecture {arch} (x86_64 only).")
+        return True
     if dry_run_all(
-        t, f"Would resolve the latest Antigravity IDE build from {DOWNLOAD_PAGE}",
+        t, f"Would download Antigravity IDE build {PINNED_BUILD}",
         f"Would install Antigravity IDE to {layout.install_dir} with a launcher and desktop entry",
     ):
         return True
-    resolved = resolve_build(t, arch_dir)
+    resolved = resolve_build(arch_dir)
     if _installed_build(layout) == resolved.cache_key.removesuffix(".tar.gz"):
         t.logger.info(f"Antigravity IDE {resolved.version} is already installed. Skipping.")
         return True
