@@ -5,6 +5,7 @@ import platform
 import subprocess
 import tarfile
 import tempfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,7 +108,7 @@ def fetch_and_extract(t: Tooling, resolved: Resolved, temp_dir: Path) -> Path | 
     try:
         with tarfile.open(tarball) as archive:
             archive.extractall(temp_dir, filter="data")
-    except (tarfile.TarError, EOFError, OSError) as error:
+    except (tarfile.TarError, EOFError, OSError, zlib.error) as error:
         skip(t, f"Failed to extract Antigravity IDE: {type(error).__name__}: {error}")
         return None
     binary = _find_binary(temp_dir)

@@ -119,6 +119,8 @@ def payload_for(spec):
 
 
 def installed(spec, machine, home):
+    if spec.kind == "deb":
+        return machine.ran("sudo", "dpkg", "-i")
     return machine.ran("sudo") or ri._jetbrains_binary(home).exists()
 
 
