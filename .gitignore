@@ -48,3 +48,7 @@ claude/.claude/plugins/
 claude/.claude/todos/
 claude/.claude/shell-snapshots/
 claude/.claude/settings.local.json
+
+# code-modernization plugin output
+/analysis/
+/legacy/
