@@ -15,8 +15,8 @@ f93bfbd94cde68cc2e43cf5ba55da4f8e28b1a36b14fb14dadd566fc36b1312b  https://github
 b060a7c7679103b2b619752f8ee7a3088dd241a7d207d4311974b56ea6f94356  https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.6.0-5526304964083712/linux-x64/Antigravity%20IDE.tar.gz
 
 # Installer scripts. Several track a moving branch, so an upstream change fails the check until re-recorded.
-7ca3997314f631b8ad267e5add9af4b7a2f0351bdab0b1c5a9b7ed4008d0434a  https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh
-9502b514362a21096210d498f143b8cdacda365d3dfcf45e8f5541e089ccafc0  https://sh.rustup.rs
+85ae798116fa0dda42a627333b36903b71291785c7395ad3634f8419f7adaeb5  https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh
+d890e2fef6fa991b19cde2e608199bc1dca4e37f41f884edf8849ff693048de6  https://sh.rustup.rs
 434360efbde4d2ee31940ff28130fc6ec66121f1e1afc84aa37504752c4babb0  https://get.sdkman.io?rcupdate=false
 5574b96e94dbcb769f0d1592fa83aeb6ca2caf41c6ae5d76fcc7f04c524b4f55  https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
 48a0eee9a60e07422dce0eb5774754c83889570ca1ee2566c516acbe8af03a9e  https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh
