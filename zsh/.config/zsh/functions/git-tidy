@@ -1,5 +1,6 @@
-# Deletes local branches whose work is already in the base branch, including squash and rebase merges, and
-# removes their worktrees. Shows the plan first and asks before changing anything; also run as `git tidy`.
+# Deletes local branches whose work is already in the base branch, including squash and rebase merges and
+# branches whose tip is the head of a merged PR (found with `gh`; skipped with --no-fetch or when gh fails),
+# and removes their worktrees. Shows the plan first and asks before changing anything; also run as `git tidy`.
 # Usage: git-tidy [-n|--dry-run] [-y|--yes] [--no-fetch] [-b|--base <ref>]
 # The base defaults to origin's default branch. A branch is kept when it is main, master, develop or the base,
 # is checked out in the main or current worktree, still sits at the base tip (just created), or has a worktree
@@ -121,6 +122,27 @@ git-tidy() {
       unmerged+=$branch
     fi
   done
+
+  # Later commits on the base can rewrite what a squash merged, so the tree check misses the branch. A tip that
+  # equals the head of a PR merged into the base is done whatever the base looks like now.
+  local -A merged_pr_head
+  local pr_heads
+  if [[ -n $fetch ]] && (( ${#unmerged} )) && command -v gh >/dev/null; then
+    if pr_heads=$(gh pr list --state merged --base "$base_branch" --limit 500 --json headRefOid --jq '.[].headRefOid' 2>/dev/null); then
+      for tip in ${(f)pr_heads}; do merged_pr_head[$tip]=1; done
+    else
+      print -u2 -r -- 'git-tidy: gh pr list failed; skipping the merged-PR check'
+    fi
+  fi
+  local -a open_work
+  for branch in $unmerged; do
+    if [[ -n ${merged_pr_head[${tip_of[$branch]}]-} ]]; then
+      squashed+=$branch
+    else
+      open_work+=$branch
+    fi
+  done
+  unmerged=("${open_work[@]}")
 
   # The remote is asked directly, so no tracking ref is pruned before the user approves the plan.
   local up_remote up_ref
