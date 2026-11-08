@@ -1,3 +1,4 @@
+import hashlib
 import io
 import tarfile
 from pathlib import Path
@@ -5,12 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 from dotfiles_setup import antigravity as ag
-from dotfiles_setup import tools
+from dotfiles_setup import checksums, tools
 from dotfiles_setup.log import Logger
 
-BUILD = "2.5.0-111222333"
-URL = f"https://edgedl.me.gvt1.com/edgedl/release2/abc/antigravity/stable/{BUILD}/linux-x64/Antigravity%20IDE.tar.gz"
-PAGE = f'<a href="{URL}">download</a>'
+BUILD = ag.PINNED_BUILD
+URL = ag.resolve_build("linux-x64").url
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +48,7 @@ class Machine:
         return next(i for i, c in enumerate(self.commands) if c[: len(prefix)] == list(prefix))
 
 
-def make(tmp_path, machine, fetch=lambda url: PAGE, payload=None, dry_run=False):
+def make(tmp_path, machine, payload=None, dry_run=False):
     downloads = []
     payload = payload if payload is not None else tarball("ag/antigravity-ide", "ag/chrome-sandbox")
 
@@ -56,7 +56,7 @@ def make(tmp_path, machine, fetch=lambda url: PAGE, payload=None, dry_run=False)
         downloads.append(url)
         dest.write_bytes(payload)
 
-    t = tools.Tooling(Logger(dry_run=dry_run, verbosity=1), tmp_path, run=machine, fetch=fetch, download=download)
+    t = tools.Tooling(Logger(dry_run=dry_run, verbosity=1), tmp_path, run=machine, download=download)
     return t, downloads, ag.Layout(root=tmp_path / "root")
 
 
@@ -76,31 +76,86 @@ def test_unsupported_architecture_installs_nothing(tmp_path):
     assert machine.commands == []
 
 
-def test_dry_run_resolves_and_installs_nothing(tmp_path):
-    def refuse(url):
-        raise AssertionError(url)
-
+def test_dry_run_downloads_and_installs_nothing(tmp_path):
     machine = Machine()
-    t, downloads, layout = make(tmp_path, machine, fetch=refuse, dry_run=True)
+    t, downloads, layout = make(tmp_path, machine, dry_run=True)
     assert ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert downloads == []
     assert machine.commands == []
 
 
-def test_resolve_takes_the_build_from_the_download_page(tmp_path):
-    t, _, _ = make(tmp_path, Machine())
-    resolved = ag.resolve_build(t, "linux-x64")
-    assert (resolved.version, resolved.url, resolved.cache_key) == ("2.5.0", URL, f"{BUILD}.tar.gz")
+def test_resolve_uses_the_pinned_build():
+    resolved = ag.resolve_build("linux-x64")
+    assert (resolved.version, resolved.url, resolved.cache_key) == (BUILD.split("-")[0], URL, f"{BUILD}.tar.gz")
 
 
-def test_resolve_falls_back_to_the_pinned_build_when_the_page_fails(tmp_path):
-    def broken(url):
-        raise OSError("offline")
+@pytest.mark.parametrize("arch", ["aarch64", "arm64"])
+def test_arm_installs_nothing(tmp_path, arch, capsys):
+    machine = Machine()
+    t, downloads, layout = make(tmp_path, machine)
+    assert ag.install_antigravity_ide(t, layout, machine=arch)
+    assert downloads == [] and machine.commands == []
+    captured = capsys.readouterr()
+    assert "x86_64 only" in captured.out and captured.err == ""
 
-    t, _, _ = make(tmp_path, Machine(), fetch=broken)
-    resolved = ag.resolve_build(t, "linux-arm")
-    assert resolved.cache_key == f"{ag.PINNED_BUILD}.tar.gz"
-    assert "/linux-arm/" in resolved.url
+
+def test_a_digest_mismatch_installs_nothing(tmp_path):
+    machine = Machine()
+    t, _, layout = make(tmp_path, machine)
+    t = tools.Tooling(t.logger, tmp_path, run=machine, download=t.download, checksums={URL: "0" * 64})
+    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    assert not machine.ran("sudo", "cp")
+
+
+def digest_of(payload):
+    return hashlib.sha256(payload).hexdigest()
+
+
+def cached_tarball(tmp_path):
+    return tmp_path / "cache/dotfiles-setup/antigravity-ide" / f"{BUILD}.tar.gz"
+
+
+def test_a_matching_digest_installs(tmp_path):
+    machine = Machine()
+    payload = tarball("ag/antigravity-ide", "ag/chrome-sandbox")
+    t, _, layout = make(tmp_path, machine, payload=payload)
+    t = tools.Tooling(t.logger, tmp_path, run=machine, download=t.download, checksums={URL: digest_of(payload)})
+    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    assert machine.ran("sudo", "cp")
+
+
+def test_an_unlisted_url_installs_nothing_and_says_why(tmp_path, capsys):
+    machine = Machine()
+    t, _, layout = make(tmp_path, machine)
+    t = tools.Tooling(t.logger, tmp_path, run=machine, download=t.download, checksums={})
+    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    assert not machine.ran("sudo", "cp")
+    assert "Refusing Antigravity IDE download: no digest recorded" in capsys.readouterr().err
+
+
+def test_a_rejected_download_is_never_cached(tmp_path):
+    machine = Machine()
+    t, _, layout = make(tmp_path, machine)
+    t = tools.Tooling(t.logger, tmp_path, run=machine, download=t.download, checksums={URL: "0" * 64})
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
+    assert not cached_tarball(tmp_path).exists()
+
+
+def test_a_tampered_cached_tarball_is_replaced_by_a_verified_download(tmp_path):
+    payload = tarball("ag/antigravity-ide", "ag/chrome-sandbox")
+    cached = cached_tarball(tmp_path)
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"tampered")
+    machine = Machine()
+    t, _, layout = make(tmp_path, machine, payload=payload)
+    t = tools.Tooling(t.logger, tmp_path, run=machine, download=t.download, checksums={URL: digest_of(payload)})
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
+    assert cached.read_bytes() == payload
+
+
+def test_the_pinned_url_has_a_shipped_digest():
+    table = checksums.load(Path(__file__).parent.parent / "packages" / checksums.FILE_NAME)
+    assert URL in table
 
 
 def test_an_up_to_date_install_is_skipped(tmp_path):
@@ -195,7 +250,7 @@ def test_a_failed_download_continues_without_installing(tmp_path):
     def broken(url, dest):
         raise OSError("offline")
 
-    t = tools.Tooling(t.logger, tmp_path, run=machine, fetch=lambda url: PAGE, download=broken)
+    t = tools.Tooling(t.logger, tmp_path, run=machine, download=broken)
     assert ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert machine.commands == []
 

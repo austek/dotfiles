@@ -48,7 +48,7 @@
       "description": "GitHub release .debs: tag and filename in the checksums.txt URL; the digest stays stale until re-recorded",
       "managerFilePatterns": ["/^packages/checksums\\.txt$/"],
       "matchStrings": [
-        "(?<digest>[0-9a-f]{64})  https://github\\.com/(?<depName>[^/\\s]+/[^/\\s]+)/releases/download/v(?<currentValue>\\d[^/\\s]*)/(?<file>\\S+)"
+        "(?<digest>[0-9a-f]{64})  https://github\\.com/(?<depName>[^/\\s]+/[^/\\s]+)/releases/download/v(?<currentValue>\\d[^/\\s]*)/(?<file>\\S+\\.deb)"
       ],
       "autoReplaceStringTemplate": "{{{digest}}}  https://github.com/{{{depName}}}/releases/download/v{{{newValue}}}/{{{replace currentValue newValue file}}}",
       "datasourceTemplate": "github-releases",
@@ -104,7 +104,7 @@
     },
     {
       "customType": "regex",
-      "description": "Antigravity IDE fallback build, version-executionId",
+      "description": "Antigravity IDE pinned build, version-executionId; its checksums.txt URL and digest need a manual follow-up",
       "managerFilePatterns": ["/^bin/dotfiles_setup/antigravity\\.py$/"],
       "matchStrings": ["PINNED_BUILD = \"(?<currentValue>[^\"]+)\""],
       "depNameTemplate": "antigravity-ide",
