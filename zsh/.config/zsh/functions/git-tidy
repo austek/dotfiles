@@ -129,6 +129,10 @@ git-tidy() {
   local -A merged_pr_head
   local pr_pairs pr_head merge_oid base_url=
   [[ -z $base_remote ]] || base_url=$(git remote get-url "$base_remote" 2>/dev/null)
+  if [[ -n $base_url ]]; then
+    [[ $base_url == *://* ]] && base_url=${base_url#*://} || base_url=${base_url/:/\/}
+    base_url=${${base_url##*@}%.git}
+  fi
   if [[ -n $fetch ]] && (( ${#unmerged} )) && command -v gh >/dev/null; then
     if [[ -z $base_url ]]; then
       print -u2 -r -- 'git-tidy: base repository unknown; skipping the merged-PR check'

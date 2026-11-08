@@ -169,6 +169,22 @@ def test_keeps_a_branch_whose_pr_merge_commit_is_not_in_the_base(repo):
     assert repo.branches() == ["feat", "main"]
 
 
+@pytest.mark.parametrize("url, expected", [
+    ("https://user:secret@127.0.0.1:1/owner/name.git", "127.0.0.1:1/owner/name"),
+    ("git@127.0.0.1:owner/name.git", "127.0.0.1/owner/name"),
+])
+def test_passes_gh_a_credential_free_repository(repo, url, expected):
+    repo.env["GIT_SSH_COMMAND"] = "false"
+    tip, merge = squash_merged_then_rewritten_on_main(repo)
+    repo.git("remote", "set-url", "origin", url)
+    repo.gh_heads.write_text(f"{tip} {merge}\n")
+    result = repo.tidy("--yes")
+    assert result.returncode == 0, result.stderr
+    calls = repo.gh_log.read_text()
+    assert f"--repo {expected} " in calls
+    assert "secret" not in calls
+
+
 def test_skips_the_merged_pr_check_with_no_fetch(repo):
     tip, merge = squash_merged_then_rewritten_on_main(repo)
     repo.gh_heads.write_text(f"{tip} {merge}\n")
