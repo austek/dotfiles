@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-global_hook="${DOTFILES_GLOBAL_HOOKS:-$HOME/.git-hooks}/commit-msg"
-if [[ -x "$global_hook" ]]; then
-    exec "$global_hook" "$@"
+global_hooks="${DOTFILES_GLOBAL_HOOKS:-${HOME:+$HOME/.git-hooks}}"
+if [[ -n "$global_hooks" && -x "$global_hooks/commit-msg" ]]; then
+    exec "$global_hooks/commit-msg" "$@"
 fi

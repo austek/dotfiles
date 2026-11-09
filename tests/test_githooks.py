@@ -119,5 +119,16 @@ def test_repo_hooks_skip_missing_global_hooks(tmp_path):
     assert _TRAILER in git("log", "-n", "1", "--format=%B").stdout
 
 
+def test_repo_hooks_commit_without_home_or_global_hooks_dir(tmp_path):
+    repo, git = _repo_with_repo_hooks(tmp_path, tmp_path / "absent")
+    env = {"PATH": os.environ["PATH"], "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+    (repo / "f.md").write_text("ok\n")
+    git("add", "f.md")
+    result = subprocess.run(
+        ["git", "commit", "-q", "-m", "x"], cwd=repo, env=env, capture_output=True, text=True, check=False, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_pre_commit_hook_can_be_committed_itself(tmp_path):
     assert _run_hook(tmp_path, _HOOK.read_text()).returncode == 0
