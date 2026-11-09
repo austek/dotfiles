@@ -189,16 +189,14 @@ def deb_is_current(installed: str | None, latest: str) -> bool:
     return installed is not None and re.fullmatch(rf"(\d+:)?{re.escape(latest)}([-+].*)?", installed) is not None
 
 
-def _dpkg_has(t: Tooling, pattern: str) -> bool:
-    return re.search(rf"^ii.*{pattern}", _dpkg_listing(t), re.MULTILINE) is not None
-
-
-def _install_deb_or_fix_broken(t: Tooling, deb: Path, package_pattern: str) -> bool:
+def _install_deb_or_fix_broken(t: Tooling, deb: Path, package: str) -> bool:
+    before = _dpkg_version(t, package)
     if t.logger.quiet_run(["sudo", "dpkg", "-i", str(deb)], run=t.run).returncode == 0:
         return True
     t.logger.warn("dpkg reported errors. Running 'apt --fix-broken install'...")
     t.logger.quiet_run(["sudo", "apt-get", "-y", "--fix-broken", "install"], run=t.run)
-    return _dpkg_has(t, package_pattern)
+    after = _dpkg_version(t, package)
+    return after is not None and after != before
 
 
 def _lazydocker_resolve(_t: Tooling) -> Resolved:

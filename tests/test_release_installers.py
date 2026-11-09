@@ -58,14 +58,17 @@ def tarball(member):
 class Machine:
     """Records every command and answers dpkg -l from configurable state."""
 
-    def __init__(self, dpkg_listing="", fail=(), codes=None):
+    def __init__(self, dpkg_listing="", fail=(), codes=None, listing_after_fix=None):
         self.commands = []
         self.dpkg_listing = dpkg_listing
         self.fail = tuple(fail)
         self.codes = codes or {}
+        self.listing_after_fix = listing_after_fix
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
+        if argv[:4] == ["sudo", "apt-get", "-y", "--fix-broken"] and self.listing_after_fix is not None:
+            self.dpkg_listing = self.listing_after_fix
         if argv[:2] == ["dpkg", "-l"]:
             return SimpleNamespace(returncode=0, stdout=self.dpkg_listing, stderr="")
         for prefix, code in self.codes.items():
@@ -244,10 +247,24 @@ def test_zoom_is_installed_when_dpkg_lists_it(tmp_path):
 
 
 def test_deb_install_failure_is_fixed_by_apt(tmp_path):
-    machine = Machine(dpkg_listing="ii  zoom  6.0\n", fail=[("sudo", "dpkg")])
+    machine = Machine(fail=[("sudo", "dpkg")], listing_after_fix="ii  zoom  6.0\n")
     t, _ = make(tmp_path, machine)
     assert ri._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
     assert machine.ran("sudo", "apt-get", "-y", "--fix-broken", "install")
+
+
+def test_a_failed_upgrade_that_leaves_the_old_version_is_not_a_success(tmp_path):
+    machine = Machine(dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")])
+    t, _ = make(tmp_path, machine)
+    assert not ri._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
+
+
+def test_a_failed_upgrade_that_apt_completes_is_a_success(tmp_path):
+    machine = Machine(
+        dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")], listing_after_fix=slack_listing(ri.SLACK_VERSION),
+    )
+    t, _ = make(tmp_path, machine)
+    assert ri._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
 
 
 def test_deb_install_that_stays_broken_fails(tmp_path):
