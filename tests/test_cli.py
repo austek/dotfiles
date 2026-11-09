@@ -38,6 +38,13 @@ def test_combine_package_names_resolves_overrides_and_merges_overlay(tmp_path):
     assert combine_package_names(backend, ("bat", "git"), ("zsh", "git")) == ("batcat", "git", "zsh")
 
 
+def test_rule001_wanted_is_preset_files_plus_overlay_extras_minus_optouts(tmp_path):
+    backend = AptBackend(dotfiles_dir=tmp_path, backend_overrides={"bat": "batcat"})
+    combined = combine_package_names(backend, ("git", "curl", "github:foo/bar", "bat"), ("htop",))
+    wanted = package_sets.wanted(combined, frozenset({"curl", "batcat"}), backend.resolve_name)
+    assert wanted == frozenset({"git", "github:foo/bar", "htop"})
+
+
 def test_an_opted_out_overlay_name_is_resolved_like_a_preset_name(tmp_path):
     backend = AptBackend(dotfiles_dir=tmp_path, backend_overrides={"batcat": "bat"})
     combined = combine_package_names(backend, (), ("batcat",))
@@ -342,7 +349,7 @@ def test_install_marks_the_optouts_migrated(isolated_dotfiles):
     assert state.load_state().optouts_migrated is True
 
 
-def test_missing_overlay_skips_all_removals(isolated_dotfiles, capsys):
+def test_rule008_missing_overlay_skips_all_removals(isolated_dotfiles, capsys):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     prior = _prior("homelab", ("curl", "extra", "zsh"), overlay_root=str(tmp_path / "private"))
     assert _plan_for(tmp_path, prior).pending == ()
@@ -372,19 +379,31 @@ def test_same_overlay_keeps_removals(isolated_dotfiles):
     assert _plan_for(tmp_path, prior, overlay_root=tmp_path / "private").pending == ("extra",)
 
 
-def test_plan_pending_lists_dropped_packages(isolated_dotfiles):
+def test_rule002_plan_pending_lists_dropped_packages(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     plan = _plan_for(tmp_path, _prior("homelab", ("curl", "htop", "zsh")))
     assert plan.pending == ("htop",)
 
 
-def test_plan_ignores_applied_for_other_preset(isolated_dotfiles):
+def test_rule002_pending_drops_a_pin_whose_dpkg_name_is_still_wanted(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    prior = _prior("homelab", ("a", "b", "github:u/b2", "c"))
+    plan = _plan_for(tmp_path, prior, names=("a", "b2"))
+    assert plan.pending == ("b", "c")
+
+
+def test_rule002_no_applied_list_means_nothing_is_pending(isolated_dotfiles):
+    _dotfiles_dir, tmp_path = isolated_dotfiles
+    assert _plan_for(tmp_path, None).pending == ()
+
+
+def test_rule002_plan_ignores_applied_for_other_preset(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     plan = _plan_for(tmp_path, _prior("work", ("htop",)))
     assert plan.pending == ()
 
 
-def test_successful_install_writes_the_migration_once(isolated_dotfiles):
+def test_rule010_successful_install_writes_the_migration_once(isolated_dotfiles):
     _dotfiles_dir, tmp_path = isolated_dotfiles
     package_file = _write_optouts(tmp_path, "zsh\nextra\n")
     assert _plan_for(tmp_path).wanted == frozenset({"zsh"})
@@ -855,7 +874,7 @@ def test_install_expands_home_in_the_generated_env_and_its_drift_baseline(
     assert main(["install", "--preset", "homelab"]) == 0
 
 
-def test_install_stops_when_settings_were_edited_since_the_last_install(
+def test_rule016_install_stops_when_settings_were_edited_since_the_last_install(
     isolated_dotfiles, plugin_updates, foothold_syncs, tmp_path, capsys,
 ):
     settings = _install_then_edit_settings(tmp_path)
@@ -886,7 +905,7 @@ def test_accept_drift_overwrites_edited_settings_and_keeps_a_backup(isolated_dot
     assert json.loads(settings.read_text()) == {"model": "base"}
 
 
-def test_dry_run_reports_settings_drift_and_continues(isolated_dotfiles, tmp_path, capsys):
+def test_rule016_dry_run_reports_settings_drift_and_continues(isolated_dotfiles, tmp_path, capsys):
     settings = _install_then_edit_settings(tmp_path)
     edited = settings.read_text()
     capsys.readouterr()
@@ -1181,7 +1200,7 @@ def _ask(answer):
 
 
 @pytest.mark.parametrize("answer", ["y", "yes", "Y", "YES"])
-def test_confirm_yes_applies(answer, capsys):
+def test_rule007_confirm_yes_applies(answer, capsys):
     asked, ask = _ask(answer)
     assert confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
     assert asked == ["Remove these packages? [y/N] "]
@@ -1189,13 +1208,13 @@ def test_confirm_yes_applies(answer, capsys):
 
 
 @pytest.mark.parametrize("answer", ["", "n", "no", "maybe"])
-def test_confirm_other_answers_decline(answer, capsys):
+def test_rule007_confirm_other_answers_decline(answer, capsys):
     _, ask = _ask(answer)
     assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=ask)
     assert "Removals declined; they will be offered again next run." in capsys.readouterr().out
 
 
-def test_confirm_non_interactive_declines_without_prune(capsys):
+def test_rule007_confirm_non_interactive_declines_without_prune(capsys):
     asked, ask = _ask("y")
     assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=False, ask=ask)
     assert asked == []
@@ -1231,7 +1250,7 @@ def _raise(error):
     return ask
 
 
-def test_confirm_treats_end_of_input_as_declined(capsys):
+def test_rule007_confirm_treats_end_of_input_as_declined(capsys):
     assert not confirm_removals(Logger(dry_run=False), ("htop",), prune=False, interactive=True, ask=_raise(EOFError))
     assert "Removals declined; they will be offered again next run." in capsys.readouterr().out
 
@@ -1316,7 +1335,7 @@ def test_applied_keeps_installed_pending_names_that_were_not_removed(tmp_path, m
     assert applied == ("htop", "zsh")
 
 
-def test_applied_drops_removed_names(tmp_path, monkeypatch):
+def test_rule009_applied_drops_removed_names(tmp_path, monkeypatch):
     t = _tooling(tmp_path, monkeypatch, apt=("htop", "vim"))
     applied = applied_after_removals(t, frozenset({"zsh"}), ("htop", "vim"), ["htop"])
     assert applied == ("vim", "zsh")
@@ -1347,7 +1366,7 @@ def test_prune_applies_non_interactively(isolated_dotfiles, flow_calls, monkeypa
     assert flow_calls[0].removals == ("htop",)
 
 
-def test_declined_removals_stay_in_applied_state(isolated_dotfiles, flow_calls, monkeypatch):
+def test_rule009_declined_removals_stay_in_applied_state(isolated_dotfiles, flow_calls, monkeypatch):
     machine(monkeypatch, apt=("htop",))
     _save_applied(("curl", "htop", "zsh"))
     assert main(["install", "--preset", "homelab"]) == 0
@@ -1355,7 +1374,7 @@ def test_declined_removals_stay_in_applied_state(isolated_dotfiles, flow_calls, 
     assert state.load_state().applied_package_names == ("curl", "htop", "zsh")
 
 
-def test_completed_removals_leave_applied_state(isolated_dotfiles, monkeypatch):
+def test_rule009_completed_removals_leave_applied_state(isolated_dotfiles, monkeypatch):
     machine(monkeypatch, apt=("htop",))
     _save_applied(("curl", "htop", "zsh"))
 
@@ -1424,7 +1443,7 @@ def test_no_prompt_when_no_removal_is_installed(isolated_dotfiles, flow_calls, m
     assert out.count("remove manually") == 1
 
 
-def test_dry_run_lists_removals_and_does_not_prompt(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+def test_rule007_dry_run_lists_removals_and_does_not_prompt(isolated_dotfiles, flow_calls, monkeypatch, capsys):
     machine(monkeypatch, apt=("htop",))
     _save_applied(("curl", "htop", "zsh"))
     monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("no prompt expected"))

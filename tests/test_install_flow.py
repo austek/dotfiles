@@ -86,7 +86,7 @@ def test_a_failed_sudo_prompt_fails_before_any_step(tmp_path, monkeypatch):
     assert not flow.run_install(inputs(tmp_path)).succeeded
 
 
-def test_a_step_returning_false_stops_the_run_and_offers_a_rollback(tmp_path, no_sudo, monkeypatch):
+def test_rule013_a_step_returning_false_stops_the_run_and_offers_a_rollback(tmp_path, no_sudo, monkeypatch):
     ran = []
     steps = [("one", lambda: ran.append(1)), ("two", lambda: False), ("three", lambda: ran.append(3))]
     monkeypatch.setattr(flow, "build_steps", lambda *a: steps)
@@ -95,13 +95,13 @@ def test_a_step_returning_false_stops_the_run_and_offers_a_rollback(tmp_path, no
     assert "Step 'two' failed" in result.stdout
 
 
-def test_steps_returning_none_or_true_let_the_run_continue(tmp_path, no_sudo, monkeypatch):
+def test_rule013_steps_returning_none_or_true_let_the_run_continue(tmp_path, no_sudo, monkeypatch):
     steps = [("none", lambda: None), ("true", lambda: True)]
     monkeypatch.setattr(flow, "build_steps", lambda *a: steps)
     assert flow.run_install(inputs(tmp_path)).succeeded
 
 
-def test_entries_from_an_unfinished_run_are_kept_and_the_log_is_removed_on_success(tmp_path, no_sudo, monkeypatch):
+def test_rule013_entries_from_an_unfinished_run_are_kept_and_the_log_is_removed_on_success(tmp_path, no_sudo, monkeypatch):
     log = RollbackLog.for_home(tmp_path / "home")
     (tmp_path / "home").mkdir()
     log.path.write_text("STOW_HOME:earlier\n")
@@ -200,7 +200,7 @@ def _no_sudo_prompt(monkeypatch):
     monkeypatch.setattr(flow.SudoSession, "start", lambda self: pytest.fail("sudo must not be requested"))
 
 
-def test_auto_skips_the_system_steps_and_the_sudo_prompt_when_nothing_is_pending(tmp_path, monkeypatch):
+def test_rule014_auto_skips_the_system_steps_and_the_sudo_prompt_when_nothing_is_pending(tmp_path, monkeypatch):
     ran = _recorded_steps(monkeypatch)
     _no_sudo_prompt(monkeypatch)
     monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: [])
@@ -243,7 +243,7 @@ def test_auto_skips_the_system_stage_when_removals_were_declined(tmp_path, monke
 
 
 @pytest.mark.parametrize("system", ["never", "auto"])
-def test_apt_removals_without_the_system_stage_warn(tmp_path, monkeypatch, capsys, system):
+def test_rule014_apt_removals_without_the_system_stage_warn(tmp_path, monkeypatch, capsys, system):
     _recorded_steps(monkeypatch)
     _no_sudo_prompt(monkeypatch)
     monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: [])
@@ -260,14 +260,14 @@ def test_no_apt_removal_warning_for_flatpak_only_removals(tmp_path, monkeypatch,
     assert "apt removals skipped" not in capsys.readouterr().out
 
 
-def test_always_runs_the_system_steps_without_checking(tmp_path, no_sudo, monkeypatch):
+def test_rule014_always_runs_the_system_steps_without_checking(tmp_path, no_sudo, monkeypatch):
     ran = _recorded_steps(monkeypatch)
     monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: pytest.fail("no check when forced"))
     assert flow.run_install(inputs(tmp_path, system="always")).succeeded
     assert ran == ["install_packages", "configure_dotfiles"]
 
 
-def test_never_skips_the_system_steps_without_checking_or_prompting(tmp_path, monkeypatch):
+def test_rule014_never_skips_the_system_steps_without_checking_or_prompting(tmp_path, monkeypatch):
     ran = _recorded_steps(monkeypatch)
     _no_sudo_prompt(monkeypatch)
     monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: pytest.fail("no check when skipped"))
@@ -348,7 +348,7 @@ def test_report_unremoved_is_a_user_step_after_the_removals(tmp_path):
     assert "report_unremoved" not in flow.SYSTEM_STEPS
 
 
-def test_flatpak_failure_skips_all_removals(tmp_path):
+def test_rule006_flatpak_failure_skips_all_removals(tmp_path):
     machine = Machine(failing=[("flatpak", "install")])
     flow_inputs = run_removal_steps(tmp_path, machine)
     assert not machine.ran("flatpak", "uninstall")
@@ -378,7 +378,7 @@ def test_removed_reports_entry_names(tmp_path):
     assert not any("github:derailed/k9s" in c for c in machine.commands)
 
 
-def test_apt_removal_skips_a_dpkg_name_a_wanted_entry_covers(tmp_path):
+def test_rule006_apt_removal_skips_a_dpkg_name_a_wanted_entry_covers(tmp_path):
     machine = Machine(installed="k9s")
     flow_inputs = inputs(tmp_path, run=machine, packages="k9s", removals=("github:derailed/k9s",))
     dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))["remove_apt_packages"]()

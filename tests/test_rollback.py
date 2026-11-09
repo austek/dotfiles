@@ -40,7 +40,7 @@ def test_a_missing_log_has_no_entries(tmp_path):
     assert not log.has_entries()
 
 
-def test_entries_are_undone_newest_first_and_the_log_is_removed(tmp_path):
+def test_rule032_entries_are_undone_newest_first_and_the_log_is_removed(tmp_path):
     machine = Machine()
     ctx = context(tmp_path, machine, private=tmp_path / "private")
     for entry in ("STOW_HOME:a", "STOW_PRIVATE:b", "STOW_ROOT:c", "DOCKER_GROUP:ali", "FILE_CREATED:/etc/x.sources"):
@@ -155,7 +155,7 @@ def test_nothing_is_offered_without_a_log(tmp_path):
     rollback.offer_rollback(context(tmp_path, Machine()), interactive=True, ask=refuse)
 
 
-def test_undo_reinstalls_removed_packages(tmp_path):
+def test_rule032_undo_reinstalls_removed_packages(tmp_path):
     machine = Machine()
     ctx = context(tmp_path, machine)
     ctx.log.track("APT_REMOVED:vim", dry_run=False)
@@ -167,7 +167,7 @@ def test_undo_reinstalls_removed_packages(tmp_path):
     ]
 
 
-def test_undo_of_a_removed_deb_warns_and_runs_nothing(tmp_path, capsys):
+def test_rule032_undo_of_a_removed_deb_warns_and_runs_nothing(tmp_path, capsys):
     machine = Machine()
     ctx = context(tmp_path, machine)
     ctx.log.track("DEB_REMOVED:k9s", dry_run=False)

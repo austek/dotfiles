@@ -9,7 +9,7 @@ def redirect(newurl):
     return tooling._HttpsOnlyRedirect().redirect_request(request, None, 302, "Found", {}, newurl)
 
 
-def test_redirect_to_http_is_refused():
+def test_rule022_redirect_to_http_is_refused():
     with pytest.raises(ValueError, match="non-https"):
         redirect("http://example.com/script.sh")
 
@@ -18,7 +18,7 @@ def test_redirect_to_https_is_followed():
     assert redirect("https://example.org/script.sh").full_url == "https://example.org/script.sh"
 
 
-def test_the_token_is_dropped_when_a_redirect_leaves_the_host(monkeypatch):
+def test_rule022_the_token_is_dropped_when_a_redirect_leaves_the_host(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "t0ken")
     request = tooling._request("https://api.github.com/repos/x/y")
     handler = tooling._HttpsOnlyRedirect()
@@ -38,7 +38,7 @@ def test_requests_identify_themselves_instead_of_using_the_urllib_agent():
     assert request.get_header("User-agent") == tooling.USER_AGENT
 
 
-def test_the_github_token_goes_only_to_the_github_api(monkeypatch):
+def test_rule022_the_github_token_goes_only_to_the_github_api(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "t0ken")
     assert tooling._request("https://api.github.com/repos/x/y").get_header("Authorization") == "Bearer t0ken"
     assert tooling._request("https://example.com/x").get_header("Authorization") is None
@@ -50,7 +50,7 @@ def test_no_token_means_no_authorization_header(monkeypatch):
     assert tooling._request("https://api.github.com/repos/x/y").get_header("Authorization") is None
 
 
-def test_a_non_https_request_is_refused():
+def test_rule022_a_non_https_request_is_refused():
     with pytest.raises(ValueError, match="non-https"):
         tooling._request("http://example.com")
 

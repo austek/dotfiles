@@ -59,7 +59,7 @@ def system_context(tmp_path, machine, logger=None):
     return SystemContext(tooling(tmp_path, machine, logger), tmp_path, [], log)
 
 
-def test_split_routes_by_prefix_and_custom():
+def test_rule004_split_routes_by_prefix_and_custom():
     split = removals.split_removals(["vim", "flatpak:com.slack.Slack", "sdkman", "htop"])
     assert split == removals.Split(apt=("vim", "htop"), flatpak=("com.slack.Slack",), manual=("sdkman",))
 
@@ -77,7 +77,7 @@ def test_dpkg_name_uses_repo_basename():
     assert removals.dpkg_name("slack-desktop") == "slack-desktop"
 
 
-def test_split_routes_debs_pins_and_manual_custom_entries():
+def test_rule004_split_routes_debs_pins_and_manual_custom_entries():
     split = removals.split_removals(["slack-desktop", "github:derailed/k9s", "nvm", "zoom", "vim"])
     assert split.apt == ("vim",)
     assert split.debs == ("slack-desktop", "github:derailed/k9s", "zoom")
@@ -132,7 +132,7 @@ def test_entries_for_leaves_plain_apt_names_alone():
     assert removals.entries_for(split, ["vim", "k9s"]) == ["vim", "github:derailed/k9s"]
 
 
-def test_remove_apt_runs_after_clean_simulation(tmp_path):
+def test_rule005_remove_apt_runs_after_clean_simulation(tmp_path):
     machine = Machine(simulations={"slack-desktop": "Remv slack-desktop [4.0]\n"})
     ctx = system_context(tmp_path, machine)
     assert removals.remove_apt(ctx, ["slack-desktop"]) == ["slack-desktop"]
@@ -140,7 +140,7 @@ def test_remove_apt_runs_after_clean_simulation(tmp_path):
     assert not machine.ran("sudo", "apt-get", "autoremove")
 
 
-def test_remove_apt_skips_when_simulation_cascades(tmp_path):
+def test_rule005_remove_apt_skips_when_simulation_cascades(tmp_path):
     machine = Machine(simulations={"slack-desktop": "Remv slack-desktop [4.0]\nRemv libfoo [1.0]\n"})
     logger = Capture()
     ctx = system_context(tmp_path, machine, logger)

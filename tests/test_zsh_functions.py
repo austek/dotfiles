@@ -196,3 +196,34 @@ def test_secrets_hydrate_fails_when_item_has_no_key(tmp_path):
     result = _run(tmp_path, "secrets_hydrate", env={"BW_SESSION": "token"})
     assert result.returncode == 1
     assert not (tmp_path / "home" / ".ssh" / "id_ed25519").exists()
+
+
+def _secrets_block() -> str:
+    text = (REPO_BIN.parent / "zsh" / ".zshrc").read_text()
+    return text.split("# --- SECRET ENV VARS ---")[1].split("# --- END SECRET ENV VARS ---")[0]
+
+
+def _load_secrets(tmp_path: Path, mode: int) -> subprocess.CompletedProcess:
+    secrets = tmp_path / "home" / ".config" / "dotfiles" / "secrets.env"
+    secrets.parent.mkdir(parents=True)
+    secrets.write_text("RULE028_TOKEN=abc\n")
+    secrets.chmod(mode)
+    script = _secrets_block() + '\nprint -r -- "[${RULE028_TOKEN-}]"\n'
+    return subprocess.run(
+        ["zsh", "-f", "-c", script], capture_output=True, text=True, timeout=30, check=False,
+        env={"PATH": os.environ["PATH"], "HOME": str(tmp_path / "home")},
+    )
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o400])
+def test_rule028_zsh_sources_a_private_secrets_file(tmp_path, mode):
+    result = _load_secrets(tmp_path, mode)
+    assert result.stdout.strip() == "[abc]"
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("mode", [0o640, 0o604])
+def test_rule028_zsh_skips_a_secrets_file_others_can_access(tmp_path, mode):
+    result = _load_secrets(tmp_path, mode)
+    assert result.stdout.strip() == "[]"
+    assert "secrets.env skipped: group/other can access it" in result.stderr

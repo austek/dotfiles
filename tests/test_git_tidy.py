@@ -104,7 +104,7 @@ def repo(tmp_path):
     return Repo(tmp_path)
 
 
-def test_deletes_a_branch_merged_with_a_merge_commit(repo):
+def test_rule043_deletes_a_branch_merged_with_a_merge_commit(repo):
     repo.branch_with_commit("feat")
     repo.merge("feat")
     result = repo.tidy("--yes")
@@ -113,7 +113,7 @@ def test_deletes_a_branch_merged_with_a_merge_commit(repo):
     assert "Deleted branch feat" in result.stdout
 
 
-def test_deletes_a_squash_merged_branch(repo):
+def test_rule043_deletes_a_squash_merged_branch(repo):
     repo.branch_with_commit("feat")
     repo.merge("feat", squash=True)
     result = repo.tidy("--yes")
@@ -122,7 +122,7 @@ def test_deletes_a_squash_merged_branch(repo):
     assert "Squash- or rebase-merged" in result.stdout
 
 
-def test_deletes_a_rebase_merged_branch(repo):
+def test_rule043_deletes_a_rebase_merged_branch(repo):
     repo.branch_with_commit("feat")
     repo.git("switch", "-q", "main")
     repo.commit("other")
@@ -219,7 +219,7 @@ def test_keeps_a_branch_with_unmerged_work(repo):
     assert "wip  its work is not in" in result.stdout
 
 
-def test_keeps_a_branch_that_was_just_created_at_the_base(repo):
+def test_rule043_keeps_a_branch_that_was_just_created_at_the_base(repo):
     repo.git("branch", "fresh")
     repo.tidy("--yes")
     assert repo.branches() == ["fresh", "main"]
@@ -233,7 +233,7 @@ def test_keeps_the_branch_that_is_checked_out_even_when_merged(repo):
     assert repo.branches() == ["feat", "main"]
 
 
-def test_lists_a_branch_whose_upstream_is_gone_but_keeps_it(repo):
+def test_rule044_lists_a_branch_whose_upstream_is_gone_but_keeps_it(repo):
     repo.git("switch", "-q", "-c", "lost")
     repo.commit("lost")
     repo.git("push", "-q", "-u", "origin", "lost")
@@ -255,7 +255,7 @@ def test_removes_a_clean_worktree_with_its_merged_branch(repo):
     assert repo.branches() == ["main"]
 
 
-def test_keeps_a_worktree_with_uncommitted_changes_and_its_branch(repo):
+def test_rule044_keeps_a_worktree_with_uncommitted_changes_and_its_branch(repo):
     wt = repo.tmp / "wt-feat"
     repo.git("worktree", "add", "-q", str(wt), "-b", "feat")
     repo.commit("feat", cwd=wt)
@@ -267,7 +267,7 @@ def test_keeps_a_worktree_with_uncommitted_changes_and_its_branch(repo):
     assert "uncommitted or ignored files" in result.stdout
 
 
-def test_keeps_a_locked_worktree_and_its_branch(repo):
+def test_rule044_keeps_a_locked_worktree_and_its_branch(repo):
     wt = repo.tmp / "wt-feat"
     repo.git("worktree", "add", "-q", str(wt), "-b", "feat")
     repo.commit("feat", cwd=wt)
@@ -311,7 +311,7 @@ def test_dry_run_lists_the_plan_and_changes_nothing(repo):
     assert repo.branches() == ["feat", "main"]
 
 
-def test_refuses_to_change_anything_without_a_terminal_or_yes(repo):
+def test_rule044_refuses_to_change_anything_without_a_terminal_or_yes(repo):
     repo.branch_with_commit("feat")
     repo.merge("feat")
     result = repo.tidy()
@@ -385,7 +385,7 @@ def test_a_fully_qualified_remote_base_still_protects_its_local_branch(repo):
     assert "release" in repo.branches()
 
 
-def test_keeps_a_branch_checked_out_in_two_worktrees(repo):
+def test_rule044_keeps_a_branch_checked_out_in_two_worktrees(repo):
     first = repo.tmp / "wt-a"
     second = repo.tmp / "wt-b"
     repo.git("worktree", "add", "-q", str(first), "-b", "feat")

@@ -3,7 +3,10 @@ import sys
 
 sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed hooks package
 
+import contextlib
 import importlib.util
+import io
+import json
 import os
 import unittest
 from pathlib import Path
@@ -55,6 +58,38 @@ class TestCompoundCommands(unittest.TestCase):
 
     def test_xargs_inner_command_is_never_auto_allowed(self):
         self.assertFalse(allowed("git ls-files | xargs rm"))
+
+
+class TestRule042CompoundHookAutoAllowsSafeCommands(unittest.TestCase):
+    def run_hook(self, command):
+        stdin = io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": "/tmp"}))
+        out = io.StringIO()
+        with mock.patch.object(hook, "load_rules", return_value=RULES), \
+                mock.patch.object(hook.sys, "stdin", stdin), contextlib.redirect_stdout(out):
+            rc = hook.main()
+        return rc, out.getvalue().strip()
+
+    def test_rule042_safe_pipeline_and_chain_emits_allow(self):
+        rc, out = self.run_hook("ls | grep foo && echo done")
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "allow")
+
+    def test_rule042_sensitive_path_gets_no_decision(self):
+        self.assertEqual(self.run_hook("cat ~/.ssh/id_rsa"), (0, ""))
+
+    def test_rule042_tmp_sink_allowed_but_home_sink_not(self):
+        self.assertTrue(allowed("echo hi > /tmp/out.txt"))
+        self.assertFalse(allowed("echo hi > ~/file"))
+
+    def test_rule042_never_emits_a_deny(self):
+        for command in ("git push origin main", "cat ~/.ssh/id_rsa", "rm -rf /", "git status && rm file"):
+            with self.subTest(command=command):
+                rc, out = self.run_hook(command)
+                self.assertEqual(rc, 0)
+                self.assertNotIn("deny", out)
+
+    def test_rule042_unsafe_substitution_blocks_the_allow(self):
+        self.assertFalse(allowed("echo $(rm file)"))
 
 
 class TestAuditBypasses(unittest.TestCase):
