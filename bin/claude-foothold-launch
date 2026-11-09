@@ -1,13 +1,47 @@
 #!/bin/sh
-# Runs inside the foothold tmux pane. Usage: claude-foothold-launch <remote-control-name> [burst]
-# With `burst`, claude runs on the burst account (see claude-burst-link).
-# A pre-existing tmux server hands new sessions its own environment, so the unit's EnvironmentFile
-# never reaches claude; load the secrets here instead.
+# Foothold entry point: the unit runs it with --start; tmux then runs it again in the pane.
+# Pane usage: claude-foothold-launch <remote-control-name> [burst]. With `burst`, claude runs on the burst
+# account (see claude-burst-link). This script is the only loader of secrets.env; the unit has no EnvironmentFile.
 set -eu
 
 secrets="$HOME/.config/dotfiles/secrets.env"
 
-# Parses KEY=value lines as data, like systemd's EnvironmentFile: values are never evaluated.
+# Echoes why the file is unsafe, nothing when it is a regular file of ours with no group/other access.
+# Never fails, so a stat or id error cannot abort the script under `set -e`.
+unsafe_reason() {
+    mode=$(stat -L -c %a "$1") || { echo "cannot stat it"; return 0; }
+    case $mode in *00) ;; *) echo "group/other can access it (mode $mode)"; return 0 ;; esac
+    owner=$(stat -L -c %u "$1") || { echo "cannot stat it"; return 0; }
+    uid=$(id -u) || { echo "cannot determine the current user"; return 0; }
+    [ "$owner" = "$uid" ] || { echo "owned by uid $owner"; return 0; }
+    kind=$(stat -L -c %F "$1") || { echo "cannot stat it"; return 0; }
+    case $kind in regular*file) ;; *) echo "not a regular file"; return 0 ;; esac
+}
+
+# Sets $reason to why secrets.env will not load; empty when it is absent or safe.
+check_secrets() {
+    reason=
+    if [ -r "$secrets" ]; then
+        reason=$(unsafe_reason "$secrets") || reason="cannot check it"
+        [ -z "$reason" ] || echo "claude-foothold-launch: secrets.env skipped: $reason" >&2
+    fi
+}
+
+# Unit entry point: claude-foothold-launch --start <tmux-session> <start-dir> <remote-control-name> [burst]
+# Starts the detached session running this script in the pane; a session that already exists is left alone.
+# Runs under systemd, so the secrets warnings reach the journal; they never block the start.
+if [ "${1:-}" = --start ]; then
+    [ $# -ge 4 ] && [ $# -le 5 ] || { echo "usage: $0 --start <session> <dir> <name> [burst]" >&2; exit 2; }
+    command -v tmux >/dev/null || { echo "claude-foothold-launch: tmux not found" >&2; exit 127; }
+    session=$2 dir=$3
+    shift 3
+    tmux has-session -t "=$session" 2>/dev/null && exit 0
+    [ -r "$secrets" ] || echo "claude-foothold-launch: secrets.env not found or unreadable" >&2
+    check_secrets
+    exec tmux new-session -d -s "$session" -c "$dir" "$0" "$@"
+fi
+
+# Parses KEY=value lines as data; values are never evaluated.
 export_assignment() {
     case $1 in *=*) ;; *) return 0 ;; esac
     key=${1%%=*}
@@ -22,7 +56,9 @@ export_assignment() {
     export "$key=$value"
 }
 
-if [ -r "$secrets" ] && case $(stat -L -c %a "$secrets") in *00) true ;; *) false ;; esac; then
+check_secrets
+
+if [ -r "$secrets" ] && [ -z "$reason" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
         case $line in '' | '#'* | ';'*) continue ;; esac
         export_assignment "$line"

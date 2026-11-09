@@ -56,6 +56,62 @@ def test_rule032_entries_are_undone_newest_first_and_the_log_is_removed(tmp_path
     assert not ctx.log.path.exists()
 
 
+def test_dir_created_is_removed_when_empty(tmp_path):
+    ctx = context(tmp_path, Machine())
+    created = tmp_path / "made"
+    created.mkdir()
+    ctx.log.track(f"DIR_CREATED:{created}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not created.exists()
+
+
+def test_dir_created_is_never_removed_when_it_holds_files(tmp_path):
+    ctx = context(tmp_path, Machine())
+    created = tmp_path / "made"
+    created.mkdir()
+    (created / "keep").write_text("x")
+    ctx.log.track(f"DIR_CREATED:{created}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert (created / "keep").read_text() == "x"
+
+
+def test_dir_created_on_a_missing_directory_is_silent(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    rollback._dir_created(ctx, str(tmp_path / "gone"))
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_dir_created_on_a_non_empty_directory_logs_at_info_not_warning(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    (tmp_path / "full").mkdir()
+    (tmp_path / "full/x").write_text("x")
+    rollback._dir_created(ctx, str(tmp_path / "full"))
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_dir_created_warns_on_other_errors(tmp_path, monkeypatch, capsys):
+    ctx = context(tmp_path, Machine())
+    monkeypatch.setattr(rollback.Path, "rmdir", lambda self: (_ for _ in ()).throw(PermissionError("denied")))
+    rollback._dir_created(ctx, str(tmp_path))
+    assert "WARNING" in capsys.readouterr().out
+
+
+def test_rollback_removes_a_created_file_then_its_created_directory(tmp_path):
+    class Removing(Machine):
+        def __call__(self, argv, **kwargs):
+            Path(argv[-1]).unlink(missing_ok=True)
+            return super().__call__(argv, **kwargs)
+
+    ctx = context(tmp_path, Removing())
+    config = tmp_path / "cfg"
+    config.mkdir()
+    (config / "secrets.env").write_text("")
+    ctx.log.track(f"DIR_CREATED:{config}", dry_run=False)
+    ctx.log.track(f"FILE_CREATED:{config / 'secrets.env'}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not config.exists()
+
+
 def test_an_unstowed_private_package_is_restowed(tmp_path):
     machine = Machine()
     ctx = context(tmp_path, machine, private=tmp_path / "private")

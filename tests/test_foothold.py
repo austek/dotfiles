@@ -51,27 +51,39 @@ def test_burst_names_append_burst():
 
 def test_rendered_main_unit_names_the_remote_control_session_after_the_hostname():
     unit = foothold.render_unit("main")
-    assert "claude-foothold-launch %H'" in unit
+    assert _exec_start(unit).endswith("claude-foothold-launch --start claude-foothold %h/Workspace %H")
     assert "--settings" not in unit
-    assert "tmux new-session -d -s claude-foothold -c" in unit
 
 
 def test_rendered_burst_unit_runs_the_burst_account_as_hostname_burst():
     unit = foothold.render_unit("burst")
-    assert "claude-foothold-launch %H-burst burst'" in unit
-    assert "tmux new-session -d -s claude-foothold-burst -c" in unit
+    assert _exec_start(unit).endswith("--start claude-foothold-burst %h/Workspace %H-burst burst")
     assert "ExecStop=-/usr/bin/env tmux kill-session -t =claude-foothold-burst\n" in unit
+
+
+def _exec_start(unit):
+    return next(line for line in unit.splitlines() if line.startswith("ExecStart="))
+
+
+@pytest.mark.parametrize("account", foothold.ACCOUNTS)
+def test_sec012_rendered_unit_has_no_shell_string(account):
+    unit = foothold.render_unit(account)
+    line = _exec_start(unit)
+    assert "sh -c" not in unit and "/bin/sh" not in unit and "bash" not in line
+    assert not any(token in line for token in (";", "|", "&&", "`", "$("))
+    command = line.removeprefix("ExecStart=")
+    assert command.startswith("%h/.dotfiles/bin/claude-foothold-launch --start ")
 
 
 def test_rendered_unit_waits_for_connectivity_before_launching():
     unit = foothold.render_unit("main")
-    assert unit.index("ExecStartPre=") < unit.index("ExecStart=/bin/sh")
+    assert unit.index("ExecStartPre=") < unit.index("ExecStart=")
     assert foothold.NETWORK_PROBE_URL in unit
     assert "TimeoutStartSec=300" in unit
 
 
-def test_rendered_unit_quotes_the_working_directory_for_the_shell():
-    assert '-c "%h/Workspace"' in foothold.render_unit("main")
+def test_rendered_unit_starts_the_session_in_the_workspace_directory():
+    assert " %h/Workspace " in _exec_start(foothold.render_unit("main"))
 
 
 def test_rendered_unit_resolves_curl_through_path():
@@ -88,8 +100,11 @@ def test_rendered_unit_puts_the_sonarqube_cli_on_path():
     assert "%h/.local/share/sonarqube-cli/bin" in foothold.render_unit("main")
 
 
-def test_rendered_unit_loads_the_secrets_env_file_optionally():
-    assert "EnvironmentFile=-%h/.config/dotfiles/secrets.env" in foothold.render_unit("main")
+@pytest.mark.parametrize("account", foothold.ACCOUNTS)
+def test_rendered_unit_reads_no_secrets_file(account):
+    unit = foothold.render_unit(account)
+    assert "EnvironmentFile" not in unit
+    assert "secrets.env" not in unit
 
 
 def test_rendered_unit_launches_claude_through_the_launcher():
@@ -125,7 +140,7 @@ def test_rendered_unit_ends_the_session_only_on_stop_never_on_start():
     unit = foothold.render_unit("main")
     assert "ExecStop=-/usr/bin/env tmux kill-session -t =claude-foothold\n" in unit
     assert "ExecStartPre=-" not in unit
-    assert "has-session -t =claude-foothold " in unit
+    assert "--start claude-foothold " in unit
 
 
 def test_restart_rewrites_a_stale_unit_and_reloads_before_restarting(tmp_path):
@@ -213,6 +228,72 @@ def test_rule029_launcher_ignores_group_readable_secrets(tmp_path):
     assert out == "[]"
 
 
+def _launch_with_secrets_node(tmp_path, prepare, fake_uid=None):
+    home = tmp_path / "home"
+    (home / ".config/dotfiles").mkdir(parents=True)
+    prepare(home / ".config/dotfiles/secrets.env")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    if fake_uid is not None:
+        fake_id = fake_bin / "id"
+        fake_id.write_text(f"#!/bin/sh\necho {fake_uid}\n")
+        fake_id.chmod(0o755)
+    claude = fake_bin / "claude"
+    claude.write_text('#!/bin/sh\necho "[$FOO]"\n')
+    claude.chmod(0o755)
+    launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
+    return subprocess.run(
+        [str(launcher), "n"], env={"HOME": str(home), "PATH": f"{fake_bin}:/usr/bin:/bin"},
+        capture_output=True, text=True, check=True, cwd=tmp_path,
+    )
+
+
+def _file(mode):
+    def prepare(path):
+        path.write_text("FOO=leak\n")
+        path.chmod(mode)
+    return prepare
+
+
+@pytest.mark.parametrize("mode", [0o640, 0o604, 0o644, 0o660, 0o606])
+def test_rule029_launcher_skips_and_warns_for_any_group_or_other_access(tmp_path, mode):
+    result = _launch_with_secrets_node(tmp_path, _file(mode))
+    assert result.stdout.strip() == "[]"
+    assert "secrets.env skipped: group/other can access it" in result.stderr
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o400])
+def test_rule029_launcher_loads_owner_only_secrets_without_warning(tmp_path, mode):
+    result = _launch_with_secrets_node(tmp_path, _file(mode))
+    assert result.stdout.strip() == "[leak]"
+    assert "skipped" not in result.stderr
+
+
+def test_rule029_launcher_skips_a_symlink_to_a_group_readable_file(tmp_path):
+    def prepare(path):
+        target = tmp_path / "target.env"
+        _file(0o640)(target)
+        path.symlink_to(target)
+    result = _launch_with_secrets_node(tmp_path, prepare)
+    assert result.stdout.strip() == "[]"
+    assert "skipped" in result.stderr
+
+
+def test_rule029_launcher_skips_a_file_owned_by_another_user(tmp_path):
+    result = _launch_with_secrets_node(tmp_path, _file(0o600), fake_uid=os.geteuid() + 1)
+    assert result.stdout.strip() == "[]"
+    assert f"secrets.env skipped: owned by uid {os.geteuid()}" in result.stderr
+
+
+def test_rule029_launcher_skips_a_non_regular_file(tmp_path):
+    def prepare(path):
+        path.mkdir()
+        path.chmod(0o700)
+    result = _launch_with_secrets_node(tmp_path, prepare)
+    assert result.stdout.strip() == "[]"
+    assert "not a regular file" in result.stderr
+
+
 def test_rule029_launcher_parses_secrets_as_data_not_shell(tmp_path):
     secrets = (
         "# comment\n\nPLAIN=abc def\nTICK=`touch pwned`$(touch pwned)\nDQ=\"x y\"\nSQ='p q'\n1BAD=no\n"
@@ -234,6 +315,125 @@ def test_launcher_runs_the_burst_account_with_its_config_dir(tmp_path):
     burst = tmp_path / "home" / ".claude-burst"
     assert out == f"{burst}|--remote-control|host-burst"
     assert burst.is_dir()
+
+
+def _run_start(tmp_path, args, session_exists, new_session_rc=0, with_tmux=True, secrets=None, secrets_mode=0o600):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    if with_tmux:
+        tmux = fake_bin / "tmux"
+        tmux.write_text(
+            '#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done >> "$TMUX_LOG"; printf -- "--\\n" >> "$TMUX_LOG"\n'
+            f'[ "$1" != has-session ] || exit {0 if session_exists else 1}\n'
+            f'[ "$1" != new-session ] || exit {new_session_rc}\n'
+        )
+        tmux.chmod(0o755)
+    if secrets is not None:
+        (tmp_path / ".config/dotfiles").mkdir(parents=True)
+        secrets_file = tmp_path / ".config/dotfiles/secrets.env"
+        secrets_file.write_text(secrets)
+        secrets_file.chmod(secrets_mode)
+    log = tmp_path / "tmux.log"
+    launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
+    result = subprocess.run(
+        [str(launcher), "--start", *args],
+        env={"HOME": str(tmp_path), "PATH": str(fake_bin) if not with_tmux else f"{fake_bin}:/usr/bin:/bin",
+             "TMUX_LOG": str(log)},
+        capture_output=True, text=True, check=False,
+    )
+    calls = [c.split("\n") for c in log.read_text().split("--\n") if c] if log.exists() else []
+    return result, calls
+
+
+def test_start_creates_a_detached_session_in_the_directory_running_the_launcher(tmp_path):
+    result, calls = _run_start(tmp_path, ["sess", "/work dir", "host", "burst"], session_exists=False)
+    launcher = str(Path(__file__).parent.parent / "bin" / "claude-foothold-launch")
+    assert result.returncode == 0
+    assert calls[1][:-1] == ["new-session", "-d", "-s", "sess", "-c", "/work dir", launcher, "host", "burst"]
+
+
+def test_start_is_a_no_op_success_while_the_session_exists(tmp_path):
+    result, calls = _run_start(tmp_path, ["sess", "/w", "host"], session_exists=True)
+    assert result.returncode == 0
+    assert [c[0] for c in calls] == ["has-session"]
+    assert calls[0][:3] == ["has-session", "-t", "=sess"]
+
+
+def test_start_rejects_a_wrong_argument_count(tmp_path):
+    result, calls = _run_start(tmp_path, ["sess"], session_exists=False)
+    assert result.returncode == 2
+    assert calls == []
+
+
+def test_start_fails_clearly_when_tmux_is_absent(tmp_path):
+    result, _ = _run_start(tmp_path, ["sess", "/w", "host"], session_exists=False, with_tmux=False)
+    assert result.returncode == 127
+    assert "tmux not found" in result.stderr
+
+
+def test_start_propagates_a_failing_new_session(tmp_path):
+    result, _ = _run_start(tmp_path, ["sess", "/w", "host"], session_exists=False, new_session_rc=1)
+    assert result.returncode == 1
+
+
+def test_start_treats_a_failing_has_session_as_no_session(tmp_path):
+    result, calls = _run_start(tmp_path, ["sess", "/w", "host"], session_exists=False)
+    assert result.returncode == 0
+    assert [c[0] for c in calls] == ["has-session", "new-session"]
+
+
+def test_start_warns_to_stderr_about_a_missing_secrets_file_and_still_starts(tmp_path):
+    result, calls = _run_start(tmp_path, ["sess", "/w", "host"], session_exists=False)
+    assert "secrets.env not found or unreadable" in result.stderr
+    assert calls[-1][0] == "new-session"
+
+
+def test_start_warns_to_stderr_about_unsafe_secrets_and_still_starts(tmp_path):
+    result, calls = _run_start(tmp_path, ["sess", "/w", "host"], session_exists=False, secrets="A=b\n", secrets_mode=0o644)
+    assert "claude-foothold-launch: secrets.env skipped: group/other can access it (mode 644)" in result.stderr
+    assert result.returncode == 0
+    assert calls[-1][0] == "new-session"
+
+
+def test_start_is_silent_about_a_safe_secrets_file(tmp_path):
+    result, _ = _run_start(tmp_path, ["sess", "/w", "host"], session_exists=False, secrets="A=b\n")
+    assert result.stderr == ""
+
+
+def test_start_is_a_no_op_while_an_old_style_session_exists(tmp_path):
+    result, calls = _run_start(tmp_path, ["claude-foothold", "/w", "host"], session_exists=True)
+    assert result.returncode == 0
+    assert [c[0] for c in calls] == ["has-session"]
+
+
+OLD_UNIT = (
+    "[Service]\nType=oneshot\nEnvironmentFile=-%h/.config/dotfiles/secrets.env\n"
+    "ExecStart=/bin/sh -c 'tmux has-session -t =claude-foothold 2>/dev/null || exec tmux new-session -d "
+    "-s claude-foothold -c \"%h/Workspace\" %h/.dotfiles/bin/claude-foothold-launch %H'\n"
+)
+
+
+def _assert_upgraded(unit, account, calls):
+    text = unit.read_text()
+    assert text == foothold.render_unit(account)
+    assert "EnvironmentFile" not in text and "sh -c" not in text
+    assert ("systemctl", "--user", "daemon-reload") in calls
+
+
+def test_install_upgrades_the_previous_unit_text(tmp_path):
+    unit = _installed_unit(tmp_path, content=OLD_UNIT)
+    run, calls = _recording_run()
+    _install(tmp_path, run=run)
+    _assert_upgraded(unit, "main", calls)
+    assert ("systemctl", "--user", "enable", "--now", "claude-foothold.service") in calls
+
+
+def test_restart_upgrades_the_previous_unit_text_then_restarts(tmp_path):
+    unit = _installed_unit(tmp_path, content=OLD_UNIT)
+    run, calls = _recording_run()
+    assert _restart(tmp_path, run=run) is True
+    _assert_upgraded(unit, "main", calls)
+    assert calls[-1] == RESTART
 
 
 def test_launcher_runs_the_main_account_without_a_config_dir(tmp_path):
