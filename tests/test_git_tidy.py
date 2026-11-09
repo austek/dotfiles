@@ -359,6 +359,27 @@ def test_keeps_a_worktree_holding_an_ignored_file(repo):
     assert "ignored files" in result.stdout
 
 
+def test_removes_a_worktree_holding_only_regenerable_caches(repo):
+    wt = repo.tmp / "wt-cache"
+    repo.git("worktree", "add", "-q", str(wt), "-b", "feat")
+    repo.commit("feat", cwd=wt)
+    (wt / ".gitignore").write_text("__pycache__/\n.venv/\n")
+    repo.git("add", ".gitignore", cwd=wt)
+    repo.git("commit", "-q", "-m", "ignore", cwd=wt)
+    (wt / "pkg").mkdir()
+    (wt / "pkg" / "mod.py").write_text("x")
+    repo.git("add", "pkg/mod.py", cwd=wt)
+    repo.git("commit", "-q", "-m", "pkg", cwd=wt)
+    (wt / "pkg" / "__pycache__").mkdir()
+    (wt / "pkg" / "__pycache__" / "a.pyc").write_text("x")
+    (wt / ".venv").mkdir()
+    (wt / ".venv" / "pyvenv.cfg").write_text("x")
+    repo.merge("feat")
+    result = repo.tidy("--yes")
+    assert not wt.exists(), result.stdout + result.stderr
+    assert "feat" not in repo.branches()
+
+
 def test_a_configured_fetch_prune_does_not_prune(repo):
     repo.git("switch", "-q", "-c", "lost")
     repo.commit("lost")

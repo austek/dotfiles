@@ -4,7 +4,8 @@
 # Usage: git-tidy [-n|--dry-run] [-y|--yes] [--no-fetch] [-b|--base <ref>]
 # The base defaults to origin's default branch. A branch is kept when it is main, master, develop or the base,
 # is checked out in the main or current worktree, still sits at the base tip (just created), or has a worktree
-# that is locked or holds uncommitted or ignored files. A branch whose upstream is gone but whose work is not in the base
+# that is locked or holds uncommitted or ignored files, other than regenerable caches (__pycache__, .pytest_cache,
+# .ruff_cache, .mypy_cache, .venv, .coverage). A branch whose upstream is gone but whose work is not in the base
 # is listed and kept. Deleted branches print the commit they were at, so `git branch <name> <sha>` restores one.
 git-tidy() {
   emulate -L zsh
@@ -173,6 +174,7 @@ git-tidy() {
   unmerged=("${still_unmerged[@]}")
 
   local wt wt_status
+  local -a wt_left
   local -a remove_merged remove_squashed remove_worktrees skipped
   for branch in $merged $squashed; do
     wt=${worktree_for[$branch]-}
@@ -185,7 +187,10 @@ git-tidy() {
         skipped+="$branch  its worktree is locked ($wt)"
         continue
       fi
-      if ! wt_status=$(git -C "$wt" status --porcelain --ignored 2>/dev/null) || [[ -n $wt_status ]]; then
+      wt_status=$(git -C "$wt" status --porcelain --ignored 2>/dev/null) || wt_status='?? unreadable'
+      wt_left=( ${(f)wt_status} )
+      wt_left=( ${wt_left:#'!! '(*/|)(__pycache__|.pytest_cache|.ruff_cache|.mypy_cache|.venv|.coverage)(|/)} )
+      if (( ${#wt_left} )); then
         skipped+="$branch  its worktree has uncommitted or ignored files, or cannot be read ($wt)"
         continue
       fi
