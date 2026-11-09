@@ -12,6 +12,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 HOOK = Path(__file__).resolve().parent.parent / "claude" / ".claude" / "hooks" / "allow-compound-bash.py"
 spec = importlib.util.spec_from_file_location("allow_compound_bash", HOOK)
 hook = importlib.util.module_from_spec(spec)
@@ -60,36 +62,39 @@ class TestCompoundCommands(unittest.TestCase):
         self.assertFalse(allowed("git ls-files | xargs rm"))
 
 
-class TestRule042CompoundHookAutoAllowsSafeCommands(unittest.TestCase):
-    def run_hook(self, command):
-        stdin = io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": "/tmp"}))
-        out = io.StringIO()
-        with mock.patch.object(hook, "load_rules", return_value=RULES), \
-                mock.patch.object(hook.sys, "stdin", stdin), contextlib.redirect_stdout(out):
-            rc = hook.main()
-        return rc, out.getvalue().strip()
+def _run_hook(monkeypatch, tmp_path, command):
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(tmp_path)}
+    out = io.StringIO()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(hook, "load_rules", lambda cwd: RULES)
+    monkeypatch.setattr(hook.sys, "stdin", io.StringIO(json.dumps(payload)))
+    with contextlib.redirect_stdout(out):
+        rc = hook.main()
+    return rc, out.getvalue().strip()
 
-    def test_rule042_safe_pipeline_and_chain_emits_allow(self):
-        rc, out = self.run_hook("ls | grep foo && echo done")
-        self.assertEqual(rc, 0)
-        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "allow")
 
-    def test_rule042_sensitive_path_gets_no_decision(self):
-        self.assertEqual(self.run_hook("cat ~/.ssh/id_rsa"), (0, ""))
+def test_rule042_safe_pipeline_and_chain_emits_allow(monkeypatch, tmp_path):
+    rc, out = _run_hook(monkeypatch, tmp_path, "ls | grep foo && echo done")
+    assert rc == 0
+    assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow"
 
-    def test_rule042_tmp_sink_allowed_but_home_sink_not(self):
-        self.assertTrue(allowed("echo hi > /tmp/out.txt"))
-        self.assertFalse(allowed("echo hi > ~/file"))
 
-    def test_rule042_never_emits_a_deny(self):
-        for command in ("git push origin main", "cat ~/.ssh/id_rsa", "rm -rf /", "git status && rm file"):
-            with self.subTest(command=command):
-                rc, out = self.run_hook(command)
-                self.assertEqual(rc, 0)
-                self.assertNotIn("deny", out)
+def test_rule042_sensitive_path_gets_no_decision(monkeypatch, tmp_path):
+    assert _run_hook(monkeypatch, tmp_path, "cat ~/.ssh/id_rsa") == (0, "")
 
-    def test_rule042_unsafe_substitution_blocks_the_allow(self):
-        self.assertFalse(allowed("echo $(rm file)"))
+
+def test_rule042_tmp_sink_allowed_but_home_sink_not():
+    assert allowed("echo hi > /tmp/out.txt")
+    assert not allowed("echo hi > ~/file")
+
+
+@pytest.mark.parametrize("command", ["git push origin main", "cat ~/.ssh/id_rsa", "rm -rf /", "git status && rm file"])
+def test_rule042_never_emits_a_decision_for_unsafe_commands(monkeypatch, tmp_path, command):
+    assert _run_hook(monkeypatch, tmp_path, command) == (0, "")
+
+
+def test_rule042_unsafe_substitution_blocks_the_allow():
+    assert not allowed("echo $(rm file)")
 
 
 class TestAuditBypasses(unittest.TestCase):
