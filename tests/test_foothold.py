@@ -69,7 +69,9 @@ def _exec_start(unit):
 def test_sec012_rendered_unit_has_no_shell_string(account):
     unit = foothold.render_unit(account)
     line = _exec_start(unit)
-    assert "sh -c" not in unit and "/bin/sh" not in unit and "bash" not in line
+    assert "sh -c" not in unit
+    assert "/bin/sh" not in unit
+    assert "bash" not in line
     assert not any(token in line for token in (";", "|", "&&", "`", "$("))
     command = line.removeprefix("ExecStart=")
     assert command.startswith("%h/.dotfiles/bin/claude-foothold-launch --start ")
@@ -416,7 +418,8 @@ OLD_UNIT = (
 def _assert_upgraded(unit, account, calls):
     text = unit.read_text()
     assert text == foothold.render_unit(account)
-    assert "EnvironmentFile" not in text and "sh -c" not in text
+    assert "EnvironmentFile" not in text
+    assert "sh -c" not in text
     assert ("systemctl", "--user", "daemon-reload") in calls
 
 

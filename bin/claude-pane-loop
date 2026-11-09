@@ -12,7 +12,7 @@ safe='[A-Za-z0-9_./:=@%+,-]'
 resume_re="^cd ${q}(([^${q}]|${q}\\\\${q}${q})*)${q} && claude( .*)?\$"
 quoted_re="^ ${q}(([^${q}]|${esc_posix}|${q}\\\\${q}${q})*)${q}( .*)?\$"
 bare_re="^ (${safe}+)( .*)?\$"
-flag_re="^--[a-z][a-z0-9-]*(=${safe}+)?\$"
+flag_re="^--[A-Za-z][A-Za-z0-9-]*(=${safe}+)?\$"
 short_re='^-[A-Za-z]$'
 
 # Sets token, rest and quoted from the front of $1; a quoted token is decoded as literal data.

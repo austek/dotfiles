@@ -197,7 +197,7 @@ def test_the_resumed_claude_runs_inside_the_typed_directory(tmp_path):
         "--model 'a'b --resume abc",
         "--model 'unterminated --resume abc",
         "--model 'a';touch pwned --resume abc",
-        "--Model opus --resume abc",
+        "--1model opus --resume abc",
         "--bogus-flag abc",
         "--continue",
         "--model",
@@ -248,6 +248,10 @@ def test_an_embedded_quote_cannot_break_out_of_the_directory(tmp_path):
 # Lines generated once by Cozempic's helpers.shell_quote and guard._detect_claude_flags.
 GOLDEN = [
     (r"""cd '@ROOT@/it'\''s a dir' && claude --chrome --resume abc""", ["--chrome", "--resume", "abc"]),
+    (
+        r"""cd '@ROOT@/it'\''s a dir' && claude --allowedTools Read,Edit --resume abc""",
+        ["--allowedTools", "Read,Edit", "--resume", "abc"],
+    ),
     (
         r"""cd '@ROOT@/it'\''s a dir' && claude --model 'opus[1m]' --resume abc""",
         ["--model", "opus[1m]", "--resume", "abc"],
