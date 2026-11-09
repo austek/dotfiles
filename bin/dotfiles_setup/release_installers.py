@@ -327,8 +327,7 @@ RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = (
 RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = tuple(
     (package, lambda t, spec=spec: install_release(t, spec)) for package, spec in RELEASE_SPECS
 )
-# Slack is not listed: its .deb registers an apt repo that dist-upgrade updates from.
-UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = (("zoom", ZOOM),)
+UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = (("zoom", ZOOM), ("slack-desktop", SLACK))
 
 
 def _is_older(t: Tooling, installed: str, pinned: str) -> bool | None:
