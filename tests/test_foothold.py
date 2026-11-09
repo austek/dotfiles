@@ -208,12 +208,12 @@ def test_launcher_exports_secrets_to_claude(tmp_path):
     assert out == "bar baz|--remote-control|foothold-x|"
 
 
-def test_launcher_ignores_group_readable_secrets(tmp_path):
+def test_rule029_launcher_ignores_group_readable_secrets(tmp_path):
     out = _run_launcher(tmp_path, 'echo "[$FOO]"', ["n"], secrets="FOO=leak\n", secrets_mode=0o644)
     assert out == "[]"
 
 
-def test_launcher_parses_secrets_as_data_not_shell(tmp_path):
+def test_rule029_launcher_parses_secrets_as_data_not_shell(tmp_path):
     secrets = (
         "# comment\n\nPLAIN=abc def\nTICK=`touch pwned`$(touch pwned)\nDQ=\"x y\"\nSQ='p q'\n1BAD=no\n"
         "PADDED=  ' keep me '  \nTRAILING='abc' \nNO_NEWLINE=last"

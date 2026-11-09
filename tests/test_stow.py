@@ -67,7 +67,7 @@ def backups(world, name):
     return [p for p in (world.tmp / "backups").glob(f"T1.*/{name}")]
 
 
-def test_force_backs_up_the_conflicting_file_and_removes_the_staging_dir(world):
+def test_rule033_force_backs_up_the_conflicting_file_and_removes_the_staging_dir(world):
     plan, _ = plan_for(world)
     (world.home / ".rc").write_text("original")
     assert stow.stow_with_backup(plan, [f"--target={world.home}", "pkg"], world.repo)
@@ -114,6 +114,17 @@ def test_suspicious_conflict_paths_are_never_backed_up(world, conflict):
     plan, _ = plan_for(world, Stower(conflict=conflict))
     stow.stow_with_backup(plan, [f"--target={world.home}", "pkg"], world.repo)
     assert not list((world.tmp / "backups").glob("**/*"))
+
+
+def test_rule033_without_force_a_blocked_stow_fails_with_a_hint_and_moves_nothing(world, capsys):
+    stower = Stower(stow_rc=1)
+    plan, _ = plan_for(world, stower, force=False)
+    (world.home / ".rc").write_text("original")
+    assert not stow.stow_with_backup(plan, [f"--target={world.home}", "pkg"], world.repo)
+    assert "re-run with --force" in capsys.readouterr().err
+    assert (world.home / ".rc").read_text() == "original"
+    assert not list(world.home.glob(".stow-backup.*"))
+    assert not any("--simulate" in argv for argv, _ in stower.calls)
 
 
 def test_without_force_nothing_is_staged_or_simulated(world):

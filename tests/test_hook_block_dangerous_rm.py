@@ -115,7 +115,7 @@ ALLOW = [
 ]
 
 
-class TestVerdicts(unittest.TestCase):
+class TestRule041RmHookDeniesRiskyRecursiveDeletes(unittest.TestCase):
     def test_denied(self):
         for cmd in DENY:
             with self.subTest(cmd=cmd):

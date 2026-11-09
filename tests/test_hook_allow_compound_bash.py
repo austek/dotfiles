@@ -3,11 +3,16 @@ import sys
 
 sys.dont_write_bytecode = True  # keep __pycache__ out of the stowed hooks package
 
+import contextlib
 import importlib.util
+import io
+import json
 import os
 import unittest
 from pathlib import Path
 from unittest import mock
+
+import pytest
 
 HOOK = Path(__file__).resolve().parent.parent / "claude" / ".claude" / "hooks" / "allow-compound-bash.py"
 spec = importlib.util.spec_from_file_location("allow_compound_bash", HOOK)
@@ -55,6 +60,41 @@ class TestCompoundCommands(unittest.TestCase):
 
     def test_xargs_inner_command_is_never_auto_allowed(self):
         self.assertFalse(allowed("git ls-files | xargs rm"))
+
+
+def _run_hook(monkeypatch, tmp_path, command):
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(tmp_path)}
+    out = io.StringIO()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(hook, "load_rules", lambda cwd: RULES)
+    monkeypatch.setattr(hook.sys, "stdin", io.StringIO(json.dumps(payload)))
+    with contextlib.redirect_stdout(out):
+        rc = hook.main()
+    return rc, out.getvalue().strip()
+
+
+def test_rule042_safe_pipeline_and_chain_emits_allow(monkeypatch, tmp_path):
+    rc, out = _run_hook(monkeypatch, tmp_path, "ls | grep foo && echo done")
+    assert rc == 0
+    assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+
+def test_rule042_sensitive_path_gets_no_decision(monkeypatch, tmp_path):
+    assert _run_hook(monkeypatch, tmp_path, "cat ~/.ssh/id_rsa") == (0, "")
+
+
+def test_rule042_tmp_sink_allowed_but_home_sink_not():
+    assert allowed("echo hi > /tmp/out.txt")
+    assert not allowed("echo hi > ~/file")
+
+
+@pytest.mark.parametrize("command", ["git push origin main", "cat ~/.ssh/id_rsa", "rm -rf /", "git status && rm file"])
+def test_rule042_never_emits_a_decision_for_unsafe_commands(monkeypatch, tmp_path, command):
+    assert _run_hook(monkeypatch, tmp_path, command) == (0, "")
+
+
+def test_rule042_unsafe_substitution_blocks_the_allow():
+    assert not allowed("echo $(rm file)")
 
 
 class TestAuditBypasses(unittest.TestCase):

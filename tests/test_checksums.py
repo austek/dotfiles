@@ -62,12 +62,12 @@ def test_matching_content_passes_and_none_disables_the_check():
     checksums.verify(None, "u", b"anything")
 
 
-def test_a_mismatch_names_the_url_and_both_digests():
+def test_rule020_a_mismatch_names_the_url_and_both_digests():
     with pytest.raises(checksums.ChecksumError, match=f"digest mismatch for u: expected {DIGEST}, got "):
         checksums.verify({"u": DIGEST}, "u", b"tampered")
 
 
-def test_a_url_without_a_digest_is_refused_and_named():
+def test_rule020_a_url_without_a_digest_is_refused_and_named():
     with pytest.raises(checksums.ChecksumError, match="no digest recorded for https://x/new.deb"):
         checksums.verify({}, "https://x/new.deb", PAYLOAD)
 
