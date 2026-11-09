@@ -89,6 +89,43 @@ def test_sec011_refuses_a_symlink_to_a_file_owned_by_someone_else(tmp_path, monk
     assert "symlink target is owned by another user" in capsys.readouterr().out
 
 
+def test_sec011_tightens_through_the_opened_descriptor_not_the_path(tmp_path, monkeypatch):
+    t, log, path = setup(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text("X=1\n")
+    path.chmod(0o644)
+    other = tmp_path / "other.env"
+    other.write_text("Y=2\n")
+    other.chmod(0o644)
+    original = tmp_path / "original-inode"
+    real_open = os.open
+
+    def swapping_open(target, *args, **kwargs):
+        fd = real_open(target, *args, **kwargs)
+        if target == path:
+            path.rename(original)
+            path.symlink_to(other)
+        return fd
+
+    monkeypatch.setattr(secrets_env.os, "open", swapping_open)
+    assert secrets_env.ensure_secrets_env(t, log)
+    assert (mode(original), mode(other)) == (0o600, 0o644)
+
+
+def test_sec011_an_unreadable_file_is_a_named_warning_and_fails(tmp_path, capsys):
+    t, log, path = setup(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text("X=1\n")
+    path.chmod(0o000)
+    try:
+        ok = secrets_env.ensure_secrets_env(t, log)
+    finally:
+        path.chmod(0o600)
+    if os.geteuid() != 0:
+        assert not ok
+        assert "could not be opened" in capsys.readouterr().out
+
+
 def test_sec011_refuses_a_symlink_to_a_directory(tmp_path, capsys):
     t, log, path = setup(tmp_path)
     path.parent.mkdir(parents=True)

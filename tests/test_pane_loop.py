@@ -198,6 +198,10 @@ def test_the_resumed_claude_runs_inside_the_typed_directory(tmp_path):
         "--model 'unterminated --resume abc",
         "--model 'a';touch pwned --resume abc",
         "--1model opus --resume abc",
+        "'--settings' '{\"hooks\":{}}' --resume abc",
+        "'--mcp-config' x.json --resume abc",
+        "--model '--settings' --resume abc",
+        "--resume '--settings'",
         "--bogus-flag abc",
         "--continue",
         "--model",
@@ -269,8 +273,8 @@ GOLDEN = [
         ["don't stop", "--add-dir", "/tmp/x y", "--resume", "abc"],
     ),
     (
-        r"""cd '@ROOT@/it'\''s a dir' && claude --model=opus -v --resume abc""",
-        ["--model=opus", "-v", "--resume", "abc"],
+        r"""cd '@ROOT@/it'\''s a dir' && claude --model=opus -d --resume abc""",
+        ["--model=opus", "-d", "--resume", "abc"],
     ),
     (
         r"""cd '@ROOT@/it'\''s a dir' && claude --model sonnet --chrome --resume abc""",
@@ -324,7 +328,8 @@ def _cozempic_line(directory, argv):
         (["claude", "--remote-control", "my host"], ["--remote-control", "my host", "--resume", "abc"]),
         (["claude", "fix it", "--verbose"], ["fix it", "--verbose", "--resume", "abc"]),
         (["claude", "don't stop", "--add-dir", "/tmp/x y"], ["don't stop", "--add-dir", "/tmp/x y", "--resume", "abc"]),
-        (["claude", "--model=opus", "-v"], ["--model=opus", "-v", "--resume", "abc"]),
+        (["claude", "--model=opus", "-d"], ["--model=opus", "-d", "--resume", "abc"]),
+        (["claude", "--allowedTools", "Bash Edit", "--add-dir", "/a", "/b"], ["--allowedTools", "Bash Edit", "--add-dir", "/a /b", "--resume", "abc"]),
         (["claude", "--model", "sonnet", "--resume", "old-id", "--chrome"], ["--model", "sonnet", "--chrome", "--resume", "abc"]),
     ],
 )
@@ -333,6 +338,111 @@ def test_lines_built_by_the_installed_cozempic_round_trip_to_the_exact_argv(tmp_
     directory.mkdir()
     _run_on_tty(tmp_path, _cozempic_line(directory, argv))
     assert _received(tmp_path) == [a.encode() for a in expected]
+
+
+ZERO = [
+    "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--chrome", "--no-chrome", "--verbose",
+    "--ide", "--bare", "--brief", "--restricted", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands",
+    "--exclude-dynamic-system-prompt-sections", "--ax-screen-reader", "--fork-session",
+]
+ONE = [
+    "--model", "--permission-mode", "--effort", "--fallback-model", "--agent", "--autocompact",
+    "--system-prompt-snapshot", "--system-prompt", "--append-system-prompt", "--name", "-n",
+    "--remote-control-session-name-prefix", "--setting-sources",
+]
+OPTIONAL = ["--remote-control", "--debug", "-d", "--worktree", "-w", "--tmux", "--prompt-suggestions"]
+VARIADIC = ["--add-dir", "--allowedTools", "--allowed-tools", "--disallowedTools", "--disallowed-tools", "--tools", "--betas"]
+DENIED = [
+    "--settings", "--mcp-config", "--plugin-dir", "--plugin-url", "--agents", "--system-prompt-file",
+    "--append-system-prompt-file", "--debug-file", "--file", "--session-id", "--continue", "-c", "-r", "--teleport",
+    "--cloud", "--environment", "--from-pr", "--bg", "--background", "--desktop",
+]
+
+
+def _typed(tmp_path, middle, rest="--resume abc"):
+    return f"cd {_quoted(tmp_path)} && claude {middle} {rest}"
+
+
+@pytest.mark.parametrize("flag", ZERO)
+def test_every_allowed_boolean_flag_is_accepted(tmp_path, flag):
+    _run_on_tty(tmp_path, _typed(tmp_path, flag))
+    assert _received(tmp_path) == [flag.encode(), b"--resume", b"abc"]
+
+
+@pytest.mark.parametrize("flag", ZERO)
+def test_a_boolean_flag_rejects_a_following_value(tmp_path, flag):
+    code, runs = _run_on_tty(tmp_path, _typed(tmp_path, f"{flag} 'x y'"))
+    assert (code, runs) == (64, ["first"])
+    assert f"unexpected value after {flag}" in _stderr(tmp_path)
+
+
+@pytest.mark.parametrize("flag", ZERO)
+def test_a_boolean_flag_rejects_the_equals_form(tmp_path, flag):
+    code, _ = _run_on_tty(tmp_path, _typed(tmp_path, f"{flag}=x"))
+    assert code == 64
+    assert f"{flag} takes no value" in _stderr(tmp_path)
+
+
+@pytest.mark.parametrize("flag", ONE + VARIADIC)
+def test_value_flags_accept_a_quoted_value(tmp_path, flag):
+    _run_on_tty(tmp_path, _typed(tmp_path, f"{flag} 'a b'"))
+    assert _received(tmp_path) == [flag.encode(), b"a b", b"--resume", b"abc"]
+
+
+@pytest.mark.parametrize("flag", [f for f in ONE + VARIADIC if f.startswith("--")])
+def test_value_flags_accept_the_equals_form(tmp_path, flag):
+    _run_on_tty(tmp_path, _typed(tmp_path, f"{flag}=v"))
+    assert _received(tmp_path) == [f"{flag}=v".encode(), b"--resume", b"abc"]
+
+
+@pytest.mark.parametrize("flag", ONE + VARIADIC)
+def test_a_flag_missing_its_required_value_is_rejected(tmp_path, flag):
+    code, runs = _run_on_tty(tmp_path, _typed(tmp_path, flag))
+    assert (code, runs) == (64, ["first"])
+    assert f"missing value for {flag}" in _stderr(tmp_path)
+
+
+@pytest.mark.parametrize("flag", OPTIONAL)
+def test_optional_value_flags_accept_no_value(tmp_path, flag):
+    _run_on_tty(tmp_path, _typed(tmp_path, flag))
+    assert _received(tmp_path) == [flag.encode(), b"--resume", b"abc"]
+
+
+@pytest.mark.parametrize("flag", OPTIONAL)
+def test_optional_value_flags_accept_one_value(tmp_path, flag):
+    _run_on_tty(tmp_path, _typed(tmp_path, f"{flag} 'a b'"))
+    assert _received(tmp_path) == [flag.encode(), b"a b", b"--resume", b"abc"]
+
+
+@pytest.mark.parametrize("flag", ONE + OPTIONAL + VARIADIC)
+def test_a_second_value_after_a_flag_is_rejected(tmp_path, flag):
+    code, runs = _run_on_tty(tmp_path, _typed(tmp_path, f"{flag} one two"))
+    assert (code, runs) == (64, ["first"])
+    assert f"unexpected value after {flag}" in _stderr(tmp_path)
+
+
+@pytest.mark.parametrize("flag", DENIED)
+def test_excluded_flags_are_rejected_by_name(tmp_path, flag):
+    code, runs = _run_on_tty(tmp_path, _typed(tmp_path, f"{flag} /etc/evil.json"))
+    assert (code, runs) == (64, ["first"])
+    assert f"(flag not allowed: {flag}):" in _stderr(tmp_path)
+
+
+@pytest.mark.parametrize("flag", ["--made-up", "--print", "-p", "-v", "--output-format"])
+def test_unknown_flags_are_rejected(tmp_path, flag):
+    code, runs = _run_on_tty(tmp_path, _typed(tmp_path, flag))
+    assert (code, runs) == (64, ["first"])
+    assert f"unknown flag: {flag}" in _stderr(tmp_path)
+
+
+def test_camel_case_allowed_tools_keeps_working(tmp_path):
+    _run_on_tty(tmp_path, _typed(tmp_path, "--allowedTools 'Bash Edit'"))
+    assert _received(tmp_path) == [b"--allowedTools", b"Bash Edit", b"--resume", b"abc"]
+
+
+def test_a_positional_after_a_boolean_flag_is_rejected(tmp_path):
+    code, _ = _run_on_tty(tmp_path, _typed(tmp_path, "--chrome 'fix it'"))
+    assert code == 64
 
 
 def test_dollar_expressions_inside_single_quotes_stay_literal_data(tmp_path):

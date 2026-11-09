@@ -47,28 +47,42 @@ def _make_dirs(changes: RollbackLog, directory: Path) -> None:
         changes.track(f"DIR_CREATED:{level}", dry_run=False)
 
 
-def _file_problem(path: Path) -> str | None:
-    """Judges the file the way the launcher's `stat -L` does: a symlink is judged by its target."""
-    try:
-        info = path.stat()
-    except FileNotFoundError:
-        return "is a dangling symlink"
+def _open_problem(path: Path, exc: OSError) -> str:
+    if isinstance(exc, FileNotFoundError):
+        return "is a dangling symlink" if path.is_symlink() else "does not exist"
+    return f"could not be opened ({exc.strerror})"
+
+
+def _file_problem(path: Path, info: os.stat_result) -> str | None:
     kind = "symlink target" if path.is_symlink() else "file"
     if not stat.S_ISREG(info.st_mode):
         return f"{kind} is not a regular file"
     return None if _owned_by_user(info) else f"{kind} is owned by another user"
 
 
-def _tighten(t: Tooling, path: Path) -> bool:
-    problem = _file_problem(path)
+def _tighten_fd(t: Tooling, path: Path, fd: int) -> bool:
+    info = os.fstat(fd)
+    problem = _file_problem(path, info)
     if problem:
         t.logger.warn(f"{path} {problem}; leaving it alone, but it is not protected.")
         return False
-    mode = stat.S_IMODE(path.stat().st_mode)
-    if mode & GROUP_OTHER:
-        t.logger.warn(f"{path} had mode {mode:04o}; restricting it to 0600.")
-        path.chmod(OWNER_ONLY)
+    if stat.S_IMODE(info.st_mode) & GROUP_OTHER:
+        t.logger.warn(f"{path} had mode {stat.S_IMODE(info.st_mode):04o}; restricting it to 0600.")
+        os.fchmod(fd, OWNER_ONLY)
     return True
+
+
+def _tighten(t: Tooling, path: Path) -> bool:
+    """Opens once, following a symlink like the launcher's `stat -L`, so checks and chmod hit one inode."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK)
+    except OSError as exc:
+        t.logger.warn(f"{path} {_open_problem(path, exc)}; leaving it alone, but it is not protected.")
+        return False
+    try:
+        return _tighten_fd(t, path, fd)
+    finally:
+        os.close(fd)
 
 
 def _ensure(t: Tooling, changes: RollbackLog, path: Path) -> bool:
