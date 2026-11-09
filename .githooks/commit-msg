@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# core.hooksPath=.githooks overrides the global ~/.git-hooks, so chain to its
+# commit-msg hook, which strips AI-attribution trailers. CI has no global
+# hooks, so a missing hook is skipped.
+
+set -euo pipefail
+
+global_hook="${DOTFILES_GLOBAL_HOOKS:-$HOME/.git-hooks}/commit-msg"
+if [[ -x "$global_hook" ]]; then
+    exec "$global_hook" "$@"
+fi
