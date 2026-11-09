@@ -58,14 +58,17 @@ def tarball(member):
 class Machine:
     """Records every command and answers dpkg -l from configurable state."""
 
-    def __init__(self, dpkg_listing="", fail=(), codes=None):
+    def __init__(self, dpkg_listing="", fail=(), codes=None, listing_after_fix=None):
         self.commands = []
         self.dpkg_listing = dpkg_listing
         self.fail = tuple(fail)
         self.codes = codes or {}
+        self.listing_after_fix = listing_after_fix
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
+        if argv[:4] == ["sudo", "apt-get", "-y", "--fix-broken"] and self.listing_after_fix is not None:
+            self.dpkg_listing = self.listing_after_fix
         if argv[:2] == ["dpkg", "-l"]:
             return SimpleNamespace(returncode=0, stdout=self.dpkg_listing, stderr="")
         for prefix, code in self.codes.items():
@@ -244,10 +247,24 @@ def test_zoom_is_installed_when_dpkg_lists_it(tmp_path):
 
 
 def test_deb_install_failure_is_fixed_by_apt(tmp_path):
-    machine = Machine(dpkg_listing="ii  zoom  6.0\n", fail=[("sudo", "dpkg")])
+    machine = Machine(fail=[("sudo", "dpkg")], listing_after_fix="ii  zoom  6.0\n")
     t, _ = make(tmp_path, machine)
     assert ri._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
     assert machine.ran("sudo", "apt-get", "-y", "--fix-broken", "install")
+
+
+def test_a_failed_upgrade_that_leaves_the_old_version_is_not_a_success(tmp_path):
+    machine = Machine(dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")])
+    t, _ = make(tmp_path, machine)
+    assert not ri._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
+
+
+def test_a_failed_upgrade_that_apt_completes_is_a_success(tmp_path):
+    machine = Machine(
+        dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")], listing_after_fix=slack_listing(ri.SLACK_VERSION),
+    )
+    t, _ = make(tmp_path, machine)
+    assert ri._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
 
 
 def test_deb_install_that_stays_broken_fails(tmp_path):
@@ -506,16 +523,38 @@ def test_upgrade_dry_run_downloads_and_installs_nothing(tmp_path, capsys):
     assert f"Would upgrade Zoom from v7.2.1.5760 to v{ri.ZOOM_VERSION}" in capsys.readouterr().out
 
 
-def test_upgrade_leaves_an_installed_slack_to_its_apt_repo(tmp_path):
-    machine = Machine(dpkg_listing="ii  slack-desktop  4.35.0  amd64  Slack\n")
+def slack_listing(version):
+    return f"ii  slack-desktop  {version}  amd64  Slack\n"
+
+
+def test_upgrade_installs_the_slack_pin_when_the_installed_version_is_older(tmp_path):
+    machine = Machine(dpkg_listing=slack_listing("4.35.0"))
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, {"slack-desktop"})
+    assert len(downloads) == 1
+    assert ri.SLACK_VERSION in downloads[0]
+    assert machine.ran("dpkg", "--compare-versions", "4.35.0", "lt", ri.SLACK_VERSION)
+    assert machine.ran("sudo", "rm", "-f", *ri.SLACK_APT_SOURCES)
+
+
+def test_upgrade_never_downgrades_a_slack_newer_than_the_pin(tmp_path):
+    machine = Machine(dpkg_listing=slack_listing("9.0.0"), fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"slack-desktop"})
     assert downloads == []
     assert not machine.ran("sudo")
 
 
-def test_only_zoom_is_upgradable():
-    assert [package for package, _ in ri.UPGRADABLE_DEBS] == ["zoom"]
+def test_upgrade_skips_slack_at_the_pin(tmp_path):
+    machine = Machine(dpkg_listing=slack_listing(ri.SLACK_VERSION), fail=NOT_OLDER)
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, {"slack-desktop"})
+    assert downloads == []
+    assert not machine.ran("sudo")
+
+
+def test_zoom_and_slack_are_the_upgradable_debs():
+    assert [package for package, _ in ri.UPGRADABLE_DEBS] == ["zoom", "slack-desktop"]
 
 
 def test_install_tools_without_upgrade_skips_an_installed_zoom(tmp_path):
