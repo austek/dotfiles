@@ -531,7 +531,8 @@ def test_upgrade_installs_the_slack_pin_when_the_installed_version_is_older(tmp_
     machine = Machine(dpkg_listing=slack_listing("4.35.0"))
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"slack-desktop"})
-    assert len(downloads) == 1 and ri.SLACK_VERSION in downloads[0]
+    assert len(downloads) == 1
+    assert ri.SLACK_VERSION in downloads[0]
     assert machine.ran("dpkg", "--compare-versions", "4.35.0", "lt", ri.SLACK_VERSION)
     assert machine.ran("sudo", "rm", "-f", *ri.SLACK_APT_SOURCES)
 
@@ -540,14 +541,16 @@ def test_upgrade_never_downgrades_a_slack_newer_than_the_pin(tmp_path):
     machine = Machine(dpkg_listing=slack_listing("9.0.0"), fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"slack-desktop"})
-    assert downloads == [] and not machine.ran("sudo")
+    assert downloads == []
+    assert not machine.ran("sudo")
 
 
 def test_upgrade_skips_slack_at_the_pin(tmp_path):
     machine = Machine(dpkg_listing=slack_listing(ri.SLACK_VERSION), fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"slack-desktop"})
-    assert downloads == [] and not machine.ran("sudo")
+    assert downloads == []
+    assert not machine.ran("sudo")
 
 
 def test_zoom_and_slack_are_the_upgradable_debs():
