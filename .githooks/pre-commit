@@ -10,3 +10,9 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 
 bash scripts/validate-shell.sh
 bash scripts/validate-no-machine-paths.sh
+
+# core.hooksPath=.githooks overrides the global ~/.git-hooks, so chain to it.
+global_hooks="${DOTFILES_GLOBAL_HOOKS:-${HOME:+$HOME/.git-hooks}}"
+if [[ -n "$global_hooks" && -x "$global_hooks/pre-commit" ]]; then
+    exec "$global_hooks/pre-commit" "$@"
+fi
