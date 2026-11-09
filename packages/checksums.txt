@@ -18,7 +18,7 @@ b060a7c7679103b2b619752f8ee7a3088dd241a7d207d4311974b56ea6f94356  https://edgedl
 85ae798116fa0dda42a627333b36903b71291785c7395ad3634f8419f7adaeb5  https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh
 d890e2fef6fa991b19cde2e608199bc1dca4e37f41f884edf8849ff693048de6  https://sh.rustup.rs
 434360efbde4d2ee31940ff28130fc6ec66121f1e1afc84aa37504752c4babb0  https://get.sdkman.io?rcupdate=false
-5574b96e94dbcb769f0d1592fa83aeb6ca2caf41c6ae5d76fcc7f04c524b4f55  https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
+3f9f1b6269deddc51cdcab2a689f54821e6e62c24401f970de4bfafad328b2ef  https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
 48a0eee9a60e07422dce0eb5774754c83889570ca1ee2566c516acbe8af03a9e  https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh
 40c924af5945954cf5620e1a0eec6d516750c8d605a423a5e94f1ad8ac97621e  https://cli.coderabbit.ai/install.sh
 cb68f168a6b22279a58ff58da052792237b17dbcf35a16e86e38bcbfc6bf3d6a  https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/tags/1.11.0.16877/user-scripts/install.sh
