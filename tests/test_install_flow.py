@@ -69,7 +69,7 @@ def test_steps_run_in_the_order_the_shell_installer_used(tmp_path):
         "install_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
         "report_unremoved", "install_post_apt_tools",
         "enable_gpaste_extension",
-        "install_github_bins", "configure_docker_group", "configure_dotfiles", "retire_claude_profile",
+        "install_github_bins", "configure_docker_group", "configure_dotfiles", "ensure_secrets_env", "retire_claude_profile",
         "configure_claude_tools", "change_shell", "set_default_terminal",
     ]
 

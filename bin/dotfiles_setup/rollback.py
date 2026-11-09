@@ -2,6 +2,7 @@
 and a failed run can undo them newest first."""
 from __future__ import annotations
 
+import errno
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,6 +102,17 @@ def _file_created(ctx: RollbackContext, data: str) -> None:
         ctx.t.logger.warn(f"Failed to remove {data}")
 
 
+def _dir_created(ctx: RollbackContext, data: str) -> None:
+    ctx.t.logger.info(f"Removing generated directory if empty: {data}")
+    try:
+        Path(data).rmdir()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        log = ctx.t.logger.info if exc.errno == errno.ENOTEMPTY else ctx.t.logger.warn
+        log(f"Kept {data}: {exc}")
+
+
 def _apt_removed(ctx: RollbackContext, data: str) -> None:
     ctx.t.logger.info(f"Reinstalling removed package: {data}")
     if not _run_quiet(ctx, ["sudo", "apt-get", "install", "-y", data]):
@@ -126,6 +138,7 @@ _UNDO_HANDLERS: dict[str, Callable[[RollbackContext, str], None]] = {
     "DOCKER_GROUP": _docker_group,
     "FILE_BACKUP": _restore_backup,
     "FILE_CREATED": _file_created,
+    "DIR_CREATED": _dir_created,
     "APT_REMOVED": _apt_removed,
     "DEB_REMOVED": _deb_removed,
     "FLATPAK_REMOVED": _flatpak_removed,

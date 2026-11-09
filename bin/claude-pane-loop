@@ -1,11 +1,144 @@
 #!/usr/bin/env bash
-# Runs a command as a tmux pane's process and, once it exits, keeps the pane for CLAUDE_TMUX_GRACE
-# seconds so Cozempic's typed `cd <dir> && claude … --resume <id>` line can restart claude in place.
-# Enter, Ctrl-D, any other input or the timeout ends the pane (and with it the tmux session).
+# Runs a command as a tmux pane's process, then waits CLAUDE_TMUX_GRACE seconds for Cozempic's typed
+# `cd '<dir>' && claude … --resume <id>` line. Enter, Ctrl-D or the timeout ends the pane; other input exits 64.
 # Usage: claude-pane-loop <command> [args...]
 
 grace=${CLAUDE_TMUX_GRACE:-60}
-resume_line="^cd [^;|&\`\$<>(){}\\\\]+ && claude( [^;|&\`\$<>(){}\\\\]*)?\$"
+q="'"
+dq='"'
+esc_posix="${q}${dq}${q}${dq}${q}"
+esc_helper="${q}\\${q}${q}"
+safe='[A-Za-z0-9_./:=@%+,-]'
+resume_re="^cd ${q}(([^${q}]|${q}\\\\${q}${q})*)${q} && claude( .*)?\$"
+quoted_re="^ ${q}(([^${q}]|${esc_posix}|${q}\\\\${q}${q})*)${q}( .*)?\$"
+bare_re="^ (${safe}+)( .*)?\$"
+flag_re="^--[A-Za-z][A-Za-z0-9-]*(=${safe}+)?\$"
+short_re='^-[A-Za-z]$'
+
+# Allowed flags from `claude --help` (2.1.321) as flag:arity: 0 none, 1 required value, ? optional value,
+# * variadic (Cozempic joins the values into one token). Interactive-session flags only; anything else is unknown.
+allowed_flags=(
+    --resume:? --remote-control:? --model:1 --permission-mode:1 --effort:1 --fallback-model:1 --agent:1
+    --autocompact:1 --system-prompt-snapshot:1 --system-prompt:1 --append-system-prompt:1 --name:1 -n:1
+    --remote-control-session-name-prefix:1 --debug:? -d:? --worktree:? -w:? --tmux:? --prompt-suggestions:?
+    --add-dir:'*' --allowedTools:'*' --allowed-tools:'*' --disallowedTools:'*' --disallowed-tools:'*'
+    --tools:'*' --betas:'*' --setting-sources:1
+    --dangerously-skip-permissions:0 --allow-dangerously-skip-permissions:0 --chrome:0 --no-chrome:0
+    --verbose:0 --ide:0 --bare:0 --brief:0 --restricted:0 --safe-mode:0 --strict-mcp-config:0
+    --disable-slash-commands:0 --exclude-dynamic-system-prompt-sections:0 --ax-screen-reader:0 --fork-session:0
+)
+# Flags refused with their reason: the resumed claude must not be steered by typed text.
+denied_flags=(
+    "--settings:loads settings from a typed path or JSON"
+    "--mcp-config:starts MCP servers from a typed path or JSON"
+    "--plugin-dir:runs plugin code from a typed path"
+    "--plugin-url:runs plugin code fetched from a typed URL"
+    "--agents:loads agents from typed JSON or a typed path"
+    "--system-prompt-file:reads a typed file as the prompt"
+    "--append-system-prompt-file:reads a typed file as the prompt"
+    "--debug-file:writes to a typed path"
+    "--file:downloads to typed paths"
+    "--session-id:pins a typed session id"
+    "--continue:resuming is only through --resume"
+    "-c:resuming is only through --resume"
+    "-r:resuming is only through --resume"
+    "--teleport:redirects the session elsewhere"
+    "--cloud:redirects the session elsewhere"
+    "--environment:redirects the session elsewhere"
+    "--from-pr:redirects the session elsewhere"
+    "--bg:redirects the session elsewhere"
+    "--background:redirects the session elsewhere"
+    "--desktop:redirects the session elsewhere"
+)
+
+table_get() {
+    local key=$1 entry
+    shift
+    for entry in "$@"; do
+        [[ ${entry%%:*} == "$key" ]] && { printf '%s' "${entry#*:}"; return 0; }
+    done
+    return 1
+}
+
+# Sets token, rest and quoted from the front of $1; a quoted token is decoded as literal data.
+read_token() {
+    if [[ $1 =~ $quoted_re ]]; then
+        token=${BASH_REMATCH[1]//"$esc_posix"/$q}
+        token=${token//"$esc_helper"/$q}
+        rest=${BASH_REMATCH[3]}
+        quoted=1
+    elif [[ $1 =~ $bare_re ]]; then
+        token=${BASH_REMATCH[1]}
+        rest=${BASH_REMATCH[2]}
+        quoted=0
+    else
+        return 1
+    fi
+}
+
+# Requires exactly one --resume, as the last flag, with at most a hex session id after it.
+ends_with_resume() {
+    local n=${#argv[@]} count=0 arg
+    for arg in "${argv[@]}"; do
+        [[ $arg == --resume ]] && count=$((count + 1))
+    done
+    (( count == 1 )) || return 1
+    [[ ${argv[n-1]} == --resume ]] && return 0
+    [[ ${argv[n-2]} == --resume && ${argv[n-1]} =~ ^[0-9a-f-]+$ ]]
+}
+
+open_flag() {
+    [[ $1 =~ $flag_re || $1 =~ $short_re ]] || { reject_reason="invalid flag"; return 1; }
+    flag=${1%%=*}
+    table_get "$flag" "${denied_flags[@]}" > /dev/null && { reject_reason="flag not allowed: $flag"; return 1; }
+    arity=$(table_get "$flag" "${allowed_flags[@]}") || { reject_reason="unknown flag: $flag"; return 1; }
+    [[ $1 == *=* && $arity == 0 ]] && { reject_reason="$flag takes no value"; return 1; }
+    slots=1
+    [[ $arity == 0 || $1 == *=* ]] && slots=0
+    return 0
+}
+
+missing_value() {
+    (( slots )) && [[ $arity == [1*] ]] || return 1
+    reject_reason="missing value for $flag"
+}
+
+# Positionals are allowed only before the first flag; afterwards a value must follow a flag that takes one.
+parse_args() {
+    local rest=$1 token quoted flag="" arity="" slots=0
+    argv=()
+    while [[ -n $rest ]]; do
+        read_token "$rest" || { reject_reason="malformed or unsafe argument"; return 1; }
+        if [[ $quoted == 1 && $token == -* ]]; then
+            reject_reason="quoted argument must not start with '-'"
+            return 1
+        elif [[ $quoted == 0 && $token == -* ]]; then
+            missing_value && return 1
+            open_flag "$token" || return 1
+        elif [[ -n $flag ]]; then
+            (( slots )) || { reject_reason="unexpected value after $flag"; return 1; }
+            slots=0
+        fi
+        argv+=("$token")
+    done
+    missing_value && return 1
+    ends_with_resume || { reject_reason="needs exactly one trailing --resume [id]"; return 1; }
+}
+
+# Sets `dir` and `argv` from a typed resume line; fails on anything but the exact Cozempic shape.
+parse_resume_line() {
+    [[ $1 =~ $resume_re ]] || { reject_reason="not cd '<dir>' && claude …"; return 1; }
+    dir=${BASH_REMATCH[1]//"$esc_helper"/$q}
+    local rest=${BASH_REMATCH[3]}
+    [[ $dir == /* && -d $dir ]] || { reject_reason="directory is not an existing absolute path"; return 1; }
+    parse_args "$rest"
+}
+
+reject_line() {
+    printf 'claude-pane-loop: resume line rejected (%s): %q\n' "$reject_reason" "$1" >&2
+    sleep "${CLAUDE_TMUX_REJECT_PAUSE:-3}"
+    exit 64
+}
 
 # A leading `env NAME=value` (claude-burst) applies to resumed claude too, which Cozempic types bare.
 if [[ $1 == env ]]; then
@@ -22,7 +155,8 @@ status=$?
 while true; do
     printf 'claude exited; waiting %ss for a resume. Enter closes now.\n' "$grace"
     IFS= read -r -t "$grace" line || exit "$status"
-    [[ $line =~ $resume_line ]] || exit "$status"
-    eval "$line"
+    [[ -n $line ]] || exit "$status"
+    parse_resume_line "$line" || reject_line "$line"
+    ( cd -- "$dir" && claude "${argv[@]}" )
     status=$?
 done

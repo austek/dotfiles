@@ -1,24 +1,23 @@
-# Temporarily enables MCP servers/plugins (local scope) for one claude session,
-# reverting them on exit. Org-specific entries go in ~/.config/zsh/claude-with.d/*.zsh,
-# which add to restore_commands/revert_commands. Usage: claude-with <name> [<name> ...] [-- <claude-args...>]
+# Temporarily enables MCP servers/plugins (local scope) for one claude session, reverting them on exit.
+# Entries are argv arrays named restore_argv_<id> and revert_argv_<id>, both required (id: '-' becomes '_'); optional claude_with_secrets_<id> lists env vars that must be set.
+# Extensions in ~/.config/zsh/claude-with.d/*.zsh define those arrays. Usage: claude-with <name> [<name> ...] [-- <claude-args...>]
 claude-with() {
-  local -A restore_commands=(
-    idea                 "claude mcp add --transport http idea http://127.0.0.1:64342/stream -s local"
-    sonarqube            "claude mcp add sonarqube -s local -- sonar run mcp"
-    grafana              "claude mcp add grafana -s local -e GRAFANA_URL=https://hominux.duckdns.org/grafana -e 'GRAFANA_SERVICE_ACCOUNT_TOKEN=\${GRAFANA_SERVICE_ACCOUNT_TOKEN}' -- mcp-grafana"
-    coralogix            "claude mcp add --transport http coralogix https://api.us3.coralogix.com/mgmt/api/v1/mcp -s local -H 'Authorization: Bearer \${CORALOGIX_API_KEY}' -H 'mcp-version: v2'"
-  )
-  local -A revert_commands=(
-    idea                 "claude mcp remove idea -s local"
-    sonarqube            "claude mcp remove sonarqube -s local"
-    grafana              "claude mcp remove grafana -s local"
-    coralogix            "claude mcp remove coralogix -s local"
-  )
+  local -a restore_argv_idea=(claude mcp add --transport http idea http://127.0.0.1:64342/stream -s local)
+  local -a revert_argv_idea=(claude mcp remove idea -s local)
+  local -a restore_argv_sonarqube=(claude mcp add sonarqube -s local -- sonar run mcp)
+  local -a revert_argv_sonarqube=(claude mcp remove sonarqube -s local)
+  local -a restore_argv_grafana=(claude mcp add grafana -s local -e GRAFANA_URL=https://hominux.duckdns.org/grafana -e 'GRAFANA_SERVICE_ACCOUNT_TOKEN=${GRAFANA_SERVICE_ACCOUNT_TOKEN}' -- mcp-grafana)
+  local -a revert_argv_grafana=(claude mcp remove grafana -s local)
+  local -a restore_argv_coralogix=(claude mcp add --transport http coralogix https://api.us3.coralogix.com/mgmt/api/v1/mcp -s local -H 'Authorization: Bearer ${CORALOGIX_API_KEY}' -H 'mcp-version: v2')
+  local -a revert_argv_coralogix=(claude mcp remove coralogix -s local)
 
   local extension
   for extension in "$HOME"/.config/zsh/claude-with.d/*.zsh(N); do
     source "$extension"
   done
+  if (( ${+restore_commands} || ${+revert_commands} )); then
+    echo "claude-with: a claude-with.d extension uses the removed restore_commands format; define restore_argv_<id>/revert_argv_<id>/claude_with_secrets_<id>" >&2
+  fi
 
   if [[ $# -eq 0 ]]; then
     echo "Usage: claude-with <name> [<name> ...] [-- <claude-args>]" >&2
@@ -52,37 +51,60 @@ claude-with() {
     fi
   done
 
-  local -a added=() already=()
-  local name line add_output missing secret
-  for name in "${names[@]}"; do
-    line="${restore_commands[$name]}"
-    if [[ -z "$line" ]]; then
-      echo "claude-with: no restore entry for '$name'" >&2
-      continue
-    fi
-    missing=""
-    for secret in DEVELOCITY_MCP_TOKEN GRAFANA_SERVICE_ACCOUNT_TOKEN CORALOGIX_API_KEY; do
-      if [[ "$line" == *"$secret"* && -z "${(P)secret}" ]]; then
-        missing=$secret
-        break
-      fi
+  # Prints the first unset secret an entry needs. Status: 0 found one, 1 none missing, 2 invalid declaration.
+  _claude_with_missing_secret() {
+    local decl="claude_with_secrets_${1//-/_}" re='[$]\{([A-Za-z_][A-Za-z0-9_]*)\}' ident='^[A-Za-z_][A-Za-z0-9_]*$' arg var
+    local -a vars=()
+    [[ ${(Pt)decl} == array* ]] && vars=("${(@P)decl}")
+    shift
+    for var in "${vars[@]}"; do
+      [[ $var =~ $ident ]] || { print -r -- "claude-with: invalid secret name '$var' declared for '$name'" >&2; return 2; }
     done
-    if [[ -n "$missing" ]]; then
+    for arg in "$@"; do
+      while [[ $arg =~ $re ]]; do
+        vars+=("${match[1]}")
+        arg=${arg#*"$MATCH"}
+      done
+    done
+    for var in "${vars[@]}"; do
+      [[ -z "${(P)var}" ]] && { print -r -- "$var"; return 0; }
+    done
+    return 1
+  }
+
+  # Enables one entry; appends to added/already (caller scope). Returns 1 when the entry is skipped.
+  _claude_with_enable() {
+    local name=$1 id=${1//-/_} missing add_output rc
+    if [[ ! $name =~ '^[A-Za-z0-9_-]+$' ]]; then
+      print -r -- "claude-with: invalid name '$name' (allowed: letters, digits, _ and -)" >&2
+      return 1
+    fi
+    local ref="restore_argv_$id" vref="revert_argv_$id"
+    [[ ${(Pt)ref} == array* ]] || { echo "claude-with: no restore entry for '$name'" >&2; return 1; }
+    [[ ${(Pt)vref} == array* ]] || { echo "claude-with: no revert entry for '$name'" >&2; return 1; }
+    local -a cmd=("${(@P)ref}")
+    missing=$(_claude_with_missing_secret "$name" "${cmd[@]}"); rc=$?
+    (( rc == 2 )) && return 1
+    if (( rc == 0 )); then
       echo "claude-with: \$$missing is not set (check ~/.config/dotfiles/secrets.env)" >&2
-      continue
+      return 1
     fi
     echo "claude-with: enabling $name (local scope)..."
-    add_output=$(eval "$line" 2>&1)
-    if [[ $? -eq 0 ]]; then
-      echo "$add_output"
-      added+=("$name")
-    elif [[ "$add_output" == *"already"* ]]; then
+    add_output=$(command "${cmd[@]}" 2>&1) && { echo "$add_output"; added+=("$name"); return 0; }
+    if [[ "$add_output" == *"already"* ]]; then
       echo "claude-with: $name already enabled in local scope, leaving as-is"
       already+=("$name")
-    else
-      echo "claude-with: failed to add $name" >&2
-      echo "$add_output" >&2
+      return 0
     fi
+    echo "claude-with: failed to add $name" >&2
+    echo "$add_output" >&2
+    return 1
+  }
+
+  local -a added=() already=() skipped=()
+  local name
+  for name in "${names[@]}"; do
+    _claude_with_enable "$name" || skipped+=("$name")
   done
 
   if [[ ${#added[@]} -eq 0 && ${#already[@]} -eq 0 ]]; then
@@ -92,14 +114,18 @@ claude-with() {
 
   local n
   _claude_with_revert() {
+    local rref out
     for n in "${added[@]}"; do
-      eval "${revert_commands[$n]}" >/dev/null 2>&1
+      rref="revert_argv_${n//-/_}"
+      local -a rcmd=("${(@P)rref}")
+      out=$(command "${rcmd[@]}" 2>&1) || print -r -- "claude-with: failed to revert $n; run: ${(j: :)${(@q)rcmd}}" >&2
     done
     added=()
   }
   setopt localtraps
   trap '_claude_with_revert; return 143' HUP TERM
 
+  (( ${#skipped} )) && print -r -- "claude-with: running WITHOUT: ${skipped[*]}" >&2
   command claude "${claude_args[@]}"
   local exit_status=$?
 
