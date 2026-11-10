@@ -1,6 +1,7 @@
 """Session defaults: Zsh as the login shell, Ghostty as the default terminal, IBus off Ctrl+Shift+U."""
 from __future__ import annotations
 
+import ast
 import getpass
 import os
 import pwd
@@ -16,6 +17,7 @@ TERMINAL_SCHEMA = "org.gnome.desktop.default-applications.terminal"
 IBUS_EMOJI_SCHEMA = "org.freedesktop.ibus.panel.emoji"
 IBUS_UNICODE_KEY = "unicode-hotkey"
 EMPTY_STRING_ARRAY = "@as []"
+CONTROL_ALIASES = {"ctrl": "control", "ctl": "control", "primary": "control"}
 
 
 def _config_dir(home: Path) -> Path:
@@ -113,25 +115,40 @@ def set_default_terminal(t: Tooling) -> None:
     _set_gnome_terminal(t, ghostty)
 
 
-def _ibus_hotkey_cleared(t: Tooling) -> bool | None:
-    """Returns None when the IBus emoji schema is not installed."""
+def _is_ctrl_shift_u(binding: str) -> bool:
+    modifiers = {CONTROL_ALIASES.get(m.lower(), m.lower()) for m in re.findall(r"<(\w+)>", binding)}
+    return modifiers == {"control", "shift"} and binding.rsplit(">", 1)[-1].lower() == "u"
+
+
+def _ibus_bindings(t: Tooling) -> list[str] | None:
+    """Returns the bound accelerators, or None when the schema is missing or the value is not a string list."""
     probe = t.run(["gsettings", "get", IBUS_EMOJI_SCHEMA, IBUS_UNICODE_KEY], capture_output=True, text=True)
-    if probe.returncode != 0:
+    text = (probe.stdout or "").strip().removeprefix("@as ")
+    try:
+        bindings = ast.literal_eval(text) if probe.returncode == 0 else None
+    except (ValueError, SyntaxError):
         return None
-    return (probe.stdout or "").strip() == EMPTY_STRING_ARRAY
+    ok = isinstance(bindings, list) and all(isinstance(b, str) for b in bindings)
+    return bindings if ok else None
+
+
+def _bindings_literal(bindings: list[str]) -> str:
+    return repr(bindings) if bindings else EMPTY_STRING_ARRAY
 
 
 def disable_ibus_unicode_hotkey(t: Tooling) -> None:
     t.logger.step("Step 10: Freeing Ctrl+Shift+U from IBus Unicode entry...")
     if shutil.which("gsettings") is None:
         return
-    cleared = _ibus_hotkey_cleared(t)
-    if cleared is None:
-        t.logger.info("IBus emoji schema not installed. Skipping.")
-    elif cleared:
-        t.logger.info("IBus Unicode hotkey already cleared. Skipping.")
-    elif not dry_run_all(t, f"Would clear {IBUS_EMOJI_SCHEMA} {IBUS_UNICODE_KEY}"):
-        if t.run(["gsettings", "set", IBUS_EMOJI_SCHEMA, IBUS_UNICODE_KEY, "[]"]).returncode == 0:
-            t.logger.success("Cleared the IBus Unicode hotkey (Ctrl+Shift+U); GTK apps may still use it for Unicode entry.")
+    bindings = _ibus_bindings(t)
+    kept = [b for b in bindings or [] if not _is_ctrl_shift_u(b)]
+    if bindings is None:
+        t.logger.info("IBus Unicode hotkey not readable (schema missing or unexpected value). Skipping.")
+    elif kept == bindings:
+        t.logger.info("IBus Unicode hotkey does not use Ctrl+Shift+U. Skipping.")
+    elif not dry_run_all(t, f"Would remove Ctrl+Shift+U from {IBUS_EMOJI_SCHEMA} {IBUS_UNICODE_KEY}"):
+        literal = _bindings_literal(kept)
+        if t.run(["gsettings", "set", IBUS_EMOJI_SCHEMA, IBUS_UNICODE_KEY, literal]).returncode == 0:
+            t.logger.success("Removed Ctrl+Shift+U from the IBus Unicode hotkey; GTK apps may still use it for Unicode entry.")
         else:
-            t.logger.error(f"Failed to clear the IBus Unicode hotkey. Please run 'gsettings set {IBUS_EMOJI_SCHEMA} {IBUS_UNICODE_KEY} \"[]\"' manually.")
+            t.logger.error(f"Failed to update the IBus Unicode hotkey. Please run 'gsettings set {IBUS_EMOJI_SCHEMA} {IBUS_UNICODE_KEY} \"{literal}\"' manually.")
