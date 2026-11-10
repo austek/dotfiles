@@ -156,6 +156,14 @@ def test_other_ibus_bindings_survive_when_only_ctrl_shift_u_is_removed(tmp_path,
     assert machine.ran("gsettings", "set", dd.IBUS_EMOJI_SCHEMA, dd.IBUS_UNICODE_KEY, "['<Super>e']")
 
 
+@pytest.mark.parametrize("alias", ["Ctrl", "Ctl", "Primary"])
+def test_control_modifier_aliases_count_as_ctrl_shift_u(tmp_path, on_path, alias):
+    on_path["gsettings"] = "/usr/bin/gsettings"
+    machine = Machine(stdout=f"['<{alias}><Shift>u']\n")
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, machine))
+    assert machine.ran("gsettings", "set", dd.IBUS_EMOJI_SCHEMA, dd.IBUS_UNICODE_KEY, "@as []")
+
+
 def test_a_binding_list_without_ctrl_shift_u_is_left_alone(tmp_path, on_path):
     on_path["gsettings"] = "/usr/bin/gsettings"
     machine = Machine(stdout="@as ['<Super>e']\n")

@@ -17,6 +17,7 @@ TERMINAL_SCHEMA = "org.gnome.desktop.default-applications.terminal"
 IBUS_EMOJI_SCHEMA = "org.freedesktop.ibus.panel.emoji"
 IBUS_UNICODE_KEY = "unicode-hotkey"
 EMPTY_STRING_ARRAY = "@as []"
+CONTROL_ALIASES = {"ctrl": "control", "ctl": "control", "primary": "control"}
 
 
 def _config_dir(home: Path) -> Path:
@@ -115,8 +116,8 @@ def set_default_terminal(t: Tooling) -> None:
 
 
 def _is_ctrl_shift_u(binding: str) -> bool:
-    modifiers = {m.lower() for m in re.findall(r"<(\w+)>", binding)}
-    return modifiers in ({"control", "shift"}, {"primary", "shift"}) and binding.rsplit(">", 1)[-1].lower() == "u"
+    modifiers = {CONTROL_ALIASES.get(m.lower(), m.lower()) for m in re.findall(r"<(\w+)>", binding)}
+    return modifiers == {"control", "shift"} and binding.rsplit(">", 1)[-1].lower() == "u"
 
 
 def _ibus_bindings(t: Tooling) -> list[str] | None:
