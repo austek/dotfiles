@@ -7,7 +7,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from dotfiles_setup import fsutil
+
 BASELINE_NAME = "settings.last-generated.json"
+BASELINE_MODE = 0o600
 
 
 def render(settings: dict[str, Any]) -> str:
@@ -21,7 +24,7 @@ def baseline_path(state_dir: Path) -> Path:
 def record_baseline(state_dir: Path, rendered: str) -> None:
     path = baseline_path(state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(rendered, encoding="utf-8")
+    fsutil.atomic_write_text(path, rendered, BASELINE_MODE)
 
 
 def _normalized(text: str) -> str:

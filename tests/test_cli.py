@@ -829,7 +829,7 @@ def test_install_keeps_existing_settings_when_staging_fails(isolated_dotfiles, t
     def failing_fdopen(*args, **kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr("dotfiles_setup.cli.os.fdopen", failing_fdopen)
+    monkeypatch.setattr("dotfiles_setup.fsutil.os.fdopen", failing_fdopen)
     with pytest.raises(OSError):
         main(["install", "--preset", "homelab"])
     assert (claude_home / "settings.json").read_text() == '{"hand": "edited"}'
