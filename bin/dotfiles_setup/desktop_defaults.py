@@ -1,4 +1,4 @@
-"""Session defaults: Zsh as the login shell and Ghostty as the default terminal."""
+"""Session defaults: Zsh as the login shell, Ghostty as the default terminal, IBus off Ctrl+Shift+U."""
 from __future__ import annotations
 
 import getpass
@@ -13,6 +13,9 @@ from dotfiles_setup.tooling import Tooling, dry_run_all
 GHOSTTY_ENTRY_ID = "com.mitchellh.ghostty.desktop"
 LIST_LINE = re.compile(r"[\w.@+-]+\.desktop|#.*")
 TERMINAL_SCHEMA = "org.gnome.desktop.default-applications.terminal"
+IBUS_EMOJI_SCHEMA = "org.freedesktop.ibus.panel.emoji"
+IBUS_UNICODE_KEY = "unicode-hotkey"
+EMPTY_STRING_ARRAY = "@as []"
 
 
 def _config_dir(home: Path) -> Path:
@@ -108,3 +111,27 @@ def set_default_terminal(t: Tooling) -> None:
     _set_alternative(t, ghostty)
     _update_terminal_lists(t, config_dir)
     _set_gnome_terminal(t, ghostty)
+
+
+def _ibus_hotkey_cleared(t: Tooling) -> bool | None:
+    """Returns None when the IBus emoji schema is not installed."""
+    probe = t.run(["gsettings", "get", IBUS_EMOJI_SCHEMA, IBUS_UNICODE_KEY], capture_output=True, text=True)
+    if probe.returncode != 0:
+        return None
+    return (probe.stdout or "").strip() == EMPTY_STRING_ARRAY
+
+
+def disable_ibus_unicode_hotkey(t: Tooling) -> None:
+    t.logger.step("Step 10: Freeing Ctrl+Shift+U from IBus Unicode entry...")
+    if shutil.which("gsettings") is None:
+        return
+    cleared = _ibus_hotkey_cleared(t)
+    if cleared is None:
+        t.logger.info("IBus emoji schema not installed. Skipping.")
+    elif cleared:
+        t.logger.info("IBus Unicode hotkey already cleared. Skipping.")
+    elif not dry_run_all(t, f"Would clear {IBUS_EMOJI_SCHEMA} {IBUS_UNICODE_KEY}"):
+        if t.run(["gsettings", "set", IBUS_EMOJI_SCHEMA, IBUS_UNICODE_KEY, "[]"]).returncode == 0:
+            t.logger.success("Cleared the IBus Unicode hotkey (Ctrl+Shift+U); GTK apps may still use it for Unicode entry.")
+        else:
+            t.logger.error(f"Failed to clear the IBus Unicode hotkey. Please run 'gsettings set {IBUS_EMOJI_SCHEMA} {IBUS_UNICODE_KEY} \"[]\"' manually.")
