@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# With --staged it scans the index instead of the working tree, which covers new files after `git add`.
 # Fails when a tracked file hardcodes an absolute path into a user's home directory.
 # Installers append these silently (opencode wrote /home/ali/.opencode/bin straight into
 # the stowed .zshrc), and they are dead paths on every other machine.
@@ -17,9 +18,17 @@ ALLOWED='chrome|user|username|<user>'
 repo_root=$(git rev-parse --show-toplevel) || exit 1
 cd "$repo_root" || exit 1
 
-echo "Checking tracked files for machine-specific home paths..."
+grep_mode=()
+scope="tracked"
+case "${1:-}" in
+    --staged) grep_mode=(--cached); scope="staged" ;;
+    "") ;;
+    *) echo "Usage: $0 [--staged]" >&2; exit 2 ;;
+esac
 
-MATCHES=$(git grep -nE '/(home|Users)/[A-Za-z0-9_.<>-]+' -- . \
+echo "Checking $scope files for machine-specific home paths..."
+
+MATCHES=$(git grep "${grep_mode[@]}" -nE '/(home|Users)/[A-Za-z0-9_.<>-]+' -- . \
     ':(exclude)zsh/.p10k.zsh' \
     ':(exclude)scripts/validate-no-machine-paths.sh' \
     | grep -vE "/(home|Users)/($ALLOWED)([^A-Za-z0-9_.-]|$)" || true)

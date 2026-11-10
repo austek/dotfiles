@@ -18,11 +18,16 @@ from git_ops import (
     create_branch,
     current_branch,
     has_changes,
+    in_worktree,
     pr_exists,
     status_failed,
+    untracked_files,
 )
 
 DEFAULT_BRANCH = "main"
+COMMIT_MESSAGE = "chore: update configs and package lists NO_ISSUE"
+VALIDATE_SCRIPT = Path("scripts") / "validate-no-machine-paths.sh"
+UNTRACKED_LIST_CAP = 50
 __all__ = ["DEFAULT_BRANCH", "RunFn", "claude_settings_changed", "main"]
 
 
@@ -33,12 +38,15 @@ def repo_root() -> Path:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dotfiles-backup",
-        description="Commit dotfiles changes to a branch and open a pull request.",
+        description="Commit dotfiles changes to a branch and open a pull request. Run it from the main checkout only.",
         epilog="Examples:\n  dotfiles-backup save\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", metavar="command")
-    sub.add_parser("save", help="commit, push the branch (backup/<timestamp> from main), and open a PR if none exists")
+    sub.add_parser(
+        "save",
+        help="commit, push the branch (backup/<timestamp> from main), and open a PR if none exists; main checkout only",
+    )
     return parser
 
 
@@ -64,7 +72,7 @@ def _abort(message: str) -> int:
 
 
 def _preflight_error(dotfiles_dir: Path, run: RunFn) -> str | None:
-    validate = run([str(dotfiles_dir / "scripts" / "validate-no-machine-paths.sh")], cwd=dotfiles_dir)
+    validate = run([str(dotfiles_dir / VALIDATE_SCRIPT)], cwd=dotfiles_dir)
     if validate.returncode != 0:
         return "Aborting: fix the paths listed above before committing."
     if claude_settings_changed(dotfiles_dir, run=run):
@@ -76,15 +84,37 @@ def _preflight_error(dotfiles_dir: Path, run: RunFn) -> str | None:
     return None
 
 
-def _save_steps(dotfiles_dir: Path, branch: str, run: RunFn) -> list[list[str]]:
+def _publish_steps(dotfiles_dir: Path, branch: str, run: RunFn) -> list[list[str]]:
     steps = [
-        ["git", "add", "."],
-        ["git", "commit", "-m", "chore: update configs and package lists"],
+        ["git", "commit", "-m", COMMIT_MESSAGE],
         ["git", "push", "-u", "origin", branch],
     ]
     if not pr_exists(dotfiles_dir, branch, run=run):
         steps.append(["gh", "pr", "create", "--base", DEFAULT_BRANCH, "--fill"])
     return steps
+
+
+def _print_untracked(untracked: list[str]) -> None:
+    if not untracked:
+        return
+    print(f"New untracked files being added ({len(untracked)}):")
+    for name in untracked[:UNTRACKED_LIST_CAP]:
+        print(f"  {name}")
+    if len(untracked) > UNTRACKED_LIST_CAP:
+        print(f"  ... and {len(untracked) - UNTRACKED_LIST_CAP} more")
+
+
+def _stage(dotfiles_dir: Path, run: RunFn, validate_staged: bool) -> str | None:
+    """Stages everything; returns an abort message, or None when staging succeeded."""
+    untracked = untracked_files(dotfiles_dir, run=run)
+    if run(["git", "add", "."], cwd=dotfiles_dir).returncode != 0:
+        run(["git", "reset", "-q"], cwd=dotfiles_dir)
+        return "Aborting: `git add` failed."
+    if validate_staged and run([str(dotfiles_dir / VALIDATE_SCRIPT), "--staged"], cwd=dotfiles_dir).returncode != 0:
+        run(["git", "reset", "-q"], cwd=dotfiles_dir)
+        return "Aborting: fix the paths listed above before committing. Nothing was committed."
+    _print_untracked(untracked)
+    return None
 
 
 def _private_git_root(public_root: Path) -> Path | None:
@@ -95,11 +125,11 @@ def _private_git_root(public_root: Path) -> Path | None:
 
 def _run_save(run: RunFn = subprocess.run, now: Callable[[], datetime] = datetime.now) -> int:
     public_root = repo_root()
-    codes = [_guarded(public_root, lambda: _save_repo(public_root, run, now, _preflight_error(public_root, run)))]
+    codes = [_guarded(public_root, lambda: _save_repo(public_root, run, now, is_public=True))]
     private_root = _private_git_root(public_root)
     if private_root is not None:
         print(f"Backing up private overlay: {private_root}")
-        codes.append(_guarded(private_root, lambda: _save_repo(private_root, run, now, None)))
+        codes.append(_guarded(private_root, lambda: _save_repo(private_root, run, now, is_public=False)))
     return max(codes)
 
 
@@ -110,20 +140,34 @@ def _guarded(repo: Path, save: Callable[[], int]) -> int:
         return _abort(f"Aborting: backup of {repo} failed: {exc}")
 
 
-def _save_repo(
-    dotfiles_dir: Path, run: RunFn, now: Callable[[], datetime], preflight_error: str | None
-) -> int:
-    if preflight_error:
-        return _abort(preflight_error)
-    if status_failed(dotfiles_dir, run=run):
-        return _abort("Aborting: `git status` failed.")
+def _early_error(dotfiles_dir: Path, run: RunFn, is_public: bool) -> str | None:
+    if in_worktree(dotfiles_dir, run=run):
+        return f"Aborting: {dotfiles_dir} is a linked worktree. Run `dotfiles-backup save` from the main checkout."
+    preflight = _preflight_error(dotfiles_dir, run) if is_public else None
+    if preflight:
+        return preflight
+    return "Aborting: `git status` failed." if status_failed(dotfiles_dir, run=run) else None
+
+
+def _save_repo(dotfiles_dir: Path, run: RunFn, now: Callable[[], datetime], is_public: bool) -> int:
+    early_error = _early_error(dotfiles_dir, run, is_public)
+    if early_error:
+        return _abort(early_error)
     if not has_changes(dotfiles_dir, run=run):
         print("Nothing to back up.")
         return 0
+    stage_error = _stage(dotfiles_dir, run, validate_staged=is_public)
+    if stage_error:
+        return _abort(stage_error)
     branch = _backup_branch(dotfiles_dir, run=run, now=now)
     if branch is None:
+        run(["git", "reset", "-q"], cwd=dotfiles_dir)
         return 1
-    for step in _save_steps(dotfiles_dir, branch, run):
+    return _publish(dotfiles_dir, branch, run)
+
+
+def _publish(dotfiles_dir: Path, branch: str, run: RunFn) -> int:
+    for step in _publish_steps(dotfiles_dir, branch, run):
         if run(step, cwd=dotfiles_dir).returncode != 0:
             return _abort(f"Aborting: `{' '.join(step[:2])}` failed.")
     print(f"Dotfiles backup complete. After the PR merges: git switch {DEFAULT_BRANCH} && git pull")
