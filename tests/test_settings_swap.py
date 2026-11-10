@@ -4,7 +4,7 @@ import stat
 from datetime import UTC, datetime
 
 import pytest
-from dotfiles_setup import cli, settings_drift
+from dotfiles_setup import cli, fsutil, settings_drift
 from dotfiles_setup.log import Logger
 
 MERGED = {"model": "new"}
@@ -175,6 +175,50 @@ def test_an_unsupported_hard_link_falls_back_to_a_copy(env, home, tmp_path, monk
     assert (home / BACKUP).read_text() == OLD
     assert stat.S_IMODE((home / BACKUP).stat().st_mode) == 0o644
     assert target.read_text() == NEW
+
+
+def _claim_on_first_link(monkeypatch, name, fail_with):
+    real = os.link
+    calls = []
+
+    def link(source, destination, **kwargs):
+        calls.append(destination)
+        if len(calls) == 1:
+            destination.write_text("claimed by a concurrent install")
+            raise fail_with
+        return real(source, destination, **kwargs)
+
+    monkeypatch.setattr(os, name, link)
+
+
+def test_a_backup_name_claimed_before_the_link_is_never_overwritten(tmp_path, monkeypatch):
+    source = tmp_path / "settings.json"
+    source.write_text(OLD)
+    _claim_on_first_link(monkeypatch, "link", FileExistsError())
+    kept = fsutil.keep_copy(source, tmp_path / "settings.bak")
+    assert kept.name == "settings.bak-1"
+    assert kept.read_text() == OLD
+    assert (tmp_path / "settings.bak").read_text() == "claimed by a concurrent install"
+
+
+def test_a_copy_fallback_never_overwrites_a_claimed_backup_name(tmp_path, monkeypatch):
+    source = tmp_path / "settings.json"
+    source.write_text(OLD)
+    _claim_on_first_link(monkeypatch, "link", OSError())
+    kept = fsutil.keep_copy(source, tmp_path / "settings.bak")
+    assert kept.name == "settings.bak-1"
+    assert kept.read_text() == OLD
+    assert (tmp_path / "settings.bak").read_text() == "claimed by a concurrent install"
+
+
+def test_a_failed_copy_fallback_leaves_no_partial_backup(tmp_path, monkeypatch):
+    source = tmp_path / "settings.json"
+    source.write_text(OLD)
+    monkeypatch.setattr(os, "link", lambda *args, **kwargs: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(fsutil.shutil, "copy2", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("disk full")))
+    with pytest.raises(RuntimeError):
+        fsutil.keep_copy(source, tmp_path / "settings.bak")
+    assert not (tmp_path / "settings.bak").exists()
 
 
 def test_a_failing_directory_fsync_is_swallowed(env, home, start, monkeypatch):

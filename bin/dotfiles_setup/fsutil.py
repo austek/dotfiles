@@ -49,16 +49,31 @@ def atomic_write_text(path: Path, text: str, mode: int) -> None:
     commit_staged(stage_text(path, text, mode), path)
 
 
-def _free_name(wanted: Path) -> Path:
-    candidates = (wanted, *(wanted.with_name(f"{wanted.name}-{n}") for n in range(1, 1000)))
-    return next(c for c in candidates if not os.path.lexists(c))
+def _copy_exclusive(source: Path, destination: Path) -> bool:
+    try:
+        os.close(os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except FileExistsError:
+        return False
+    try:
+        shutil.copy2(source, destination)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    return True
+
+
+def _claim(source: Path, destination: Path) -> bool:
+    """Create `destination` as a copy of `source` without replacing anything; False when the name is taken."""
+    try:
+        os.link(source, destination)
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        return _copy_exclusive(source, destination)
 
 
 def keep_copy(source: Path, wanted: Path) -> Path:
     """Preserve `source` under `wanted` (suffixed -1, -2 on a collision) without ever removing `source`."""
-    destination = _free_name(wanted)
-    try:
-        os.link(source, destination)
-    except OSError:
-        shutil.copy2(source, destination)
-    return destination
+    candidates = (wanted, *(wanted.with_name(f"{wanted.name}-{n}") for n in range(1, 1000)))
+    return next(c for c in candidates if _claim(source, c))
