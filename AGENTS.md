@@ -101,5 +101,6 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 
 ### Saving Changes
 - Use the provided `dotfiles-backup save` command to save changes.
-- This helper script automatically stages changes, commits them with a standard message, pushes the current branch (creating `backup/<timestamp>` when on `main`), and opens a PR if none exists. `main` is protected (PR + CI required); never push to it directly.
-- When the overlay (`~/.dotfiles-private` or `$DOTFILES_PRIVATE_ROOT`) is its own git repo, `save` then repeats the same branch/commit/push/PR flow there. The path and `claude/.claude/settings.json` preflight checks run on the public repo only, and a failure in one repo does not stop the other.
+- Run it from the main checkout (`~/.dotfiles`) only: `save` refuses to run in a linked worktree (exit 1), for the public repo and for the overlay.
+- This helper script stages changes, validates the staged files with `scripts/validate-no-machine-paths.sh --staged` (on failure it runs `git reset -q` and aborts before any branch or commit), lists the new untracked files it adds, commits with `chore: update configs and package lists NO_ISSUE`, pushes the current branch (creating `backup/<timestamp>` when on `main`), and opens a PR if none exists. `main` is protected (PR + CI required); never push to it directly.
+- When the overlay (`~/.dotfiles-private` or `$DOTFILES_PRIVATE_ROOT`) is its own git repo, `save` then repeats the same branch/commit/push/PR flow there. The path checks (tracked and staged) and the `claude/.claude/settings.json` preflight run on the public repo only, and a failure in one repo does not stop the other.
