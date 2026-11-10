@@ -2,6 +2,7 @@
 import random
 import re
 import shlex
+import shutil
 import subprocess
 from functools import cache
 
@@ -59,8 +60,9 @@ def corpus(seed):
 
 
 def strict_parse(parser, text):
+    executable = shutil.which(parser[0]) or parser[0]
     try:
-        done = subprocess.run([*parser, text], capture_output=True, timeout=2, check=False, env={"PATH": "/usr/bin:/bin"})
+        done = subprocess.run([executable, *parser[1:], text], capture_output=True, timeout=2, check=False, env={"PATH": "/usr/bin:/bin"})
     except ValueError:
         return False
     errors = done.stderr.decode(errors="replace").splitlines()
@@ -97,7 +99,7 @@ REDIRECT = re.compile(r"^\d*(?:>>|>&|>|<|&>>|&>)")
 def normalized_bodies(commands):
     """`declare -f` output of each command wrapped in a bash function, which prints one statement per line."""
     payload = ("\0".join(commands) + "\0").encode()
-    done = subprocess.run(["bash", "-c", BASH_ORACLE], input=payload, capture_output=True, check=True)
+    done = subprocess.run(["bash", "-c", BASH_ORACLE], input=payload, capture_output=True, check=True, timeout=120)
     return [chunk.rstrip("\n").split("\n") for chunk in done.stdout.decode().split("\0")[:-1]]
 
 
@@ -198,9 +200,22 @@ PRELUDES = ("", "cd /tmp && ", "echo x; ", "true | ", "echo x\n", "ls || ", "ech
 
 def rm_line(rng, targets):
     flags, rm = rng.choice(FLAGS), rng.choice(RMS)
-    flag_words = flags.split()
-    rng.shuffle(flag_words)
-    return rng.choice(PRELUDES) + f"{rm} {' '.join(flag_words)} {rng.choice(targets)}"
+    words = flags.split()
+    rng.shuffle(words)
+    words.insert(rng.randint(0, len(words)), rng.choice(targets))
+    return rng.choice(PRELUDES) + f"{rm} {' '.join(words)}"
+
+
+@pytest.mark.parametrize(
+    "line", ["rm ~/.ssh -rf", "rm -r ~/.ssh -f", "rm ~/Workspace --recursive --force", "rm -f ~/.config -r"]
+)
+def test_p4_flags_after_or_around_a_protected_target_are_denied(line):
+    assert rm_hook.guarded_check(line), f"rm hook is silent on {line!r}"
+
+
+@pytest.mark.parametrize("line", ["rm ./build -rf", "rm -r /tmp/x -f"])
+def test_p4_flags_after_or_around_a_harmless_target_stay_silent(line):
+    assert rm_hook.guarded_check(line) is None, f"rm hook denies harmless {line!r}"
 
 
 @pytest.mark.parametrize("seed", SEEDS)
