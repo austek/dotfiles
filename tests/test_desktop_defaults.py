@@ -129,7 +129,7 @@ def test_the_ibus_unicode_hotkey_is_cleared(tmp_path, on_path):
     on_path["gsettings"] = "/usr/bin/gsettings"
     machine = Machine(stdout="['<Control><Shift>u']\n")
     dd.disable_ibus_unicode_hotkey(make(tmp_path, machine))
-    assert machine.ran("gsettings", "set", dd.IBUS_EMOJI_SCHEMA, dd.IBUS_UNICODE_KEY, "[]")
+    assert machine.ran("gsettings", "set", dd.IBUS_EMOJI_SCHEMA, dd.IBUS_UNICODE_KEY, "@as []")
 
 
 def test_an_already_cleared_ibus_hotkey_is_left_alone(tmp_path, on_path):
@@ -147,6 +147,27 @@ def test_the_ibus_step_is_skipped_without_gsettings_or_the_schema(tmp_path, on_p
     no_schema = Machine(failing=[("gsettings", "get")])
     dd.disable_ibus_unicode_hotkey(make(tmp_path, no_schema))
     assert not no_schema.ran("gsettings", "set")
+
+
+def test_other_ibus_bindings_survive_when_only_ctrl_shift_u_is_removed(tmp_path, on_path):
+    on_path["gsettings"] = "/usr/bin/gsettings"
+    machine = Machine(stdout="['<Control><Shift>u', '<Super>e']\n")
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, machine))
+    assert machine.ran("gsettings", "set", dd.IBUS_EMOJI_SCHEMA, dd.IBUS_UNICODE_KEY, "['<Super>e']")
+
+
+def test_a_binding_list_without_ctrl_shift_u_is_left_alone(tmp_path, on_path):
+    on_path["gsettings"] = "/usr/bin/gsettings"
+    machine = Machine(stdout="@as ['<Super>e']\n")
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, machine))
+    assert not machine.ran("gsettings", "set")
+
+
+def test_an_unreadable_binding_list_is_left_alone(tmp_path, on_path):
+    on_path["gsettings"] = "/usr/bin/gsettings"
+    machine = Machine(stdout="not a list\n")
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, machine))
+    assert not machine.ran("gsettings", "set")
 
 
 def test_a_dry_run_leaves_the_ibus_hotkey_alone(tmp_path, on_path):
