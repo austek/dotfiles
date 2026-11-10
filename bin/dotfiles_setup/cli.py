@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import stat
 import sys
-import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -17,6 +17,7 @@ from dotfiles_setup import (
     claude_plugins,
     flatpak,
     foothold,
+    fsutil,
     identity,
     install_flow,
     optouts,
@@ -38,6 +39,7 @@ from dotfiles_setup.result import Err, Ok, Result
 
 DRIFT_EXIT_CODE = 3
 SETTINGS_FILE = "settings.json"
+NEW_SETTINGS_MODE = 0o600
 RunFn = Callable[..., Any]
 BackendFactory = Callable[[Path, dict[str, str]], Backend]
 
@@ -227,25 +229,19 @@ class Env:
         return self.clock().isoformat()
 
 
-def _stage(target: Path, rendered: str) -> Path:
-    descriptor, name = tempfile.mkstemp(dir=target.parent, prefix=f"{target.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as staged:
-            staged.write(rendered)
-    except BaseException:
-        Path(name).unlink(missing_ok=True)
-        raise
-    return Path(name)
-
-
 def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None:
     existing = target.is_file() and not target.is_symlink()
     if existing and target.read_text(encoding="utf-8") == rendered:
         return
-    staged = _stage(target, rendered)
-    if existing:
-        target.rename(target.with_name(f"{target.name}.bak-{now:%Y%m%d%H%M%S}"))
-    staged.replace(target)
+    mode = stat.S_IMODE(target.stat().st_mode) if existing else NEW_SETTINGS_MODE
+    staged = fsutil.stage_text(target, rendered, mode)
+    try:
+        if existing:
+            fsutil.keep_copy(target, target.with_name(f"{target.name}.bak-{now:%Y%m%d%H%M%S}"))
+        fsutil.commit_staged(staged, target)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
 
 
 def _merged_claude_settings(
