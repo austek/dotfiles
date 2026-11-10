@@ -7,11 +7,8 @@ import tempfile
 from pathlib import Path
 
 from dotfiles_setup import checksums, flatpak
-from dotfiles_setup.release_installers import (
-    Resolved,
-    deb_is_current,
-    download_with_cache,
-)
+from dotfiles_setup.deb_helpers import deb_is_current
+from dotfiles_setup.release_installers import Resolved, download_with_cache
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import dry_run_all
 

@@ -58,9 +58,9 @@
     {
       "customType": "regex",
       "description": "lazydocker release: version constant and the checksums.txt URL; the digest stays stale until re-recorded",
-      "managerFilePatterns": ["/^bin/dotfiles_setup/release_installers\\.py$/", "/^packages/checksums\\.txt$/"],
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
       "matchStrings": [
-        "LAZYDOCKER_VERSION = \"(?<currentValue>[^\"]+)\"",
+        "\"package\": \"lazydocker\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
         "jesseduffield/lazydocker/releases/download/v(?<currentValue>\\d[^/\\s\"]*)/",
         "lazydocker_(?<currentValue>\\d[^_\\s]*)_Linux"
       ],
@@ -71,9 +71,9 @@
     {
       "customType": "regex",
       "description": "istioctl release: version constant and the checksums.txt URL; the digest stays stale until re-recorded",
-      "managerFilePatterns": ["/^bin/dotfiles_setup/release_installers\\.py$/", "/^packages/checksums\\.txt$/"],
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
       "matchStrings": [
-        "ISTIOCTL_VERSION = \"(?<currentValue>[^\"]+)\"",
+        "\"package\": \"istioctl\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
         "istio/istio/releases/download/(?<currentValue>\\d[^/\\s\"]*)/",
         "istio-(?<currentValue>\\d[\\d.]*)-linux-amd64"
       ],
@@ -83,9 +83,9 @@
     {
       "customType": "regex",
       "description": "AWS CLI v2: version constant and the checksums.txt URL; the digest stays stale until re-recorded",
-      "managerFilePatterns": ["/^bin/dotfiles_setup/release_installers\\.py$/", "/^packages/checksums\\.txt$/"],
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
       "matchStrings": [
-        "AWSCLI_VERSION = \"(?<currentValue>[^\"]+)\"",
+        "\"package\": \"awscli\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
         "awscli-exe-linux-x86_64-(?<currentValue>\\d+\\.\\d+\\.\\d+)\\.zip"
       ],
       "depNameTemplate": "aws/aws-cli",
@@ -94,9 +94,9 @@
     {
       "customType": "regex",
       "description": "GitHub binary releases (zizmor, mcp-grafana): tag argument and the checksums.txt URL; the digest stays stale until re-recorded",
-      "managerFilePatterns": ["/^bin/dotfiles_setup/release_installers\\.py$/", "/^packages/checksums\\.txt$/"],
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
       "matchStrings": [
-        "\"(?<depName>zizmorcore/zizmor|grafana/mcp-grafana)\", \"(?<currentValue>v[^\"]+)\"",
+        "\"version\": \"(?<currentValue>v[^\"]+)\", \"url\": \"https://github\\.com/(?<depName>zizmorcore/zizmor|grafana/mcp-grafana)/",
         "https://github\\.com/(?<depName>zizmorcore/zizmor|grafana/mcp-grafana)/releases/download/(?<currentValue>v[^/\\s]+)/"
       ],
       "datasourceTemplate": "github-releases"

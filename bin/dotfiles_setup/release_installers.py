@@ -15,20 +15,22 @@ from pathlib import Path
 from typing import Literal
 
 from dotfiles_setup.checksums import ChecksumError, DigestMismatchError, verify_file
+from dotfiles_setup.deb_helpers import (
+    _dpkg_listing,
+    _dpkg_version,
+    _install_deb_or_fix_broken,
+    _is_older,
+)
+from dotfiles_setup.release_specs import SpecData, load_specs
+from dotfiles_setup.result import Err, Ok
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
 MSG_CONTINUING_SETUP = "Continuing with setup..."
 SUPPORTED_ARCH = "x86_64"
+SPECS_FILE = Path(__file__).resolve().parent.parent.parent / "packages" / "release_specs.json"
 EXTRACT_ERRORS = (
     tarfile.TarError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, OSError,
 )
-LAZYDOCKER_VERSION = "0.25.2"
-ZOOM_VERSION = "7.2.5.6661"
-ZOOM_URL = f"https://cdn.zoom.us/prod/{ZOOM_VERSION}/zoom_amd64.deb"
-SLACK_VERSION = "4.53.276"
-ISTIOCTL_VERSION = "1.31.4"
-AWSCLI_VERSION = "2.39.6"
-JETBRAINS_VERSION = "3.9.1.89198"
 SLACK_APT_SOURCES = ("/etc/apt/sources.list.d/slack.sources", "/etc/apt/sources.list.d/slack.list")
 
 
@@ -174,83 +176,16 @@ def install_release(t: Tooling, spec: ReleaseSpec) -> bool:
     return True
 
 
-def _dpkg_listing(t: Tooling) -> str:
-    return t.run(["dpkg", "-l"], capture_output=True, text=True).stdout or ""
-
-
-def _dpkg_version(t: Tooling, package: str) -> str | None:
-    listing = t.run(["dpkg", "-l"], capture_output=True, text=True, env={**os.environ, "COLUMNS": "400"}).stdout or ""
-    match = re.search(rf"^ii  {re.escape(package)}(?::\S+)?\s+(\S+)", listing, re.MULTILINE)
-    return match.group(1) if match else None
-
-
-def deb_is_current(installed: str | None, latest: str) -> bool:
-    """True when the dpkg version is `latest`, ignoring an epoch prefix and a `-`/`+` revision suffix."""
-    return installed is not None and re.fullmatch(rf"(\d+:)?{re.escape(latest)}([-+].*)?", installed) is not None
-
-
-def _install_deb_or_fix_broken(t: Tooling, deb: Path, package: str) -> bool:
-    before = _dpkg_version(t, package)
-    if t.logger.quiet_run(["sudo", "dpkg", "-i", str(deb)], run=t.run).returncode == 0:
-        return True
-    t.logger.warn("dpkg reported errors. Running 'apt --fix-broken install'...")
-    t.logger.quiet_run(["sudo", "apt-get", "-y", "--fix-broken", "install"], run=t.run)
-    after = _dpkg_version(t, package)
-    return after is not None and after != before
-
-
-def _lazydocker_resolve(_t: Tooling) -> Resolved:
-    base = f"https://github.com/jesseduffield/lazydocker/releases/download/v{LAZYDOCKER_VERSION}"
-    return Resolved(
-        LAZYDOCKER_VERSION, f"{base}/lazydocker_{LAZYDOCKER_VERSION}_Linux_x86_64.tar.gz", f"{LAZYDOCKER_VERSION}.tar.gz",
-    )
-
-
 def _sudo_install(t: Tooling, binary: Path) -> bool:
     return t.run(["sudo", "install", str(binary), "/usr/local/bin"]).returncode == 0
-
-
-def _istioctl_resolve(_t: Tooling) -> Resolved:
-    tag = ISTIOCTL_VERSION
-    url = f"https://github.com/istio/istio/releases/download/{tag}/istio-{tag}-linux-amd64.tar.gz"
-    return Resolved(tag, url, f"istio-{tag}-linux-amd64.tar.gz")
 
 
 def _istioctl_install(t: Tooling, temp_dir: Path, _artifact: Path, resolved: Resolved) -> bool:
     return _sudo_install(t, temp_dir / f"istio-{resolved.version}" / "bin" / "istioctl")
 
 
-def _awscli_resolve(_t: Tooling) -> Resolved:
-    url = f"https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{AWSCLI_VERSION}.zip"
-    return Resolved(AWSCLI_VERSION, url, f"awscliv2-{AWSCLI_VERSION}.zip")
-
-
 def _awscli_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
     return t.run(["sudo", str(temp_dir / "aws" / "install")]).returncode == 0
-
-
-def _github_binary_spec(name: str, repo: str, tag: str, asset: str, binary: str) -> ReleaseSpec:
-    def resolve(_t: Tooling) -> Resolved:
-        return Resolved(tag, f"https://github.com/{repo}/releases/download/{tag}/{asset}", f"{name}-{tag}.tar.gz")
-
-    return ReleaseSpec(
-        name, lambda t: shutil.which(binary) is not None, resolve, "targz",
-        lambda t, temp_dir, _artifact, _resolved: _sudo_install(t, temp_dir / binary),
-    )
-
-
-def _lazydocker_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
-    return _sudo_install(t, temp_dir / "lazydocker")
-
-
-def _zoom_resolve(_t: Tooling) -> Resolved:
-    return Resolved(ZOOM_VERSION, ZOOM_URL, f"zoom_amd64-{ZOOM_VERSION}.deb")
-
-
-def _slack_resolve(_t: Tooling) -> Resolved:
-    version = SLACK_VERSION
-    url = f"https://downloads.slack-edge.com/desktop-releases/linux/x64/{version}/slack-desktop-{version}-amd64.deb"
-    return Resolved(version, url, f"slack-desktop-{version}-amd64.deb")
 
 
 def _slack_install(t: Tooling, _temp_dir: Path, artifact: Path, _resolved: Resolved) -> bool:
@@ -262,11 +197,6 @@ def _slack_install(t: Tooling, _temp_dir: Path, artifact: Path, _resolved: Resol
 
 def _jetbrains_binary(home: Path) -> Path:
     return home / ".local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
-
-
-def _jetbrains_resolve(_t: Tooling) -> Resolved:
-    name = f"jetbrains-toolbox-{JETBRAINS_VERSION}.tar.gz"
-    return Resolved(JETBRAINS_VERSION, f"https://download.jetbrains.com/toolbox/{name}", name)
 
 
 def _jetbrains_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
@@ -284,54 +214,60 @@ def _jetbrains_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: R
     return True
 
 
-LAZYDOCKER = ReleaseSpec(
-    "lazydocker", lambda t: shutil.which("lazydocker") is not None, _lazydocker_resolve, "targz", _lazydocker_install,
-)
-ZOOM = ReleaseSpec(
-    "Zoom", lambda t: re.search(r"^ii {2}zoom ", _dpkg_listing(t), re.MULTILINE) is not None,
-    _zoom_resolve, "deb", lambda t, _dir, artifact, _resolved: _install_deb_or_fix_broken(t, artifact, "zoom"),
-)
-ISTIOCTL = ReleaseSpec(
-    "istioctl", lambda t: shutil.which("istioctl") is not None, _istioctl_resolve, "targz", _istioctl_install,
-)
-AWSCLI = ReleaseSpec(
-    "AWS CLI", lambda t: shutil.which("aws") is not None, _awscli_resolve, "zip", _awscli_install,
-)
-ZIZMOR = _github_binary_spec(
-    "zizmor", "zizmorcore/zizmor", "v1.32.0", "zizmor-x86_64-unknown-linux-gnu.tar.gz", "zizmor",
-)
-MCP_GRAFANA = _github_binary_spec(
-    "mcp-grafana", "grafana/mcp-grafana", "v2.2.0", "mcp-grafana_Linux_x86_64.tar.gz", "mcp-grafana",
-)
-SLACK = ReleaseSpec(
-    "Slack", lambda t: re.search(r"^ii {2}slack-desktop ", _dpkg_listing(t), re.MULTILINE) is not None,
-    _slack_resolve, "deb", _slack_install,
-)
-JETBRAINS_TOOLBOX = ReleaseSpec(
-    "JetBrains Toolbox", lambda t: _jetbrains_binary(t.home).is_file(),
-    _jetbrains_resolve, "targz", _jetbrains_install,
-)
+def _deb_installed(package: str) -> Callable[[Tooling], bool]:
+    return lambda t: re.search(rf"^ii {{2}}{re.escape(package)} ", _dpkg_listing(t), re.MULTILINE) is not None
 
-RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = (
-    ("lazydocker", LAZYDOCKER),
-    ("zoom", ZOOM),
-    ("slack-desktop", SLACK),
-    ("jetbrains-toolbox", JETBRAINS_TOOLBOX),
-    ("istioctl", ISTIOCTL),
-    ("awscli", AWSCLI),
-    ("zizmor", ZIZMOR),
-    ("mcp-grafana", MCP_GRAFANA),
-)
+
+def _which_installed(binary: str) -> Callable[[Tooling], bool]:
+    return lambda t: shutil.which(binary) is not None
+
+
+def _binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
+    return lambda t, temp_dir, _artifact, _resolved: _sudo_install(t, temp_dir / binary)
+
+
+def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
+    return lambda t, _dir, artifact, _resolved: _install_deb_or_fix_broken(t, artifact, package)
+
+
+CUSTOM_BEHAVIOR: dict[str, tuple[Callable[[Tooling], bool], Callable[[Tooling, Path, Path, Resolved], bool]]] = {
+    "zoom": (_deb_installed("zoom"), _deb_install("zoom")),
+    "slack-desktop": (_deb_installed("slack-desktop"), _slack_install),
+    "jetbrains-toolbox": (lambda t: _jetbrains_binary(t.home).is_file(), _jetbrains_install),
+    "istioctl": (_which_installed("istioctl"), _istioctl_install),
+    "awscli": (_which_installed("aws"), _awscli_install),
+}
+
+
+def _release_spec(data: SpecData) -> ReleaseSpec:
+    resolved = Resolved(data.version, data.download_url, data.artifact_name)
+    if data.binary:
+        is_installed, install = _which_installed(data.binary), _binary_install(data.binary)
+    else:
+        is_installed, install = CUSTOM_BEHAVIOR[data.package]
+    return ReleaseSpec(data.name, is_installed, lambda _t: resolved, data.kind, install)
+
+
+def _load_spec_data() -> tuple[SpecData, ...]:
+    match load_specs(SPECS_FILE):
+        case Err(error=message):
+            raise ValueError(message)
+        case Ok(value=specs):
+            unwired = [d.package for d in specs if not d.binary and d.package not in CUSTOM_BEHAVIOR]
+            if unwired:
+                raise ValueError(f"{SPECS_FILE} lists packages with no install behavior: {', '.join(unwired)}.")
+            return specs
+
+
+SPEC_DATA: dict[str, SpecData] = {d.package: d for d in _load_spec_data()}
+RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = tuple((p, _release_spec(d)) for p, d in SPEC_DATA.items())
 RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = tuple(
     (package, lambda t, spec=spec: install_release(t, spec)) for package, spec in RELEASE_SPECS
 )
+_SPECS = dict(RELEASE_SPECS)
+LAZYDOCKER, ZOOM, SLACK, JETBRAINS_TOOLBOX = (_SPECS[p] for p in ("lazydocker", "zoom", "slack-desktop", "jetbrains-toolbox"))
+ISTIOCTL, AWSCLI, ZIZMOR, MCP_GRAFANA = (_SPECS[p] for p in ("istioctl", "awscli", "zizmor", "mcp-grafana"))
 UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = (("zoom", ZOOM), ("slack-desktop", SLACK))
-
-
-def _is_older(t: Tooling, installed: str, pinned: str) -> bool | None:
-    """None when dpkg could not compare the two versions."""
-    code = t.run(["dpkg", "--compare-versions", installed, "lt", pinned]).returncode
-    return {0: True, 1: False}.get(code)
 
 
 def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:

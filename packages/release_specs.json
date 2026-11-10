@@ -1,0 +1,10 @@
+[
+  {"package": "lazydocker", "name": "lazydocker", "version": "0.25.2", "url": "https://github.com/jesseduffield/lazydocker/releases/download/v{version}/lazydocker_{version}_Linux_x86_64.tar.gz", "cache_key": "{version}.tar.gz", "kind": "targz", "binary": "lazydocker"},
+  {"package": "zoom", "name": "Zoom", "version": "7.2.5.6661", "url": "https://cdn.zoom.us/prod/{version}/zoom_amd64.deb", "cache_key": "zoom_amd64-{version}.deb", "kind": "deb"},
+  {"package": "slack-desktop", "name": "Slack", "version": "4.53.276", "url": "https://downloads.slack-edge.com/desktop-releases/linux/x64/{version}/slack-desktop-{version}-amd64.deb", "cache_key": "slack-desktop-{version}-amd64.deb", "kind": "deb"},
+  {"package": "jetbrains-toolbox", "name": "JetBrains Toolbox", "version": "3.9.1.89198", "url": "https://download.jetbrains.com/toolbox/jetbrains-toolbox-{version}.tar.gz", "cache_key": "jetbrains-toolbox-{version}.tar.gz", "kind": "targz"},
+  {"package": "istioctl", "name": "istioctl", "version": "1.31.4", "url": "https://github.com/istio/istio/releases/download/{version}/istio-{version}-linux-amd64.tar.gz", "cache_key": "istio-{version}-linux-amd64.tar.gz", "kind": "targz"},
+  {"package": "awscli", "name": "AWS CLI", "version": "2.39.6", "url": "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{version}.zip", "cache_key": "awscliv2-{version}.zip", "kind": "zip"},
+  {"package": "zizmor", "name": "zizmor", "version": "v1.32.0", "url": "https://github.com/zizmorcore/zizmor/releases/download/{version}/zizmor-x86_64-unknown-linux-gnu.tar.gz", "cache_key": "zizmor-{version}.tar.gz", "kind": "targz", "binary": "zizmor"},
+  {"package": "mcp-grafana", "name": "mcp-grafana", "version": "v2.2.0", "url": "https://github.com/grafana/mcp-grafana/releases/download/{version}/mcp-grafana_Linux_x86_64.tar.gz", "cache_key": "mcp-grafana-{version}.tar.gz", "kind": "targz", "binary": "mcp-grafana"}
+]

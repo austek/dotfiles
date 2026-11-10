@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from dotfiles_setup import checksums, tools
+from dotfiles_setup import deb_helpers as dh
 from dotfiles_setup import release_installers as ri
 from dotfiles_setup.log import Logger
 
@@ -109,7 +110,7 @@ def test_dry_run_names_the_pinned_version_and_downloads_nothing(tmp_path, capsys
     t, downloads = make(tmp_path, machine, dry_run=True)
     assert ri.install_release(t, ri.LAZYDOCKER)
     assert downloads == [] and not machine.ran("sudo")
-    assert f"Would download and install lazydocker v{ri.LAZYDOCKER_VERSION}" in capsys.readouterr().out
+    assert f"Would download and install lazydocker v{ri.SPEC_DATA["lazydocker"].version}" in capsys.readouterr().out
 
 
 def payload_for(spec):
@@ -230,14 +231,14 @@ def test_cache_drops_entries_for_other_versions(tmp_path):
     (cache / "0.9.9.tar.gz").write_bytes(b"old")
     t, _ = make(tmp_path, Machine(), payload=tarball("lazydocker"))
     ri.install_release(t, ri.LAZYDOCKER)
-    assert sorted(p.name for p in cache.iterdir()) == [f"{ri.LAZYDOCKER_VERSION}.tar.gz"]
+    assert sorted(p.name for p in cache.iterdir()) == [f"{ri.SPEC_DATA["lazydocker"].version}.tar.gz"]
 
 
 def test_zoom_downloads_its_pinned_versioned_url(tmp_path):
     t, downloads = make(tmp_path, Machine())
     assert ri.install_release(t, ri.ZOOM)
-    assert downloads == [f"https://cdn.zoom.us/prod/{ri.ZOOM_VERSION}/zoom_amd64.deb"]
-    assert (tmp_path / f"cache/dotfiles-setup/Zoom/zoom_amd64-{ri.ZOOM_VERSION}.deb").is_file()
+    assert downloads == [f"https://cdn.zoom.us/prod/{ri.SPEC_DATA["zoom"].version}/zoom_amd64.deb"]
+    assert (tmp_path / f"cache/dotfiles-setup/Zoom/zoom_amd64-{ri.SPEC_DATA["zoom"].version}.deb").is_file()
 
 
 def test_zoom_is_installed_when_dpkg_lists_it(tmp_path):
@@ -249,32 +250,32 @@ def test_zoom_is_installed_when_dpkg_lists_it(tmp_path):
 def test_deb_install_failure_is_fixed_by_apt(tmp_path):
     machine = Machine(fail=[("sudo", "dpkg")], listing_after_fix="ii  zoom  6.0\n")
     t, _ = make(tmp_path, machine)
-    assert ri._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
+    assert dh._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
     assert machine.ran("sudo", "apt-get", "-y", "--fix-broken", "install")
 
 
 def test_a_failed_upgrade_that_leaves_the_old_version_is_not_a_success(tmp_path):
     machine = Machine(dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")])
     t, _ = make(tmp_path, machine)
-    assert not ri._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
+    assert not dh._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
 
 
 def test_a_failed_upgrade_that_apt_completes_is_a_success(tmp_path):
     machine = Machine(
-        dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")], listing_after_fix=slack_listing(ri.SLACK_VERSION),
+        dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")], listing_after_fix=slack_listing(ri.SPEC_DATA["slack-desktop"].version),
     )
     t, _ = make(tmp_path, machine)
-    assert ri._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
+    assert dh._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
 
 
 def test_deb_install_that_stays_broken_fails(tmp_path):
     machine = Machine(dpkg_listing="", fail=[("sudo", "dpkg")])
     t, _ = make(tmp_path, machine)
-    assert not ri._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
+    assert not dh._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
 
 
 def test_slack_downloads_its_pinned_versioned_url(tmp_path):
-    version = ri.SLACK_VERSION
+    version = ri.SPEC_DATA["slack-desktop"].version
     t, downloads = make(tmp_path, Machine())
     assert ri.install_release(t, ri.SLACK)
     assert downloads == [
@@ -293,7 +294,7 @@ def test_jetbrains_installs_the_binary_with_exec_permission(tmp_path):
     t, downloads = make(tmp_path, Machine(), payload=tarball("jb/jetbrains-toolbox"))
     assert ri.install_release(t, ri.JETBRAINS_TOOLBOX)
     binary = ri._jetbrains_binary(tmp_path)
-    assert downloads == [f"https://download.jetbrains.com/toolbox/jetbrains-toolbox-{ri.JETBRAINS_VERSION}.tar.gz"]
+    assert downloads == [f"https://download.jetbrains.com/toolbox/jetbrains-toolbox-{ri.SPEC_DATA["jetbrains-toolbox"].version}.tar.gz"]
     assert binary.is_file()
     assert binary.stat().st_mode & 0o111
 
@@ -324,7 +325,7 @@ def zipball(member, mode):
 
 def test_istioctl_installs_the_binary_from_the_versioned_directory(tmp_path):
     machine = Machine()
-    version = ri.ISTIOCTL_VERSION
+    version = ri.SPEC_DATA["istioctl"].version
     t, downloads = make(tmp_path, machine, payload=tarball(f"istio-{version}/bin/istioctl"))
     assert ri.install_release(t, ri.ISTIOCTL)
     assert downloads == [f"https://github.com/istio/istio/releases/download/{version}/istio-{version}-linux-amd64.tar.gz"]
@@ -352,7 +353,7 @@ def test_awscli_runs_the_extracted_installer(tmp_path):
     machine = Machine()
     t, downloads = make(tmp_path, machine, payload=zipball("aws/install", 0o755))
     assert ri.install_release(t, ri.AWSCLI)
-    assert downloads == [f"https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{ri.AWSCLI_VERSION}.zip"]
+    assert downloads == [f"https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{ri.SPEC_DATA["awscli"].version}.zip"]
     assert any(c[0] == "sudo" and c[1].endswith("aws/install") for c in machine.commands)
 
 
@@ -445,7 +446,7 @@ def zoom_listing(version):
     (None, "7.2.5.6661", False),
 ])
 def test_deb_is_current_compares_dpkg_and_vendor_versions(installed, latest, current):
-    assert ri.deb_is_current(installed, latest) is current
+    assert dh.deb_is_current(installed, latest) is current
 
 
 NOT_OLDER = [("dpkg", "--compare-versions")]
@@ -455,8 +456,8 @@ def test_upgrade_installs_the_zoom_pin_once_when_the_installed_version_is_older(
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"zoom"})
-    assert downloads == [ri.ZOOM_URL]
-    assert machine.ran("dpkg", "--compare-versions", "7.2.1.5760", "lt", ri.ZOOM_VERSION)
+    assert downloads == [ri.SPEC_DATA["zoom"].download_url]
+    assert machine.ran("dpkg", "--compare-versions", "7.2.1.5760", "lt", ri.SPEC_DATA["zoom"].version)
     assert sum(c[:3] == ["sudo", "dpkg", "-i"] for c in machine.commands) == 1
 
 
@@ -478,22 +479,22 @@ def test_upgrade_reports_a_version_dpkg_cannot_compare(tmp_path, capsys):
 
 def test_upgrade_refuses_a_zoom_pin_with_the_wrong_digest(tmp_path):
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
-    t, _ = make(tmp_path, machine, payload=b"deb", checksums={ri.ZOOM_URL: "0" * 64})
+    t, _ = make(tmp_path, machine, payload=b"deb", checksums={ri.SPEC_DATA["zoom"].download_url: "0" * 64})
     ri.upgrade_vendor_debs(t, {"zoom"})
     assert not machine.ran("sudo", "dpkg", "-i")
 
 
 @pytest.mark.skipif(not Path("/usr/bin/dpkg").exists(), reason="needs dpkg")
 @pytest.mark.parametrize(("installed", "expected"), [
-    ("7.2.1.5760", True), ("9.0.0.1", False), (ri.ZOOM_VERSION, False), ("bad version!", None),
+    ("7.2.1.5760", True), ("9.0.0.1", False), (ri.SPEC_DATA["zoom"].version, False), ("bad version!", None),
 ])
 def test_is_older_follows_real_dpkg_ordering(tmp_path, installed, expected):
     t = tools.Tooling(Logger(dry_run=False, verbosity=0), tmp_path, run=subprocess.run)
-    assert ri._is_older(t, installed, ri.ZOOM_VERSION) is expected
+    assert dh._is_older(t, installed, ri.SPEC_DATA["zoom"].version) is expected
 
 
 def test_upgrade_skips_zoom_at_the_pin(tmp_path):
-    machine = Machine(dpkg_listing=zoom_listing(ri.ZOOM_VERSION), fail=NOT_OLDER)
+    machine = Machine(dpkg_listing=zoom_listing(ri.SPEC_DATA["zoom"].version), fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"zoom"})
     assert downloads == []
@@ -520,7 +521,7 @@ def test_upgrade_dry_run_downloads_and_installs_nothing(tmp_path, capsys):
     ri.upgrade_vendor_debs(t, {"zoom"})
     assert downloads == []
     assert not machine.ran("sudo")
-    assert f"Would upgrade Zoom from v7.2.1.5760 to v{ri.ZOOM_VERSION}" in capsys.readouterr().out
+    assert f"Would upgrade Zoom from v7.2.1.5760 to v{ri.SPEC_DATA["zoom"].version}" in capsys.readouterr().out
 
 
 def slack_listing(version):
@@ -532,8 +533,8 @@ def test_upgrade_installs_the_slack_pin_when_the_installed_version_is_older(tmp_
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"slack-desktop"})
     assert len(downloads) == 1
-    assert ri.SLACK_VERSION in downloads[0]
-    assert machine.ran("dpkg", "--compare-versions", "4.35.0", "lt", ri.SLACK_VERSION)
+    assert ri.SPEC_DATA["slack-desktop"].version in downloads[0]
+    assert machine.ran("dpkg", "--compare-versions", "4.35.0", "lt", ri.SPEC_DATA["slack-desktop"].version)
     assert machine.ran("sudo", "rm", "-f", *ri.SLACK_APT_SOURCES)
 
 
@@ -546,7 +547,7 @@ def test_upgrade_never_downgrades_a_slack_newer_than_the_pin(tmp_path):
 
 
 def test_upgrade_skips_slack_at_the_pin(tmp_path):
-    machine = Machine(dpkg_listing=slack_listing(ri.SLACK_VERSION), fail=NOT_OLDER)
+    machine = Machine(dpkg_listing=slack_listing(ri.SPEC_DATA["slack-desktop"].version), fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"slack-desktop"})
     assert downloads == []
@@ -568,7 +569,7 @@ def test_install_tools_with_upgrade_installs_the_pin_over_an_outdated_zoom(tmp_p
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
     assert tools.install_tools(t, {"zoom"}, upgrade=True)
-    assert downloads == [ri.ZOOM_URL]
+    assert downloads == [ri.SPEC_DATA["zoom"].download_url]
 
 
 def test_release_installers_run_after_the_script_installers(tmp_path):
