@@ -114,7 +114,8 @@ def test_every_swap_call_sees_the_target_present_with_old_or_new_content(env, ho
     assert any(call == "replace" for call, _, _ in seen)
     assert all(present == existed and content in (old, NEW) for _, present, content in seen)
     assert not any(call == "rename" for call, _, _ in seen)
-    assert target.read_text() == NEW and not target.is_symlink()
+    assert target.read_text() == NEW
+    assert not target.is_symlink()
 
 
 @pytest.mark.parametrize("point", ["fsync", "replace"])
@@ -162,7 +163,8 @@ def test_a_crash_while_linking_the_backup_leaves_the_old_target_and_no_backup(en
     with pytest.raises(Crash):
         _write(env)
     assert target.read_text() == OLD
-    assert not list(home.glob("settings.json.bak-*")) and not _leftovers(home)
+    assert not list(home.glob("settings.json.bak-*"))
+    assert not _leftovers(home)
 
 
 def test_an_unsupported_hard_link_falls_back_to_a_copy(env, home, tmp_path, monkeypatch):
@@ -256,5 +258,6 @@ def test_identical_content_is_left_untouched(env, home):
 
 def test_a_dry_run_writes_nothing(env, home, capsys):
     cli._write_claude_settings(Logger(dry_run=True), MERGED, env)
-    assert not (home / "settings.json").exists() and not env.state_dir.exists()
+    assert not (home / "settings.json").exists()
+    assert not env.state_dir.exists()
     assert f"Would generate {home / 'settings.json'}." in capsys.readouterr().out
