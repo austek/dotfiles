@@ -304,6 +304,27 @@ RATE_LIMIT_LINE = (
 )
 
 
+def test_a_failed_teardown_command_is_reported_not_dropped(capsys):
+    failing = subprocess.CompletedProcess([], 128, stdout="", stderr="fatal: cannot remove\n")
+    cra._git_cleanup(FakeRun({("git", "branch"): failing}), "branch", "-D", "scratch")
+    err = capsys.readouterr().err
+    assert "warning: cleanup `git branch -D scratch` failed: fatal: cannot remove" in err
+
+
+def test_a_successful_teardown_command_is_silent(capsys):
+    cra._git_cleanup(FakeRun({}), "worktree", "prune")
+    assert capsys.readouterr().err == ""
+
+
+def test_a_scratch_removal_that_fails_still_runs_every_step_and_warns(tmp_path, capsys):
+    failing = subprocess.CompletedProcess([], 1, stdout="", stderr="locked")
+    run = FakeRun({("git", "worktree", "remove"): failing})
+    audit = cra.ScopedAudit(tmp_path, "scratch", "orphan", None, "HEAD", [], 10)
+    cra._remove_scratch(run, audit)
+    assert [c[0][1:3] for c in run.calls] == [("worktree", "remove"), ("branch", "-D"), ("worktree", "prune")]
+    assert "cleanup `git worktree remove" in capsys.readouterr().err
+
+
 def test_rate_limit_wait_parses_wait_time_plus_margin():
     assert cra.rate_limit_wait_seconds(RATE_LIMIT_LINE) == 36 * 60 + cra.RATE_LIMIT_MARGIN_SECONDS
 
