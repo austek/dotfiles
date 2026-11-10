@@ -253,8 +253,9 @@ def test_overlay_worktree_aborts_only_the_overlay(private_repo, capsys):
 
 
 def test_help_says_main_checkout_only(capsys):
+    parser = build_arg_parser()
     with pytest.raises(SystemExit):
-        build_arg_parser().parse_args(["-h"])
+        parser.parse_args(["-h"])
     assert "main checkout" in capsys.readouterr().out.replace("\n", " ")
 
 
