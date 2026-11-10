@@ -5,7 +5,14 @@ import argparse
 import sys
 from typing import Any
 
-from dotfiles_setup import claude_plugins, foothold, install_flow, rollback, state, tooling
+from dotfiles_setup import (
+    claude_plugins,
+    foothold,
+    install_flow,
+    rollback,
+    state,
+    tooling,
+)
 from dotfiles_setup.approval import _approved_removals
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.claude_settings import (

@@ -1,7 +1,7 @@
 """Package-manager backend contract. AptBackend (backends/apt.py) is the only
 implementation today; a macOS/Homebrew backend is explicitly out of scope for
 this project — this Protocol exists so adding one later doesn't require
-touching presets.py, state.py, or cli.py's orchestration."""
+touching presets.py, state.py, or install_cmd.py's orchestration."""
 from __future__ import annotations
 
 from dataclasses import dataclass
