@@ -16,17 +16,11 @@ from dotfiles_setup import (
 )
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
-from dotfiles_setup.cli import (
-    PERSIST_FAILED_EXIT_CODE,
-    Env,
-    _plan,
-    _replace_settings_target,
-    applied_after_removals,
-    build_arg_parser,
-    combine_package_names,
-    confirm_removals,
-    main,
-)
+from dotfiles_setup.approval import applied_after_removals, confirm_removals
+from dotfiles_setup.claude_settings import _replace_settings_target
+from dotfiles_setup.cli import Env, build_arg_parser, main
+from dotfiles_setup.install_cmd import PERSIST_FAILED_EXIT_CODE
+from dotfiles_setup.plan import _plan, combine_package_names
 from dotfiles_setup.log import Logger
 from dotfiles_setup.presets import Preset
 from dotfiles_setup.rollback import RollbackLog
@@ -128,7 +122,7 @@ def test_top_level_help_lists_install_subcommand_and_examples(capsys):
 @pytest.fixture
 def plugin_updates(monkeypatch):
     calls = []
-    monkeypatch.setattr("dotfiles_setup.cli.claude_plugins.update_claude_plugins", lambda logger, settings: calls.append(logger))
+    monkeypatch.setattr("dotfiles_setup.claude_plugins.update_claude_plugins", lambda logger, settings: calls.append(logger))
     return calls
 
 
@@ -136,7 +130,7 @@ def plugin_updates(monkeypatch):
 def foothold_syncs(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        "dotfiles_setup.cli.foothold.sync_footholds",
+        "dotfiles_setup.foothold.sync_footholds",
         lambda logger, wanted: calls.append(wanted),
     )
     return calls
@@ -162,7 +156,7 @@ def flow_calls(monkeypatch):
         calls.append(inputs)
         return InstallResult(True, 0, "")
 
-    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", run_install)
+    monkeypatch.setattr("dotfiles_setup.install_flow.run_install", run_install)
     return calls
 
 
@@ -189,12 +183,12 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
     (dotfiles_dir / "claude" / ".claude").mkdir(parents=True)
     (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps({"model": "base"}))
 
-    monkeypatch.setattr("dotfiles_setup.cli._dotfiles_dir", lambda: dotfiles_dir)
-    monkeypatch.setattr("dotfiles_setup.cli._claude_home", lambda: tmp_path / "claude-home")
+    monkeypatch.setattr("dotfiles_setup.env._dotfiles_dir", lambda: dotfiles_dir)
+    monkeypatch.setattr("dotfiles_setup.env._claude_home", lambda: tmp_path / "claude-home")
     monkeypatch.setattr(state, "state_dir", lambda: tmp_path / "state")
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: None)
-    monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda *a, **kw: False)
-    monkeypatch.setattr("dotfiles_setup.cli.identity.ensure_git_identity", lambda **kw: tmp_path / "gitconfig.local")
+    monkeypatch.setattr("dotfiles_setup.update.pull_if_behind", lambda *a, **kw: False)
+    monkeypatch.setattr("dotfiles_setup.identity.ensure_git_identity", lambda **kw: tmp_path / "gitconfig.local")
     stub_subprocess(monkeypatch)
     return dotfiles_dir, tmp_path
 
@@ -421,7 +415,7 @@ def test_rule010_successful_install_writes_the_migration_once(isolated_dotfiles)
 def test_state_is_saved_before_the_completion_banner(isolated_dotfiles, monkeypatch):
     saved_at_banner = []
     monkeypatch.setattr(
-        "dotfiles_setup.cli.install_flow.print_completion_banner",
+        "dotfiles_setup.install_flow.print_completion_banner",
         lambda logger: saved_at_banner.append(state.load_state() is not None),
     )
     assert main(["install", "--preset", "homelab"]) == 0
@@ -435,7 +429,7 @@ def test_a_failed_migration_write_keeps_the_legacy_file_and_fails_the_run(isolat
     def refuse(path, names, backup):
         raise OSError("disk full")
 
-    monkeypatch.setattr("dotfiles_setup.cli.optouts.write_migration", refuse)
+    monkeypatch.setattr("dotfiles_setup.optouts.write_migration", refuse)
     assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     captured = capsys.readouterr()
     out = captured.out + captured.err
@@ -505,7 +499,7 @@ def _refuse_state_saves(monkeypatch):
             raise OSError("read-only file system")
         real(machine_state, path)
 
-    monkeypatch.setattr("dotfiles_setup.cli.state.save_state", save)
+    monkeypatch.setattr("dotfiles_setup.state.save_state", save)
     return refusing
 
 
@@ -551,7 +545,7 @@ def test_a_failed_restore_after_a_failed_state_save_explains_the_headered_file(
     def refuse(path, backup):
         raise OSError("permission denied")
 
-    monkeypatch.setattr("dotfiles_setup.cli.optouts.restore_from_backup", refuse)
+    monkeypatch.setattr("dotfiles_setup.optouts.restore_from_backup", refuse)
     assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     out = _output(capsys)
     assert f"Could not restore {package_file}: permission denied" in out
@@ -567,7 +561,7 @@ def test_a_failed_backup_move_reports_and_fails_without_a_traceback(isolated_dot
     def refuse(files, backup):
         raise OSError("no space left on device")
 
-    monkeypatch.setattr("dotfiles_setup.cli.optouts.move_to_backup", refuse)
+    monkeypatch.setattr("dotfiles_setup.optouts.move_to_backup", refuse)
     assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     out = _output(capsys)
     assert f"Could not move {other} to " in out
@@ -586,7 +580,7 @@ def test_a_failed_migration_write_leaves_other_presets_files_in_place(isolated_d
     def refuse(path, names, backup):
         raise OSError("disk full")
 
-    monkeypatch.setattr("dotfiles_setup.cli.optouts.write_migration", refuse)
+    monkeypatch.setattr("dotfiles_setup.optouts.write_migration", refuse)
     assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     assert other.read_text() == "vim\n"
 
@@ -665,7 +659,7 @@ def test_install_keeps_the_optout_file_on_rerun(isolated_dotfiles):
 
 def fail_flow(monkeypatch, message="apt-get exploded"):
     result = InstallResult(False, 1, message)
-    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: result)
+    monkeypatch.setattr("dotfiles_setup.install_flow.run_install", lambda inputs: result)
 
 
 def test_install_reports_backend_failure(isolated_dotfiles, monkeypatch):
@@ -680,13 +674,13 @@ def test_the_claude_settings_exist_before_the_install_steps_run(isolated_dotfile
         seen["settings"] = (tmp_path / "claude-home" / "settings.json").is_file()
         return InstallResult(True, 0, "")
 
-    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", run_install)
+    monkeypatch.setattr("dotfiles_setup.install_flow.run_install", run_install)
     assert main(["install", "--preset", "homelab"]) == 0
     assert seen == {"settings": True}
 
 
 def test_install_reports_a_failure_with_no_message(isolated_dotfiles, capsys, monkeypatch):
-    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: InstallResult(False, 3, ""))
+    monkeypatch.setattr("dotfiles_setup.install_flow.run_install", lambda inputs: InstallResult(False, 3, ""))
     assert main(["install", "--preset", "homelab"]) == 3
     assert "exit code 3" in capsys.readouterr().err
 
@@ -694,7 +688,7 @@ def test_install_reports_a_failure_with_no_message(isolated_dotfiles, capsys, mo
 def test_dry_run_skips_git_identity(isolated_dotfiles, monkeypatch):
     calls = []
     monkeypatch.setattr(
-        "dotfiles_setup.cli.identity.ensure_git_identity",
+        "dotfiles_setup.identity.ensure_git_identity",
         lambda **kw: calls.append(kw) or None,
     )
     main(["install", "--preset", "homelab", "--dry-run"])
@@ -769,9 +763,9 @@ def test_install_raises_helpful_error_for_unknown_preset(isolated_dotfiles, caps
 
 def test_install_checks_for_dotfiles_updates_before_the_install_runs(isolated_dotfiles, monkeypatch):
     order = []
-    monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda repo, logger: order.append(repo) or False)
+    monkeypatch.setattr("dotfiles_setup.update.pull_if_behind", lambda repo, logger: order.append(repo) or False)
     monkeypatch.setattr(
-        "dotfiles_setup.cli.install_flow.run_install", lambda inputs: order.append("flow") or InstallResult(True, 0, ""),
+        "dotfiles_setup.install_flow.run_install", lambda inputs: order.append("flow") or InstallResult(True, 0, ""),
     )
     main(["install", "--preset", "homelab"])
     assert order == [isolated_dotfiles[0], "flow"]
@@ -781,9 +775,9 @@ def test_install_pulls_private_overlay_after_dotfiles(isolated_dotfiles, monkeyp
     private = tmp_path / "private"
     private.mkdir()
     order = []
-    monkeypatch.setattr("dotfiles_setup.cli.overlay.find_overlay_root", lambda: private)
-    monkeypatch.setattr("dotfiles_setup.cli.update.pull_if_behind", lambda repo, logger: order.append("dotfiles") or False)
-    monkeypatch.setattr("dotfiles_setup.cli.update.pull_overlay_if_git", lambda root, logger: order.append(root) or False)
+    monkeypatch.setattr("dotfiles_setup.overlay.find_overlay_root", lambda: private)
+    monkeypatch.setattr("dotfiles_setup.update.pull_if_behind", lambda repo, logger: order.append("dotfiles") or False)
+    monkeypatch.setattr("dotfiles_setup.update.pull_overlay_if_git", lambda root, logger: order.append(root) or False)
     main(["install", "--preset", "homelab"])
     assert order == ["dotfiles", private]
 
@@ -867,7 +861,7 @@ def test_install_expands_home_in_the_generated_env_and_its_drift_baseline(
     dotfiles_dir, _ = isolated_dotfiles
     base = {"env": {"PATH": "$HOME/.local/bin:/usr/bin"}, "hooks": {"command": "$HOME/x"}}
     (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps(base))
-    monkeypatch.setattr("dotfiles_setup.cli._home", lambda: tmp_path / "me")
+    monkeypatch.setattr("dotfiles_setup.env._home", lambda: tmp_path / "me")
     assert main(["install", "--preset", "homelab"]) == 0
     generated = (tmp_path / "claude-home" / "settings.json").read_text()
     assert json.loads(generated)["env"]["PATH"] == f"{tmp_path / 'me'}/.local/bin:/usr/bin"
@@ -981,7 +975,7 @@ def test_install_without_preset_or_saved_state_fails(isolated_dotfiles, capsys):
 
 def test_install_without_preset_fails_before_touching_the_checkout(isolated_dotfiles, monkeypatch):
     calls = []
-    monkeypatch.setattr("dotfiles_setup.cli._prepare_checkout", lambda *a: calls.append(a))
+    monkeypatch.setattr("dotfiles_setup.plan._prepare_checkout", lambda *a: calls.append(a))
     assert main(["install"]) == 2
     assert calls == []
 
@@ -1014,7 +1008,7 @@ def test_install_passes_overlay_root_to_git_identity(isolated_dotfiles, monkeypa
     overlay's git/gitconfig.local can suppress the interactive prompt."""
     calls = []
     monkeypatch.setattr(
-        "dotfiles_setup.cli.identity.ensure_git_identity",
+        "dotfiles_setup.identity.ensure_git_identity",
         lambda **kw: calls.append(kw) or tmp_path / "gitconfig.local",
     )
     private_root = tmp_path / "dotfiles-private"
@@ -1044,7 +1038,7 @@ def test_private_clone_dest_defaults_to_none():
 
 def test_main_private_clone_clones_to_default_dest(tmp_path, monkeypatch):
     default_root = tmp_path / "dotfiles-private"
-    monkeypatch.setattr("dotfiles_setup.cli.overlay.DEFAULT_OVERLAY_ROOT", default_root)
+    monkeypatch.setattr("dotfiles_setup.overlay.DEFAULT_OVERLAY_ROOT", default_root)
     calls = stub_subprocess(monkeypatch, stdout="")
     assert main(["private", "clone", "--repo", "git@github.com:you/dotfiles-private.git"]) == 0
     assert calls == [["git", "clone", "git@github.com:you/dotfiles-private.git", str(default_root)]]
@@ -1079,14 +1073,14 @@ def test_foothold_requires_subcommand():
 def test_main_foothold_restart_restarts_the_installed_footholds(tmp_path, monkeypatch):
     _save_preset(tmp_path, "homelab")
     restarted = []
-    monkeypatch.setattr("dotfiles_setup.cli.foothold.restart_footholds", lambda logger, run: restarted.append(run) or True)
+    monkeypatch.setattr("dotfiles_setup.foothold.restart_footholds", lambda logger, run: restarted.append(run) or True)
     assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 0
     assert len(restarted) == 1
 
 
 def test_main_foothold_restart_fails_when_the_restart_fails(tmp_path, monkeypatch):
     _save_preset(tmp_path, "homelab")
-    monkeypatch.setattr("dotfiles_setup.cli.foothold.restart_footholds", lambda logger, run: False)
+    monkeypatch.setattr("dotfiles_setup.foothold.restart_footholds", lambda logger, run: False)
     assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 1
 
 
@@ -1163,16 +1157,16 @@ def test_force_is_off_by_default(isolated_dotfiles, flow_calls):
 def test_a_failed_step_offers_a_rollback(isolated_dotfiles, monkeypatch):
     offered = []
     failed = InstallResult(False, 1, "Step 'x' failed.", rollback_pending=True)
-    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: failed)
-    monkeypatch.setattr("dotfiles_setup.cli.rollback.offer_rollback", lambda ctx, interactive: offered.append(ctx))
+    monkeypatch.setattr("dotfiles_setup.install_flow.run_install", lambda inputs: failed)
+    monkeypatch.setattr("dotfiles_setup.rollback.offer_rollback", lambda ctx, interactive: offered.append(ctx))
     assert main(["install", "--preset", "homelab"]) == 1
     assert len(offered) == 1
 
 
 def test_a_failure_with_nothing_to_roll_back_offers_nothing(isolated_dotfiles, monkeypatch):
-    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", lambda inputs: InstallResult(False, 1, "no"))
+    monkeypatch.setattr("dotfiles_setup.install_flow.run_install", lambda inputs: InstallResult(False, 1, "no"))
     monkeypatch.setattr(
-        "dotfiles_setup.cli.rollback.offer_rollback", lambda ctx, interactive: pytest.fail("no rollback expected"),
+        "dotfiles_setup.rollback.offer_rollback", lambda ctx, interactive: pytest.fail("no rollback expected"),
     )
     assert main(["install", "--preset", "homelab"]) == 1
 
@@ -1384,7 +1378,7 @@ def test_rule009_completed_removals_leave_applied_state(isolated_dotfiles, monke
         inputs.removed.extend(inputs.removals)
         return InstallResult(True, 0, "")
 
-    monkeypatch.setattr("dotfiles_setup.cli.install_flow.run_install", run_install)
+    monkeypatch.setattr("dotfiles_setup.install_flow.run_install", run_install)
     assert main(["install", "--preset", "homelab", "--prune"]) == 0
     assert state.load_state().applied_package_names == ("curl", "zsh")
 

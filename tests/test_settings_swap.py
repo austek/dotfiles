@@ -4,7 +4,8 @@ import stat
 from datetime import UTC, datetime
 
 import pytest
-from dotfiles_setup import cli, fsutil, settings_drift
+from dotfiles_setup import claude_settings, fsutil, settings_drift
+from dotfiles_setup.env import Env
 from dotfiles_setup.log import Logger
 
 MERGED = {"model": "new"}
@@ -54,7 +55,7 @@ def home(tmp_path):
 
 @pytest.fixture
 def env(tmp_path, home):
-    return cli.Env(
+    return Env(
         clock=lambda: NOW, home=tmp_path, claude_home=home,
         state_dir=tmp_path / "state", dotfiles_dir=tmp_path,
     )
@@ -69,7 +70,7 @@ def start(request, tmp_path, home):
 
 
 def _write(env):
-    cli._write_claude_settings(Logger(dry_run=False), MERGED, env)
+    claude_settings._write_claude_settings(Logger(dry_run=False), MERGED, env)
 
 
 def _content(path):
@@ -301,7 +302,7 @@ def test_identical_content_is_left_untouched(env, home):
 
 
 def test_a_dry_run_writes_nothing(env, home, capsys):
-    cli._write_claude_settings(Logger(dry_run=True), MERGED, env)
+    claude_settings._write_claude_settings(Logger(dry_run=True), MERGED, env)
     assert not (home / "settings.json").exists()
     assert not env.state_dir.exists()
     assert f"Would generate {home / 'settings.json'}." in capsys.readouterr().out
