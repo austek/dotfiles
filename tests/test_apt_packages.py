@@ -9,17 +9,19 @@ from dotfiles_setup.rollback import RollbackLog
 
 
 class Machine:
-    def __init__(self, failing=(), dpkg="", simulated=""):
+    def __init__(self, failing=(), dpkg="", simulated="", compare=0):
         self.commands = []
         self.failing = tuple(failing)
         self.dpkg = dpkg
         self.simulated = simulated
+        self.compare = compare
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
         failed = any(argv[: len(p)] == list(p) for p in self.failing)
         out = self.dpkg if argv[:2] == ["dpkg", "-l"] else self.simulated if argv[:2] == ["apt-get", "-s"] else ""
-        return SimpleNamespace(returncode=1 if failed else 0, stdout=out, stderr="")
+        code = self.compare if argv[:2] == ["dpkg", "--compare-versions"] else 1 if failed else 0
+        return SimpleNamespace(returncode=code, stdout=out, stderr="")
 
     def ran(self, *prefix):
         return any(c[: len(prefix)] == list(prefix) for c in self.commands)
@@ -176,10 +178,52 @@ def test_a_failed_simulation_is_unknown_not_zero(tmp_path):
     assert ap.upgradable_count(make(tmp_path, machine)) is None
 
 
-def test_a_longer_version_sharing_the_pinned_prefix_is_not_current(tmp_path):
-    ctx = make(tmp_path, Machine(dpkg="ii  tool  1.2.30  amd64  A tool\n"))
+def test_a_longer_version_sharing_the_pinned_prefix_is_not_current_but_is_newer(tmp_path):
+    machine = Machine(dpkg="ii  tool  1.2.30  amd64  A tool\n", compare=1)
+    ctx = make(tmp_path, machine)
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == []
+    assert machine.ran("dpkg", "--compare-versions", "1.2.30", "lt", "1.2.3")
+
+
+def test_a_newer_installed_deb_is_left_alone_and_logged(tmp_path, capsys):
+    machine = Machine(dpkg="ii  tool  2.0.0  amd64  A tool\n", compare=1)
+    downloads = []
+    ctx = make(tmp_path, machine, downloads=downloads)
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    ap.install_github_bins(ctx)
+    assert downloads == []
+    assert not machine.ran("sudo", "dpkg")
+    assert "tool v2.0.0 is newer than the pin v1.2.3; leaving it." in capsys.readouterr().out
+
+
+def test_an_older_installed_deb_is_upgraded_to_the_pin(tmp_path):
+    machine = Machine(dpkg="ii  tool  1.0.0  amd64  A tool\n", compare=0)
+    downloads = []
+    ctx = make(tmp_path, machine, downloads=downloads)
     write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
     assert ap.pending_github_bins(ctx) == ["tool_1.2.3_amd64.deb"]
+    ap.install_github_bins(ctx)
+    assert len(downloads) == 1
+
+
+def test_a_version_dpkg_cannot_compare_is_left_alone_and_logged(tmp_path, capsys):
+    machine = Machine(dpkg="ii  tool  bad!  amd64  A tool\n", compare=2)
+    downloads = []
+    ctx = make(tmp_path, machine, downloads=downloads)
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == []
+    ap.install_github_bins(ctx)
+    assert downloads == []
+    assert "Could not compare tool vbad! with the pin v1.2.3; leaving it." in capsys.readouterr().out
+
+
+def test_an_absent_deb_is_installed_without_asking_dpkg_to_compare(tmp_path):
+    machine = Machine()
+    ctx = make(tmp_path, machine)
+    write_bins(ctx, "owner/tool 1.2.3 tool_1.2.3_amd64.deb\n")
+    assert ap.pending_github_bins(ctx) == ["tool_1.2.3_amd64.deb"]
+    assert not machine.ran("dpkg", "--compare-versions")
 
 
 def test_upgrade_updates_the_lists_then_dist_upgrades(tmp_path):
