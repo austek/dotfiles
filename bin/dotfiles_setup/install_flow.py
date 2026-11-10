@@ -137,6 +137,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("configure_claude_tools", lambda: claude_tools.configure_claude_tools(t, inputs.preset_name)),
         ("change_shell", lambda: desktop_defaults.change_shell(t)),
         ("set_default_terminal", lambda: desktop_defaults.set_default_terminal(t)),
+        ("disable_ibus_unicode_hotkey", lambda: desktop_defaults.disable_ibus_unicode_hotkey(t)),
     ]
 
 

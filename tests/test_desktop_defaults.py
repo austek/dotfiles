@@ -7,14 +7,15 @@ from dotfiles_setup.log import Logger
 
 
 class Machine:
-    def __init__(self, failing=()):
+    def __init__(self, failing=(), stdout=""):
         self.commands = []
         self.failing = tuple(failing)
+        self.stdout = stdout
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
         failed = any(argv[: len(p)] == list(p) for p in self.failing)
-        return SimpleNamespace(returncode=1 if failed else 0, stdout="", stderr="")
+        return SimpleNamespace(returncode=1 if failed else 0, stdout=self.stdout, stderr="")
 
     def ran(self, *prefix):
         return any(c[: len(prefix)] == list(prefix) for c in self.commands)
@@ -122,6 +123,37 @@ def test_gsettings_is_skipped_when_unavailable(tmp_path, on_path):
     machine = Machine()
     dd.set_default_terminal(make(tmp_path, machine))
     assert not machine.ran("gsettings")
+
+
+def test_the_ibus_unicode_hotkey_is_cleared(tmp_path, on_path):
+    on_path["gsettings"] = "/usr/bin/gsettings"
+    machine = Machine(stdout="['<Control><Shift>u']\n")
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, machine))
+    assert machine.ran("gsettings", "set", dd.IBUS_EMOJI_SCHEMA, dd.IBUS_UNICODE_KEY, "[]")
+
+
+def test_an_already_cleared_ibus_hotkey_is_left_alone(tmp_path, on_path):
+    on_path["gsettings"] = "/usr/bin/gsettings"
+    machine = Machine(stdout="@as []\n")
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, machine))
+    assert not machine.ran("gsettings", "set")
+
+
+def test_the_ibus_step_is_skipped_without_gsettings_or_the_schema(tmp_path, on_path):
+    absent = Machine()
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, absent))
+    assert absent.commands == []
+    on_path["gsettings"] = "/usr/bin/gsettings"
+    no_schema = Machine(failing=[("gsettings", "get")])
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, no_schema))
+    assert not no_schema.ran("gsettings", "set")
+
+
+def test_a_dry_run_leaves_the_ibus_hotkey_alone(tmp_path, on_path):
+    on_path["gsettings"] = "/usr/bin/gsettings"
+    machine = Machine(stdout="['<Control><Shift>u']\n")
+    dd.disable_ibus_unicode_hotkey(make(tmp_path, machine, dry_run=True))
+    assert not machine.ran("gsettings", "set")
 
 
 def test_a_failed_alternative_install_does_not_stop_the_xdg_update(tmp_path, on_path):

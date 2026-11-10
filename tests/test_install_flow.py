@@ -71,6 +71,7 @@ def test_steps_run_in_the_order_the_shell_installer_used(tmp_path):
         "enable_gpaste_extension",
         "install_github_bins", "configure_docker_group", "configure_dotfiles", "ensure_secrets_env", "retire_claude_profile",
         "configure_claude_tools", "change_shell", "set_default_terminal",
+        "disable_ibus_unicode_hotkey",
     ]
 
 
