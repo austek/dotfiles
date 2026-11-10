@@ -17,6 +17,7 @@ from dotfiles_setup import (
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.backends.apt import AptBackend
 from dotfiles_setup.cli import (
+    PERSIST_FAILED_EXIT_CODE,
     Env,
     _plan,
     _replace_settings_target,
@@ -435,13 +436,14 @@ def test_a_failed_migration_write_keeps_the_legacy_file_and_fails_the_run(isolat
         raise OSError("disk full")
 
     monkeypatch.setattr("dotfiles_setup.cli.optouts.write_migration", refuse)
-    assert main(["install", "--preset", "homelab"]) == 1
+    assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     captured = capsys.readouterr()
     out = captured.out + captured.err
     assert f"Could not migrate {package_file}" in out
     assert "stays legacy" in out
     assert package_file.read_text() == "zsh\nextra\n"
     assert state.load_state().optouts_migrated is False
+    assert not state.load_state().applied_package_names
     assert _plan_for(tmp_path, state.load_state()).loaded.from_legacy
 
 
@@ -518,7 +520,7 @@ def test_a_failed_state_save_restores_the_legacy_file_and_fails_the_run(isolated
     _save_applied(("curl", "zsh"))
     before = state.load_state()
     _refuse_state_saves(monkeypatch)
-    assert main(["install", "--preset", "homelab"]) == 1
+    assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     out = _output(capsys)
     assert f"Could not save the install state to {state.state_file()}: read-only file system" in out
     assert "retries the migration" in out
@@ -532,7 +534,7 @@ def test_a_retry_after_a_failed_state_save_migrates_identically(isolated_dotfile
     _dotfiles_dir, tmp_path = isolated_dotfiles
     package_file = _write_optouts(tmp_path, "zsh\nextra\n")
     refusing = _refuse_state_saves(monkeypatch)
-    assert main(["install", "--preset", "homelab"]) == 1
+    assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     refusing[0] = False
     assert main(["install", "--preset", "homelab"]) == 0
     assert package_file.read_text() == f"{optouts.HEADER}\ncurl\n"
@@ -550,7 +552,7 @@ def test_a_failed_restore_after_a_failed_state_save_explains_the_headered_file(
         raise OSError("permission denied")
 
     monkeypatch.setattr("dotfiles_setup.cli.optouts.restore_from_backup", refuse)
-    assert main(["install", "--preset", "homelab"]) == 1
+    assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     out = _output(capsys)
     assert f"Could not restore {package_file}: permission denied" in out
     assert "now has a header" in out
@@ -566,7 +568,7 @@ def test_a_failed_backup_move_reports_and_fails_without_a_traceback(isolated_dot
         raise OSError("no space left on device")
 
     monkeypatch.setattr("dotfiles_setup.cli.optouts.move_to_backup", refuse)
-    assert main(["install", "--preset", "homelab"]) == 1
+    assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     out = _output(capsys)
     assert f"Could not move {other} to " in out
     assert "package-backups" in out
@@ -585,7 +587,7 @@ def test_a_failed_migration_write_leaves_other_presets_files_in_place(isolated_d
         raise OSError("disk full")
 
     monkeypatch.setattr("dotfiles_setup.cli.optouts.write_migration", refuse)
-    assert main(["install", "--preset", "homelab"]) == 1
+    assert main(["install", "--preset", "homelab"]) == PERSIST_FAILED_EXIT_CODE
     assert other.read_text() == "vim\n"
 
 
@@ -620,7 +622,7 @@ def test_a_failed_state_save_restores_from_this_runs_backup(isolated_dotfiles, m
     earlier.write_text("stale\n")
     _refuse_state_saves(monkeypatch)
     env = Env(clock=lambda: datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
-    assert main(["install", "--preset", "homelab"], env) == 1
+    assert main(["install", "--preset", "homelab"], env) == PERSIST_FAILED_EXIT_CODE
     assert package_file.read_text() == "zsh\nextra\n"
     assert earlier.read_text() == "stale\n"
 

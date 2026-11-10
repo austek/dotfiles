@@ -38,6 +38,7 @@ from dotfiles_setup.presets import Preset
 from dotfiles_setup.result import Err, Ok, Result
 
 DRIFT_EXIT_CODE = 3
+PERSIST_FAILED_EXIT_CODE = 4
 SETTINGS_FILE = "settings.json"
 NEW_SETTINGS_MODE = 0o600
 RunFn = Callable[..., Any]
@@ -627,7 +628,7 @@ def _finish_install(
     claude_plugins.update_claude_plugins(logger, claude_settings)
     _sync_foothold(logger, plan.preset)
     if not (args.dry_run or _persist(logger, env, plan, inputs)):
-        return 1
+        return PERSIST_FAILED_EXIT_CODE
     install_flow.print_completion_banner(logger)
     logger.success(f"Machine preset set to '{plan.preset.name}'.")
     return 0
@@ -637,6 +638,8 @@ def _persist(logger: Logger, env: Env, plan: _Install, inputs: install_flow.Flow
     """Writes the migration, the state and the other presets' backups; False when any of them failed."""
     written = _write_migration(logger, plan)
     applied, overlay_root = _saved_applied(inputs, plan)
+    if isinstance(written, Err):
+        applied = _Prior(plan.prior, plan.preset.name, plan.overlay_root).applied() or ()
     if not _state_saved(logger, env, plan, (applied, overlay_root), written):
         return False
     return isinstance(written, Ok) and _retire_other_presets(logger, plan)
