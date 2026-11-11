@@ -51,7 +51,7 @@ class SystemContext:
         if done.returncode == 0:
             return Ok(None)
         output = (done.stdout or "") + (done.stderr or "")
-        self.t.logger.record(f"{' '.join(argv)} exited {done.returncode}\n{output}", "warning")
+        self.t.logger.record(f"{' '.join(argv)} exited {done.returncode}\n{output}", "warning", transcribe=False)
         return Err(failure_reason(done.returncode, output))
 
     def track(self, entry: str) -> None:

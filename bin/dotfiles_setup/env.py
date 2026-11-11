@@ -11,6 +11,7 @@ from typing import Any
 from dotfiles_setup import checksums, state, tooling
 from dotfiles_setup.backends import Backend
 from dotfiles_setup.log import Logger
+from dotfiles_setup.transcript import recording
 
 RunFn = Callable[..., Any]
 BackendFactory = Callable[[Path, dict[str, str]], Backend]
@@ -52,8 +53,9 @@ class Env:
 
 
 def _tooling(logger: Logger, env: Env) -> tooling.Tooling:
+    run = env.run if logger.transcript is None else recording(env.run, logger.transcribe)
     return tooling.Tooling(
-        logger, env.home, run=env.run,
+        logger, env.home, run=run,
         fetch=tooling.fetch_https, fetch_bytes=tooling.fetch_bytes_https,
         download=tooling.download_https, redirect=tooling.redirect_location,
         checksums=checksums.load(env.dotfiles_dir / "packages" / checksums.FILE_NAME),

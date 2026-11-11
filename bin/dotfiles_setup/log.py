@@ -7,6 +7,8 @@ import syslog
 from dataclasses import dataclass
 from functools import cache
 
+from dotfiles_setup.transcript import Transcript
+
 _RESET = "\033[0m"
 _GREEN = "\033[0;32m"
 _YELLOW = "\033[0;33m"
@@ -36,12 +38,19 @@ class Logger:
 
     dry_run: bool
     verbosity: int = 0
+    transcript: Transcript | None = None
 
-    def record(self, message: str, level: str = "info") -> None:
-        """Writes to syslog only, one entry per non-blank line."""
+    def record(self, message: str, level: str = "info", *, transcribe: bool = True) -> None:
+        """Writes to syslog, one entry per non-blank line, and to the transcript unless the caller's runner already did."""
         _open_syslog()
         for line in filter(str.strip, message.splitlines()):
             syslog.syslog(_PRIORITIES[level], line)
+        if transcribe:
+            self.transcribe(message)
+
+    def transcribe(self, text: str) -> None:
+        if self.transcript is not None:
+            self.transcript.write(text)
 
     def info(self, message: str) -> None:
         self.record(message)
@@ -89,6 +98,6 @@ class Logger:
         result = run(argv, capture_output=True, text=True, **where)
         if result.returncode != 0:
             combined = (result.stdout or "") + (result.stderr or "")
-            self.record(f"{' '.join(argv)} exited {result.returncode}\n{combined}", "warning")
+            self.record(f"{' '.join(argv)} exited {result.returncode}\n{combined}", "warning", transcribe=False)
             print(combined, file=sys.stderr, end="")
         return result

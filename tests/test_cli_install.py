@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from cli_support import _add_preset, fail_flow
@@ -264,3 +265,23 @@ def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):
     assert not list((tmp_path / "claude-home").rglob("*"))
     assert not (tmp_path / "state" / "state.json").exists()
     assert not (tmp_path / "state" / "claude-profiles").exists()
+
+
+def test_an_install_keeps_a_private_transcript_of_the_run(isolated_dotfiles, flow_calls):
+    assert main(["install", "--preset", "homelab"]) == 0
+    transcript = flow_calls[0].t.logger.transcript
+    assert transcript.path.parent == Path.home() / ".local/state/dotfiles/logs"
+    assert "Starting Ubuntu Dotfiles Setup..." in transcript.path.read_text()
+
+
+def test_a_dry_run_keeps_no_transcript(isolated_dotfiles, flow_calls):
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert flow_calls[0].t.logger.transcript is None
+    assert not (Path.home() / ".local/state/dotfiles/logs").exists()
+
+
+def test_commands_run_by_an_install_are_written_to_the_transcript(isolated_dotfiles, flow_calls):
+    assert main(["install", "--preset", "homelab"]) == 0
+    t = flow_calls[0].t
+    t.run(["true"], capture_output=True, text=True)
+    assert "$ true -> exit 0" in t.logger.transcript.path.read_text()
