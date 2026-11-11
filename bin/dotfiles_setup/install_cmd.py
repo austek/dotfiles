@@ -10,6 +10,7 @@ from dotfiles_setup import (
     claude_plugins,
     foothold,
     install_flow,
+    overlay,
     rollback,
     state,
     tooling,
@@ -47,11 +48,13 @@ def _in_linked_worktree(dotfiles_dir: Path) -> bool:
 
 
 def _refuses_worktree(args: argparse.Namespace, env: Env) -> bool:
-    if args.dry_run or not _in_linked_worktree(env.dotfiles_dir):
+    roots = (env.dotfiles_dir, overlay.find_overlay_root())
+    worktree = next((root for root in roots if root is not None and _in_linked_worktree(root)), None)
+    if args.dry_run or worktree is None:
         return False
     Logger(dry_run=False, verbosity=args.verbosity).error(
-        f"Refusing to install from the linked worktree {env.dotfiles_dir}: stow would link /etc and "
-        "$HOME into it. Run the install from the main checkout, or pass --dry-run.")
+        f"Refusing to install with the linked worktree {worktree} as a dotfiles checkout: stow would link /etc and "
+        "$HOME into it. Use the main checkouts, or pass --dry-run.")
     return True
 
 

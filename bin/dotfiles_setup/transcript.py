@@ -39,7 +39,12 @@ def open_transcript(directory: Path, stamp: str) -> Transcript | None:
     path = directory / f"{PREFIX}{stamp}{SUFFIX}"
     try:
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600))
+        directory.chmod(0o700)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
         _prune(directory)
     except OSError:
         return None

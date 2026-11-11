@@ -18,6 +18,25 @@ def test_the_transcript_is_a_private_file_in_a_private_directory(tmp_path):
     assert stat.S_IMODE((tmp_path / "logs").stat().st_mode) == 0o700
 
 
+def test_an_existing_directory_and_file_are_tightened_to_private_permissions(tmp_path):
+    directory = tmp_path / "logs"
+    directory.mkdir(mode=0o755)
+    (directory / "install-s.log").write_text("earlier")
+    (directory / "install-s.log").chmod(0o644)
+    result = tr.open_transcript(directory, "s")
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(result.path.stat().st_mode) == 0o600
+    assert result.path.read_text() == "earlier"
+
+
+def test_no_transcript_is_returned_when_the_permissions_cannot_be_restricted(tmp_path, monkeypatch):
+    def refuse(descriptor, mode):
+        raise PermissionError
+
+    monkeypatch.setattr(tr.os, "fchmod", refuse)
+    assert tr.open_transcript(tmp_path / "logs", "s") is None
+
+
 def test_only_the_newest_transcripts_are_kept(tmp_path):
     for day in range(1, 13):
         tr.open_transcript(tmp_path, f"202601{day:02d}-000000")

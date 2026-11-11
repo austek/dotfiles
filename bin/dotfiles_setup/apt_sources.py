@@ -176,8 +176,10 @@ def _add_ghostty_ppa(ctx: SystemContext) -> bool:
 
 
 def _add_ppa(ctx: SystemContext, ppa: str, package: str) -> bool:
-    """launchpadlib retries a dead connection without limit, so the command is cut off after PPA_TIMEOUT_SECONDS."""
-    add = ("sudo", "timeout", str(PPA_TIMEOUT_SECONDS), "add-apt-repository", "-y", ppa)
+    """launchpadlib retries a dead connection without limit, so the command is cut off after PPA_TIMEOUT_SECONDS.
+
+    The cache refresh is left to `install_packages` so a slow mirror cannot be mistaken for an unreachable PPA."""
+    add = ("sudo", "timeout", str(PPA_TIMEOUT_SECONDS), "add-apt-repository", "-y", "--no-update", ppa)
     match _retry(ctx, f"Adding {ppa}", lambda: ctx.attempt(*add)):
         case Err(error=reason):
             return _skip_source(ctx, ppa, {package}, reason)

@@ -94,7 +94,10 @@ class Logger:
         acceptable since only failure output needs to be seen, not ordered)."""
         where = {} if cwd is None else {"cwd": cwd}
         if self.verbosity >= 2:
-            return run(argv, **where)
+            streamed = run(argv, **where)
+            if streamed.returncode != 0:
+                self.record(f"{' '.join(argv)} exited {streamed.returncode}", "warning", transcribe=False)
+            return streamed
         result = run(argv, capture_output=True, text=True, **where)
         if result.returncode != 0:
             combined = (result.stdout or "") + (result.stderr or "")

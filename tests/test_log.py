@@ -38,6 +38,18 @@ def test_a_failed_quiet_command_is_logged_with_its_output(syslog_lines, capsys):
     assert capsys.readouterr().err == "boom\n"
 
 
+def test_a_failed_command_streamed_at_verbosity_two_is_logged_with_its_exit_status_only(syslog_lines):
+    run = lambda argv, **kw: SimpleNamespace(returncode=5, stdout=None, stderr=None)
+    Logger(dry_run=False, verbosity=2).quiet_run(["cmd", "--flag"], run=run)
+    assert syslog_lines == [(syslog.LOG_WARNING, "cmd --flag exited 5")]
+
+
+def test_a_successful_command_streamed_at_verbosity_two_logs_nothing(syslog_lines):
+    run = lambda argv, **kw: SimpleNamespace(returncode=0, stdout=None, stderr=None)
+    Logger(dry_run=False, verbosity=2).quiet_run(["cmd"], run=run)
+    assert syslog_lines == []
+
+
 def test_a_successful_quiet_command_logs_nothing(syslog_lines):
     run = lambda argv, **kw: SimpleNamespace(returncode=0, stdout="out", stderr="")
     Logger(dry_run=False).quiet_run(["cmd"], run=run)

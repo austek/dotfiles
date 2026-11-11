@@ -186,7 +186,7 @@ def test_keys_are_not_downloaded_in_a_dry_run(tmp_path):
 def test_firefox_gets_its_ppa_and_a_pin(tmp_path):
     machine = Machine()
     assert aps.configure_apt_ppas(make(tmp_path, machine, packages=["firefox"]))
-    assert machine.ran("sudo", "timeout", "45", "add-apt-repository", "-y", "ppa:mozillateam/ppa")
+    assert machine.ran("sudo", "timeout", "45", "add-apt-repository", "-y", "--no-update", "ppa:mozillateam/ppa")
     pin = machine.input_for("sudo", "tee", "/etc/apt/preferences.d/mozillateam-firefox-pin")
     assert pin == "\nPackage: firefox*\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n\n"
 
@@ -194,7 +194,7 @@ def test_firefox_gets_its_ppa_and_a_pin(tmp_path):
 def test_ghostty_gets_its_ppa(tmp_path):
     machine = Machine()
     assert aps.configure_apt_ppas(make(tmp_path, machine, packages=["ghostty"]))
-    assert machine.ran("sudo", "timeout", "45", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu")
+    assert machine.ran("sudo", "timeout", "45", "add-apt-repository", "-y", "--no-update", "ppa:mkasberg/ghostty-ubuntu")
 
 
 def test_1password_gets_its_debsig_policy(tmp_path):
@@ -208,7 +208,7 @@ def test_a_failed_ppa_add_is_retried_then_skips_the_package(tmp_path, sleeps):
     machine = Machine(failing=[("sudo", "timeout")])
     ctx = make(tmp_path, machine, packages=["ghostty", "vim"])
     assert aps.configure_apt_ppas(ctx)
-    add = ["sudo", "timeout", "45", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu"]
+    add = ["sudo", "timeout", "45", "add-apt-repository", "-y", "--no-update", "ppa:mkasberg/ghostty-ubuntu"]
     assert machine.commands.count(add) == 3
     assert sleeps == [10, 20]
     assert ctx.skipped == {"ghostty"}

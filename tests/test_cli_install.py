@@ -245,6 +245,17 @@ def test_install_refuses_to_run_from_a_linked_worktree(isolated_dotfiles, flow_c
     assert flow_calls == []
 
 
+def test_install_refuses_a_private_overlay_that_is_a_linked_worktree(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+    _, tmp_path = isolated_dotfiles
+    private_root = tmp_path / "dotfiles-private"
+    private_root.mkdir()
+    (private_root / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert str(private_root) in capsys.readouterr().err
+    assert flow_calls == []
+
+
 def test_a_dry_run_is_allowed_from_a_linked_worktree(isolated_dotfiles, flow_calls):
     dotfiles_dir, _ = isolated_dotfiles
     (dotfiles_dir / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
