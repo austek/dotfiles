@@ -57,6 +57,48 @@ def test_a_missing_listing_loads_as_an_empty_table(tmp_path):
     assert checksums.load(tmp_path / "absent.txt") == {}
 
 
+def test_a_missing_listing_is_named_when_a_download_is_refused(tmp_path):
+    table = checksums.load(tmp_path / "absent.txt")
+    with pytest.raises(checksums.ChecksumError, match=r"absent\.txt not found") as refused:
+        checksums.verify(table, "https://x/a.deb", PAYLOAD)
+    assert "no digest recorded" not in str(refused.value)
+
+
+def test_a_listing_that_denies_access_is_named_with_the_os_reason(tmp_path, monkeypatch):
+    def deny(self, *args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "read_text", deny)
+    listing = tmp_path / "checksums.txt"
+    with pytest.raises(checksums.ChecksumError) as refused:
+        checksums.verify(checksums.load(listing), "https://x/a.deb", PAYLOAD)
+    assert str(refused.value) == f"cannot verify https://x/a.deb: cannot read {listing}: Permission denied"
+
+
+def test_a_listing_that_is_not_text_is_named_instead_of_crashing(tmp_path):
+    listing = tmp_path / "checksums.txt"
+    listing.write_bytes(b"\xff\xfe\x00")
+    table = checksums.load(listing)
+    assert table.unavailable == f"cannot read {listing}: UnicodeDecodeError"
+    with pytest.raises(checksums.ChecksumError, match="cannot verify https://x/a.deb"):
+        checksums.verify(table, "https://x/a.deb", PAYLOAD)
+
+
+def test_load_records_why_a_listing_was_unavailable_and_nothing_for_a_readable_one(tmp_path):
+    listing = tmp_path / "checksums.txt"
+    listing.write_text(f"{DIGEST}  https://x/a.deb\n")
+    assert checksums.load(listing).unavailable is None
+    assert "not found" in checksums.load(tmp_path / "absent.txt").unavailable
+
+
+def test_a_readable_listing_without_the_url_still_asks_for_a_digest(tmp_path):
+    listing = tmp_path / "checksums.txt"
+    listing.write_text(f"{DIGEST}  https://x/a.deb\n")
+    with pytest.raises(checksums.ChecksumError) as refused:
+        checksums.verify(checksums.load(listing), "https://x/b.deb", PAYLOAD)
+    assert str(refused.value) == "no digest recorded for https://x/b.deb; add one to packages/checksums.txt"
+
+
 def test_matching_content_passes_and_none_disables_the_check():
     checksums.verify({"u": DIGEST}, "u", PAYLOAD)
     checksums.verify(None, "u", b"anything")
