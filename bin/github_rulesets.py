@@ -40,6 +40,10 @@ PULL_REQUEST_RULE = {
 Gh = Callable[..., "subprocess.CompletedProcess[str]"]
 
 
+class DiscoveryError(RuntimeError):
+    """The repository listing failed, so nothing can be processed."""
+
+
 @dataclass(frozen=True)
 class Settings:
     owner: str
@@ -102,6 +106,8 @@ def discover(settings: Settings, gh: Gh) -> list[Candidate]:
     if settings.repos:
         return [Candidate("PUBLIC", False, name) for name in settings.repos]
     listing = gh(["repo", "list", settings.owner, "--limit", "200", "--json", "name,isArchived,isFork,visibility", "--jq", LIST_JQ])
+    if listing.returncode != 0:
+        raise DiscoveryError((listing.stdout or "").strip() or f"gh repo list exited {listing.returncode}")
     return [_candidate(line) for line in (listing.stdout or "").splitlines() if len(line.split()) == 3]
 
 
@@ -169,8 +175,12 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
     if gh is run_gh and shutil.which("gh") is None:
         print("gh not found", file=sys.stderr)
         return 1
-    outcomes = [process_repo(settings, gh, c) for c in discover(settings, gh)]
-    return report(outcomes)
+    try:
+        candidates = discover(settings, gh)
+    except DiscoveryError as error:
+        print(f"cannot list repositories of {settings.owner}: {error}", file=sys.stderr)
+        return 1
+    return report([process_repo(settings, gh, c) for c in candidates])
 
 
 def report(outcomes: Sequence[Outcome]) -> int:
