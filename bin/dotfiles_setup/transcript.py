@@ -47,7 +47,9 @@ def open_transcript(directory: Path, stamp: str) -> Transcript | None:
 
 
 def _text(stream: Any) -> str:
-    return stream.decode(errors="replace") if isinstance(stream, bytes) else stream if isinstance(stream, str) else ""
+    if isinstance(stream, bytes):
+        return stream.decode(errors="replace")
+    return stream if isinstance(stream, str) else ""
 
 
 def _command(argv: Any) -> str:

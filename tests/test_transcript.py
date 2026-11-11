@@ -90,8 +90,9 @@ def test_the_result_is_passed_through_untouched():
 
 def test_a_command_that_raises_is_recorded_and_the_error_propagates():
     written = []
+    run = tr.recording(run_with(error=FileNotFoundError("no such")), written.append)
     with pytest.raises(FileNotFoundError):
-        tr.recording(run_with(error=FileNotFoundError("no such")), written.append)(["nope"])
+        run(["nope"])
     assert written == ["$ nope raised FileNotFoundError: no such"]
 
 
