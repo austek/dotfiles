@@ -45,6 +45,12 @@
 - **PRs**: Split mechanical cleanup from semantic changes. Run `pr-review-toolkit:comment-analyzer` on the diff before opening or updating a PR — a hook can grep for markers, not judge whether a comment is load-bearing.
 - **Tickets**: Acceptance Criteria (AC) = "Given X, when Y, then Z". 1 goal per story. Concrete triggers/roles. No implementation details in body. DoD stays in templates.
 
+# Subagent Model Routing
+Set the `Agent` tool's `model` explicitly; it overrides an agent's pinned model.
+- `haiku`: fan-out search, symbol/file lookup, log or CI triage, `comment-analyzer`, mechanical edits and renames.
+- `sonnet`: implementation, test writing, most reviews.
+- `opus`: architecture critique, adversarial verification, overfitting checks, security audit, hard debugging.
+
 # Tool & Shell Execution
 - **File Modifications (Absolute Rule)**: NEVER use Bash, Python scripts, heredocs (`python3 - <<'EOF'`), `sed`, `sed -i`, or output redirection (`>`) to create or update files. ALWAYS use native `Edit` and `Write` tools — batching edits through scripts or shell commands triggers security prompts.
 - **No Compound `cd` Writes**: Never chain `cd` with write operations, script execution, or output redirections (`cd ... && python3 ...` or `cd ... && cmd > out.txt`). Use absolute paths or run navigation and execution as separate tool calls.
