@@ -180,6 +180,17 @@ def _git(
     return result
 
 
+def _git_cleanup(run: Runner, *args: str, cwd: Path | None = None) -> None:
+    """Runs a teardown git command; a failure is reported on stderr and never raised."""
+    try:
+        result = _git(run, *args, cwd=cwd, check=False)
+    except OSError as error:
+        print(f"warning: cleanup `git {' '.join(args)}` could not run: {error}", file=sys.stderr)
+        return
+    if result.returncode != 0:
+        print(f"warning: cleanup `git {' '.join(args)}` failed: {result.stderr.strip()}", file=sys.stderr)
+
+
 def current_branch(run: Runner, cwd: Path | None = None) -> str:
     return _git(run, "rev-parse", "--abbrev-ref", "HEAD", cwd=cwd).stdout.strip()
 
@@ -338,8 +349,8 @@ def _review_batch(
         _git(run, "commit", "-m", f"batch {num}/{total} snapshot for audit", cwd=wt)
         return review_waiting_for_limit(run, ["coderabbit", "review", "--base", base, "--agent"], cwd=wt)
     finally:
-        _git(run, "checkout", "--force", base, cwd=wt, check=False)
-        _git(run, "branch", "-D", code_branch, cwd=wt, check=False)
+        _git_cleanup(run, "checkout", "--force", base, cwd=wt)
+        _git_cleanup(run, "branch", "-D", code_branch, cwd=wt)
 
 
 def _run_one_batch(run: Runner, audit: ScopedAudit, files: list[str], num: int, total: int) -> int:
@@ -362,9 +373,9 @@ def _run_batches(run: Runner, audit: ScopedAudit) -> int:
 
 def _remove_scratch(run: Runner, audit: ScopedAudit) -> None:
     root = audit.repo_root
-    _git(run, "worktree", "remove", "--force", str(audit.worktree_dir), cwd=root, check=False)
-    _git(run, "branch", "-D", audit.base_branch, cwd=root, check=False)
-    _git(run, "worktree", "prune", cwd=root, check=False)
+    _git_cleanup(run, "worktree", "remove", "--force", str(audit.worktree_dir), cwd=root)
+    _git_cleanup(run, "branch", "-D", audit.base_branch, cwd=root)
+    _git_cleanup(run, "worktree", "prune", cwd=root)
 
 
 def _run_scoped(run: Runner, audit: ScopedAudit) -> int:
@@ -451,7 +462,7 @@ def _audit_pr(run: Runner, repo_root: Path, pr: str, limit: int) -> int:
     try:
         return _audit_checked_out_pr(run, repo_root, pr, limit)
     finally:
-        _git(run, "checkout", original, cwd=repo_root, check=False)
+        _git_cleanup(run, "checkout", original, cwd=repo_root)
 
 
 def _restore_point(run: Runner, repo_root: Path) -> str:
