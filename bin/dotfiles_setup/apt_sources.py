@@ -20,6 +20,7 @@ SOURCE_FILES = (
     ("code", "vscode.sources"),
     ("gh", "github-cli.sources"),
     ("mise", "mise.sources"),
+    ("claude-desktop", "claude-desktop.sources"),
 )
 DIRECTORIES = (
     "/usr/share/keyrings",
@@ -59,6 +60,8 @@ KEYS = (
             ("/usr/share/keyrings/githubcli-archive-keyring.gpg",), "gh"),
     KeySpec("mise", "https://mise.jdx.dev/gpg-key.pub",
             ("/usr/share/keyrings/mise-archive-keyring.gpg",), "mise"),
+    KeySpec("Claude Desktop", "https://downloads.claude.ai/claude-desktop/key.asc",
+            ("/usr/share/keyrings/claude-desktop-archive-keyring.gpg",), "claude-desktop"),
     KeySpec("Teleport", "https://apt.releases.teleport.dev/gpg",
             ("/usr/share/keyrings/teleport-archive-keyring.gpg",), "teleport", prefix=True),
     KeySpec("pgAdmin", "https://www.pgadmin.org/static/packages_pgadmin_org.pub",
