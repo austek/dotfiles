@@ -97,6 +97,17 @@ def test_a_legacy_list_next_to_a_managed_source_is_removed(tmp_path):
     assert not machine.ran("sudo", "rm", "-f", str(sources / "other.list"))
 
 
+def test_a_legacy_list_is_removed_before_the_package_lists_are_updated(tmp_path):
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    (sources / "claude-desktop.sources").write_text("")
+    (sources / "claude-desktop.list").write_text("")
+    machine = Machine()
+    ap.install_packages(make(tmp_path, machine, packages=["vim"]), sources)
+    removal = ["sudo", "rm", "-f", str(sources / "claude-desktop.list")]
+    assert machine.commands.index(removal) < machine.commands.index(["sudo", "apt-get", "update"])
+
+
 def write_bins(ctx, text):
     (ctx.dotfiles_dir / "packages" / "github_bins.txt").write_text(text)
 

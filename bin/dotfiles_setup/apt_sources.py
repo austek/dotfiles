@@ -24,6 +24,7 @@ SOURCE_FILES = (
     ("gh", "github-cli.sources"),
     ("mise", "mise.sources"),
     ("claude-desktop", "claude-desktop.sources"),
+    ("claude-desktop", "claude-desktop"),
 )
 DIRECTORIES = (
     "/usr/share/keyrings",

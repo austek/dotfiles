@@ -54,6 +54,7 @@ def install_packages(ctx: SystemContext, sources_dir: Path = Path("/etc/apt/sour
     if dry_run_all(ctx.t, "Would update package lists",
                    f"Would install {len(apt_packages)} apt packages: {' '.join(apt_packages)}"):
         return True
+    _remove_superseded_lists(ctx, sources_dir)
     logger.info("Updating package lists...")
     if not ctx.quiet("sudo", "apt-get", "update"):
         return False

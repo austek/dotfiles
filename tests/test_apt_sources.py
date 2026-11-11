@@ -264,6 +264,7 @@ def test_unneeded_source_files_are_ignored_by_the_apt_stow(tmp_path):
     assert not any("github-cli" in arg for arg in argv)
     assert r"--ignore=mise\.sources$" in argv
     assert r"--ignore=claude-desktop\.sources$" in argv
+    assert r"--ignore=claude-desktop$" in argv
     assert argv[:4] == ["sudo", "stow", f"--dir={tmp_path / 'repo'}", "--restow"]
     assert ctx.changes.entries() == ["STOW_ROOT:apt"]
 
