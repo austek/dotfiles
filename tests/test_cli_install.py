@@ -236,6 +236,28 @@ def test_a_failure_with_nothing_to_roll_back_offers_nothing(isolated_dotfiles, m
     assert main(["install", "--preset", "homelab"]) == 1
 
 
+def test_install_refuses_to_run_from_a_linked_worktree(isolated_dotfiles, flow_calls, capsys):
+    dotfiles_dir, _ = isolated_dotfiles
+    (dotfiles_dir / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert "linked worktree" in capsys.readouterr().err
+    assert flow_calls == []
+
+
+def test_a_dry_run_is_allowed_from_a_linked_worktree(isolated_dotfiles, flow_calls):
+    dotfiles_dir, _ = isolated_dotfiles
+    (dotfiles_dir / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert len(flow_calls) == 1
+
+
+def test_install_runs_from_a_main_checkout(isolated_dotfiles, flow_calls):
+    dotfiles_dir, _ = isolated_dotfiles
+    (dotfiles_dir / ".git").mkdir()
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert len(flow_calls) == 1
+
+
 def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):
     _, tmp_path = isolated_dotfiles
     assert main(["install", "--preset", "homelab", "--dry-run"]) == 0

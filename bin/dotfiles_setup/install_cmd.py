@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Any
 
 from dotfiles_setup import (
@@ -38,8 +39,17 @@ def _sync_foothold(logger: Logger, preset: Preset) -> None:
     foothold.sync_footholds(logger, preset.footholds)
 
 
+def _in_linked_worktree(dotfiles_dir: Path) -> bool:
+    """A linked worktree has a `.git` file pointing at the main checkout; the main checkout has a `.git` directory."""
+    return (dotfiles_dir / ".git").is_file()
+
+
 def _run_install(args: argparse.Namespace, env: Env) -> int:
     logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
+    if not args.dry_run and _in_linked_worktree(env.dotfiles_dir):
+        logger.error(f"Refusing to install from the linked worktree {env.dotfiles_dir}: stow would link /etc and "
+                     "$HOME into it. Run the install from the main checkout, or pass --dry-run.")
+        return 1
     if args.dry_run:
         logger.warn("=== DRY-RUN MODE: No changes will be made ===")
     logger.step("Starting Ubuntu Dotfiles Setup...")
