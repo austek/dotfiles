@@ -186,7 +186,7 @@ def test_keys_are_not_downloaded_in_a_dry_run(tmp_path):
 def test_firefox_gets_its_ppa_and_a_pin(tmp_path):
     machine = Machine()
     assert aps.configure_apt_ppas(make(tmp_path, machine, packages=["firefox"]))
-    assert machine.ran("sudo", "add-apt-repository", "-y", "ppa:mozillateam/ppa")
+    assert machine.ran("sudo", "timeout", "45", "add-apt-repository", "-y", "ppa:mozillateam/ppa")
     pin = machine.input_for("sudo", "tee", "/etc/apt/preferences.d/mozillateam-firefox-pin")
     assert pin == "\nPackage: firefox*\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n\n"
 
@@ -194,7 +194,7 @@ def test_firefox_gets_its_ppa_and_a_pin(tmp_path):
 def test_ghostty_gets_its_ppa(tmp_path):
     machine = Machine()
     assert aps.configure_apt_ppas(make(tmp_path, machine, packages=["ghostty"]))
-    assert machine.ran("sudo", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu")
+    assert machine.ran("sudo", "timeout", "45", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu")
 
 
 def test_1password_gets_its_debsig_policy(tmp_path):
@@ -205,22 +205,51 @@ def test_1password_gets_its_debsig_policy(tmp_path):
 
 
 def test_a_failed_ppa_add_is_retried_then_skips_the_package(tmp_path, sleeps):
-    machine = Machine(failing=[("sudo", "add-apt-repository")])
+    machine = Machine(failing=[("sudo", "timeout")])
     ctx = make(tmp_path, machine, packages=["ghostty", "vim"])
     assert aps.configure_apt_ppas(ctx)
-    assert machine.commands.count(["sudo", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu"]) == 3
+    add = ["sudo", "timeout", "45", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu"]
+    assert machine.commands.count(add) == 3
     assert sleeps == [10, 20]
     assert ctx.skipped == {"ghostty"}
 
 
+TRACEBACK = "Traceback (most recent call last):\n  File \"x\", line 1, in <module>\nTimeoutError: [Errno 110] Connection timed out\n"
+
+
+class Failing(Machine):
+    def __init__(self, returncode=1, stderr=TRACEBACK):
+        super().__init__()
+        self.returncode, self.stderr = returncode, stderr
+
+    def __call__(self, argv, **kwargs):
+        super().__call__(argv, **kwargs)
+        return SimpleNamespace(returncode=self.returncode, stdout="", stderr=self.stderr)
+
+
+def test_a_failed_ppa_attempt_shows_one_line_and_logs_the_whole_traceback(tmp_path, capsys, syslog_lines):
+    ctx = make(tmp_path, Failing(), packages=["ghostty"])
+    assert aps.configure_apt_ppas(ctx)
+    shown = capsys.readouterr()
+    assert "Traceback" not in shown.out + shown.err
+    assert "(attempt 1/3): TimeoutError: [Errno 110] Connection timed out; retrying in 10s" in shown.out
+    assert "unreachable after 3 attempts (TimeoutError: [Errno 110] Connection timed out)" in shown.err
+    assert any("Traceback (most recent call last):" in message for _, message in syslog_lines)
+
+
+def test_a_ppa_attempt_killed_by_the_timeout_reports_that_it_timed_out(tmp_path, capsys):
+    assert aps.configure_apt_ppas(make(tmp_path, Failing(returncode=124, stderr=""), packages=["ghostty"]))
+    assert "(attempt 1/3): timed out; retrying" in capsys.readouterr().out
+
+
 def test_declining_the_skip_after_a_failed_ppa_add_stops_the_step(tmp_path):
-    machine = Machine(failing=[("sudo", "add-apt-repository")])
+    machine = Machine(failing=[("sudo", "timeout")])
     ctx = make(tmp_path, machine, packages=["ghostty"], interactive=True, ask=lambda q: "n")
     assert not aps.configure_apt_ppas(ctx)
 
 
 def test_a_skipped_firefox_ppa_writes_no_pin(tmp_path):
-    machine = Machine(failing=[("sudo", "add-apt-repository")])
+    machine = Machine(failing=[("sudo", "timeout")])
     ctx = make(tmp_path, machine, packages=["firefox"])
     assert aps.configure_apt_ppas(ctx)
     assert not machine.ran("sudo", "tee", "/etc/apt/preferences.d/mozillateam-firefox-pin")
@@ -239,7 +268,7 @@ def test_a_ppa_add_that_succeeds_on_retry_lets_the_step_continue(tmp_path, sleep
 
     def flaky(argv, **kwargs):
         result = real(argv, **kwargs)
-        if argv[:2] == ["sudo", "add-apt-repository"]:
+        if argv[:2] == ["sudo", "timeout"]:
             result.returncode = next(outcomes)
         return result
 

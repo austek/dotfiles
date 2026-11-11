@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotfiles_setup.result import Err, Ok, Result
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import dry_run_all
 
@@ -16,6 +17,7 @@ RENDERED_MARKER ="# Managed by dotfiles: rendered from apt-templates"
 DEFAULT_CODENAME = "noble"
 FETCH_ATTEMPTS = 3
 FETCH_RETRY_SECONDS = 10
+PPA_TIMEOUT_SECONDS = 45
 STOW_BACKUP_ROOT = Path("/var/backups/dotfiles-stow")
 SOURCE_FILES = (
     ("1password", "1password.sources"),
@@ -89,16 +91,17 @@ def _usable(ctx: SystemContext, name: str, prefix: bool = False) -> bool:
     return bool(_matching(ctx, name, prefix) - ctx.skipped)
 
 
-def _retry[T](ctx: SystemContext, label: str, attempt: Callable[[], T | None]) -> T | None:
+def _retry[T](ctx: SystemContext, label: str, attempt: Callable[[], Result[T]]) -> Result[T]:
     """Server-side failures are often brief, so each attempt is repeated with a growing delay."""
-    for number in range(1, FETCH_ATTEMPTS + 1):
-        if (result := attempt()) is not None:
-            return result
-        if number < FETCH_ATTEMPTS:
-            delay = FETCH_RETRY_SECONDS * number
-            ctx.t.logger.warn(f"{label} failed (attempt {number}/{FETCH_ATTEMPTS}); retrying in {delay}s...")
-            time.sleep(delay)
-    return None
+    outcome = attempt()
+    for number in range(1, FETCH_ATTEMPTS):
+        if isinstance(outcome, Ok):
+            return outcome
+        delay = FETCH_RETRY_SECONDS * number
+        ctx.t.logger.warn(f"{label} failed (attempt {number}/{FETCH_ATTEMPTS}): {outcome.error}; retrying in {delay}s...")
+        time.sleep(delay)
+        outcome = attempt()
+    return outcome
 
 
 def _confirm(ctx: SystemContext, question: str) -> bool:
@@ -108,10 +111,10 @@ def _confirm(ctx: SystemContext, question: str) -> bool:
         return False
 
 
-def _skip_source(ctx: SystemContext, label: str, packages: set[str]) -> bool:
+def _skip_source(ctx: SystemContext, label: str, packages: set[str], reason: str) -> bool:
     """Drops an unreachable source and its packages so the rest of the install can go on; False stops the run."""
     names = ", ".join(sorted(packages))
-    ctx.t.logger.error(f"{label} is unreachable after {FETCH_ATTEMPTS} attempts; its server may be down.")
+    ctx.t.logger.error(f"{label} is unreachable after {FETCH_ATTEMPTS} attempts ({reason}); its server may be down.")
     if ctx.interactive and not _confirm(ctx, f"Skip {label} and continue without {names}? [Y/n] "):
         return False
     ctx.skipped.update(packages)
@@ -119,12 +122,11 @@ def _skip_source(ctx: SystemContext, label: str, packages: set[str]) -> bool:
     return True
 
 
-def _try_fetch[T](fetch: Callable[[str], T], url: str, ctx: SystemContext) -> T | None:
+def _try_fetch[T](fetch: Callable[[str], T], url: str) -> Result[T]:
     try:
-        return fetch(url)
+        return Ok(fetch(url))
     except (OSError, ValueError) as error:
-        ctx.t.logger.error(f"Could not download {url}: {error}")
-        return None
+        return Err(str(error))
 
 
 def _write_as_root(ctx: SystemContext, destination: str, content: str) -> bool:
@@ -137,10 +139,11 @@ def _dearmor(ctx: SystemContext, key: bytes, destination: str) -> bool:
 
 
 def _install_key(ctx: SystemContext, key: KeySpec) -> bool:
-    data = _retry(ctx, f"{key.label} signing key download", lambda: _try_fetch(ctx.t.fetch_bytes, key.url, ctx))
-    if data is None:
-        return _skip_source(ctx, f"{key.label} apt repository", _matching(ctx, key.package, key.prefix))
-    return all(_dearmor(ctx, data, destination) for destination in key.destinations)
+    match _retry(ctx, f"{key.label} signing key download", lambda: _try_fetch(ctx.t.fetch_bytes, key.url)):
+        case Err(error=reason):
+            return _skip_source(ctx, f"{key.label} apt repository", _matching(ctx, key.package, key.prefix), reason)
+        case Ok(value=data):
+            return all(_dearmor(ctx, data, destination) for destination in key.destinations)
 
 
 def download_apt_gpg_keys(ctx: SystemContext) -> bool:
@@ -173,8 +176,13 @@ def _add_ghostty_ppa(ctx: SystemContext) -> bool:
 
 
 def _add_ppa(ctx: SystemContext, ppa: str, package: str) -> bool:
-    added = _retry(ctx, f"Adding {ppa}", lambda: True if ctx.quiet("sudo", "add-apt-repository", "-y", ppa) else None)
-    return added is True or _skip_source(ctx, ppa, {package})
+    """launchpadlib retries a dead connection without limit, so the command is cut off after PPA_TIMEOUT_SECONDS."""
+    add = ("sudo", "timeout", str(PPA_TIMEOUT_SECONDS), "add-apt-repository", "-y", ppa)
+    match _retry(ctx, f"Adding {ppa}", lambda: ctx.attempt(*add)):
+        case Err(error=reason):
+            return _skip_source(ctx, ppa, {package}, reason)
+        case Ok():
+            return True
 
 
 def _add_1password_policy(ctx: SystemContext) -> bool:
@@ -184,10 +192,11 @@ def _add_1password_policy(ctx: SystemContext) -> bool:
 
 
 def _install_policy(ctx: SystemContext, url: str, destination: str) -> bool:
-    policy = _retry(ctx, "1Password policy download", lambda: _try_fetch(ctx.t.fetch, url, ctx))
-    if policy is None:
-        return _skip_source(ctx, "1Password debsig policy", {"1password"})
-    return _write_as_root(ctx, destination, policy)
+    match _retry(ctx, "1Password policy download", lambda: _try_fetch(ctx.t.fetch, url)):
+        case Err(error=reason):
+            return _skip_source(ctx, "1Password debsig policy", {"1password"}, reason)
+        case Ok(value=policy):
+            return _write_as_root(ctx, destination, policy)
 
 
 def _stow_ignores(ctx: SystemContext) -> list[str]:

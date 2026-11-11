@@ -1,6 +1,47 @@
 import subprocess
+import syslog
+from types import SimpleNamespace
 
+import pytest
 from dotfiles_setup.log import Logger
+
+
+@pytest.mark.parametrize(("method", "priority"), [
+    ("info", syslog.LOG_INFO), ("success", syslog.LOG_INFO), ("banner", syslog.LOG_INFO),
+    ("step", syslog.LOG_NOTICE), ("warn", syslog.LOG_WARNING), ("error", syslog.LOG_ERR),
+])
+def test_every_message_reaches_syslog_at_verbosity_zero(method, priority, syslog_lines):
+    getattr(Logger(dry_run=False, verbosity=0), method)("hello")
+    assert syslog_lines == [(priority, "hello")]
+
+
+def test_a_dry_run_notice_is_marked_in_syslog(syslog_lines):
+    assert Logger(dry_run=True).dry_run_notice("Would do it")
+    assert syslog_lines == [(syslog.LOG_INFO, "[dry-run] Would do it")]
+
+
+def test_nothing_is_logged_for_a_dry_run_notice_outside_a_dry_run(syslog_lines):
+    assert not Logger(dry_run=False).dry_run_notice("Would do it")
+    assert syslog_lines == []
+
+
+def test_record_writes_one_entry_per_non_blank_line_and_nothing_to_the_screen(syslog_lines, capsys):
+    Logger(dry_run=False).record("first\n\n  \nsecond\n", "warning")
+    assert syslog_lines == [(syslog.LOG_WARNING, "first"), (syslog.LOG_WARNING, "second")]
+    assert capsys.readouterr().out == ""
+
+
+def test_a_failed_quiet_command_is_logged_with_its_output(syslog_lines, capsys):
+    run = lambda argv, **kw: SimpleNamespace(returncode=2, stdout="", stderr="boom\n")
+    Logger(dry_run=False).quiet_run(["cmd", "--flag"], run=run)
+    assert syslog_lines == [(syslog.LOG_WARNING, "cmd --flag exited 2"), (syslog.LOG_WARNING, "boom")]
+    assert capsys.readouterr().err == "boom\n"
+
+
+def test_a_successful_quiet_command_logs_nothing(syslog_lines):
+    run = lambda argv, **kw: SimpleNamespace(returncode=0, stdout="out", stderr="")
+    Logger(dry_run=False).quiet_run(["cmd"], run=run)
+    assert syslog_lines == []
 
 
 def test_info_hidden_at_verbosity_zero(capsys):
