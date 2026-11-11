@@ -311,6 +311,20 @@ def test_a_failed_teardown_command_is_reported_not_dropped(capsys):
     assert "warning: cleanup `git branch -D scratch` failed: fatal: cannot remove" in err
 
 
+def test_a_teardown_command_that_cannot_start_is_reported_and_later_steps_still_run(tmp_path, capsys):
+    def vanished(cmd, cwd=None, **kwargs):
+        calls.append(tuple(cmd))
+        if cmd[:3] == ["git", "worktree", "remove"]:
+            raise FileNotFoundError(2, "No such file or directory", str(cwd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    calls = []
+    audit = cra.ScopedAudit(tmp_path, "scratch", "orphan", None, "HEAD", [], 10)
+    cra._remove_scratch(vanished, audit)
+    assert [c[1:3] for c in calls] == [("worktree", "remove"), ("branch", "-D"), ("worktree", "prune")]
+    assert "could not run: [Errno 2] No such file or directory" in capsys.readouterr().err
+
+
 def test_a_successful_teardown_command_is_silent(capsys):
     cra._git_cleanup(FakeRun({}), "worktree", "prune")
     assert capsys.readouterr().err == ""

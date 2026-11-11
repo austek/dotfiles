@@ -182,7 +182,11 @@ def _git(
 
 def _git_cleanup(run: Runner, *args: str, cwd: Path | None = None) -> None:
     """Runs a teardown git command; a failure is reported on stderr and never raised."""
-    result = _git(run, *args, cwd=cwd, check=False)
+    try:
+        result = _git(run, *args, cwd=cwd, check=False)
+    except OSError as error:
+        print(f"warning: cleanup `git {' '.join(args)}` could not run: {error}", file=sys.stderr)
+        return
     if result.returncode != 0:
         print(f"warning: cleanup `git {' '.join(args)}` failed: {result.stderr.strip()}", file=sys.stderr)
 
