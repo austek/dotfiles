@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,8 +14,8 @@ from dotfiles_setup.tooling import dry_run_all
 FS_ROOT = Path("/")
 RENDERED_MARKER ="# Managed by dotfiles: rendered from apt-templates"
 DEFAULT_CODENAME = "noble"
-PPA_ATTEMPTS = 3
-PPA_RETRY_SECONDS = 10
+FETCH_ATTEMPTS = 3
+FETCH_RETRY_SECONDS = 10
 STOW_BACKUP_ROOT = Path("/var/backups/dotfiles-stow")
 SOURCE_FILES = (
     ("1password", "1password.sources"),
@@ -75,10 +76,54 @@ ONEPASSWORD_POLICY = ("https://downloads.1password.com/linux/debian/debsig/1pass
                       "/etc/debsig/policies/AC2D62742012EA22/1password.pol")
 
 
+def _matching(ctx: SystemContext, name: str, prefix: bool = False) -> set[str]:
+    return {package for package in ctx.packages if (package.startswith(name) if prefix else package == name)}
+
+
 def _selected(ctx: SystemContext, name: str, prefix: bool = False) -> bool:
-    if prefix:
-        return any(package.startswith(name) for package in ctx.packages)
-    return name in ctx.packages
+    return bool(_matching(ctx, name, prefix))
+
+
+def _usable(ctx: SystemContext, name: str, prefix: bool = False) -> bool:
+    return bool(_matching(ctx, name, prefix) - ctx.skipped)
+
+
+def _retry[T](ctx: SystemContext, label: str, attempt: Callable[[], T | None]) -> T | None:
+    """Server-side failures are often brief, so each attempt is repeated with a growing delay."""
+    for number in range(1, FETCH_ATTEMPTS + 1):
+        if (result := attempt()) is not None:
+            return result
+        if number < FETCH_ATTEMPTS:
+            delay = FETCH_RETRY_SECONDS * number
+            ctx.t.logger.warn(f"{label} failed (attempt {number}/{FETCH_ATTEMPTS}); retrying in {delay}s...")
+            time.sleep(delay)
+    return None
+
+
+def _confirm(ctx: SystemContext, question: str) -> bool:
+    try:
+        return ctx.ask(question).strip().lower() in ("", "y", "yes")
+    except EOFError:
+        return False
+
+
+def _skip_source(ctx: SystemContext, label: str, packages: set[str]) -> bool:
+    """Drops an unreachable source and its packages so the rest of the install can go on; False stops the run."""
+    names = ", ".join(sorted(packages))
+    ctx.t.logger.error(f"{label} is unreachable after {FETCH_ATTEMPTS} attempts; its server may be down.")
+    if ctx.interactive and not _confirm(ctx, f"Skip {label} and continue without {names}? [Y/n] "):
+        return False
+    ctx.skipped.update(packages)
+    ctx.t.logger.warn(f"Skipping {label}: {names} will not be installed this run. Re-run the install once it is back.")
+    return True
+
+
+def _try_fetch[T](fetch: Callable[[str], T], url: str, ctx: SystemContext) -> T | None:
+    try:
+        return fetch(url)
+    except (OSError, ValueError) as error:
+        ctx.t.logger.error(f"Could not download {url}: {error}")
+        return None
 
 
 def _write_as_root(ctx: SystemContext, destination: str, content: str) -> bool:
@@ -86,13 +131,15 @@ def _write_as_root(ctx: SystemContext, destination: str, content: str) -> bool:
     return result.returncode == 0
 
 
-def _dearmor(ctx: SystemContext, url: str, destination: str) -> bool:
-    try:
-        key = ctx.t.fetch_bytes(url)
-    except (OSError, ValueError) as error:
-        ctx.t.logger.error(f"Could not download the signing key {url}: {error}")
-        return False
+def _dearmor(ctx: SystemContext, key: bytes, destination: str) -> bool:
     return ctx.t.run(["sudo", "gpg", "--dearmor", "--yes", "-o", destination], input=key).returncode == 0
+
+
+def _install_key(ctx: SystemContext, key: KeySpec) -> bool:
+    data = _retry(ctx, f"{key.label} signing key download", lambda: _try_fetch(ctx.t.fetch_bytes, key.url, ctx))
+    if data is None:
+        return _skip_source(ctx, f"{key.label} apt repository", _matching(ctx, key.package, key.prefix))
+    return all(_dearmor(ctx, data, destination) for destination in key.destinations)
 
 
 def download_apt_gpg_keys(ctx: SystemContext) -> bool:
@@ -100,7 +147,7 @@ def download_apt_gpg_keys(ctx: SystemContext) -> bool:
     for key in (k for k in KEYS if _selected(ctx, k.package, k.prefix)):
         if dry_run_all(ctx.t, key.notice):
             continue
-        if not all(_dearmor(ctx, key.url, destination) for destination in key.destinations):
+        if not _install_key(ctx, key):
             return False
     return True
 
@@ -113,49 +160,39 @@ def configure_apt_ppas(ctx: SystemContext) -> bool:
 def _add_firefox_ppa(ctx: SystemContext) -> bool:
     if not _selected(ctx, "firefox") or dry_run_all(ctx.t, "Would add Mozilla PPA and configure Firefox pinning"):
         return True
-    return _add_ppa(ctx, "ppa:mozillateam/ppa") and _write_as_root(
-        ctx, "/etc/apt/preferences.d/mozillateam-firefox-pin", FIREFOX_PIN,
-    )
+    if not _add_ppa(ctx, "ppa:mozillateam/ppa", "firefox"):
+        return False
+    return "firefox" in ctx.skipped or _write_as_root(ctx, "/etc/apt/preferences.d/mozillateam-firefox-pin", FIREFOX_PIN)
 
 
 def _add_ghostty_ppa(ctx: SystemContext) -> bool:
     if not _selected(ctx, "ghostty") or dry_run_all(ctx.t, "Would add ghostty PPA (ppa:mkasberg/ghostty-ubuntu)"):
         return True
-    return _add_ppa(ctx, "ppa:mkasberg/ghostty-ubuntu")
+    return _add_ppa(ctx, "ppa:mkasberg/ghostty-ubuntu", "ghostty")
 
 
-def _add_ppa(ctx: SystemContext, ppa: str) -> bool:
-    """Launchpad answers 5xx under load, so a failed add is retried before the step gives up."""
-    for attempt in range(1, PPA_ATTEMPTS + 1):
-        if ctx.quiet("sudo", "add-apt-repository", "-y", ppa):
-            return True
-        if attempt < PPA_ATTEMPTS:
-            delay = PPA_RETRY_SECONDS * attempt
-            ctx.t.logger.warn(f"Adding {ppa} failed (attempt {attempt}/{PPA_ATTEMPTS}); retrying in {delay}s...")
-            time.sleep(delay)
-    ctx.t.logger.error(f"Could not add {ppa}; Launchpad may be down. Re-run the install once it is back.")
-    return False
+def _add_ppa(ctx: SystemContext, ppa: str, package: str) -> bool:
+    added = _retry(ctx, f"Adding {ppa}", lambda: True if ctx.quiet("sudo", "add-apt-repository", "-y", ppa) else None)
+    return added is True or _skip_source(ctx, ppa, {package})
 
 
 def _add_1password_policy(ctx: SystemContext) -> bool:
-    if not _selected(ctx, "1password") or dry_run_all(ctx.t, "Would configure 1Password debsig policy"):
+    if not _usable(ctx, "1password") or dry_run_all(ctx.t, "Would configure 1Password debsig policy"):
         return True
     return _install_policy(ctx, *ONEPASSWORD_POLICY)
 
 
 def _install_policy(ctx: SystemContext, url: str, destination: str) -> bool:
-    try:
-        policy = ctx.t.fetch(url)
-    except (OSError, ValueError) as error:
-        ctx.t.logger.error(f"Could not download {url}: {error}")
-        return False
+    policy = _retry(ctx, "1Password policy download", lambda: _try_fetch(ctx.t.fetch, url, ctx))
+    if policy is None:
+        return _skip_source(ctx, "1Password debsig policy", {"1password"})
     return _write_as_root(ctx, destination, policy)
 
 
 def _stow_ignores(ctx: SystemContext) -> list[str]:
     ignores = []
     for package, source_file in SOURCE_FILES:
-        if package not in ctx.packages:
+        if not _usable(ctx, package):
             ctx.t.logger.info(f"Skipping unneeded source file: {source_file}")
             ignores.append("--ignore=" + source_file.replace(".", r"\.") + "$")
     return ignores
@@ -260,10 +297,11 @@ def generate_templated_apt_sources(ctx: SystemContext, sources_dir: Path, os_rel
     for name, wanted in selected.items():
         if not wanted:
             remove_stale_rendered_source(ctx, name, sources_dir)
-    if not any(selected.values()):
+    usable = [name for name, package, prefix in TEMPLATED_SOURCES if _usable(ctx, package, prefix)]
+    if not usable:
         return True
     codename = detect_ubuntu_codename(ctx, os_release)
-    return all(render_apt_template(ctx, name, codename, sources_dir) for name, wanted in selected.items() if wanted)
+    return all(render_apt_template(ctx, name, codename, sources_dir) for name in usable)
 
 
 def _dry_run_summary(ctx: SystemContext) -> None:

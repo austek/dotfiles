@@ -30,12 +30,25 @@ class Machine:
         return self.inputs[tuple(argv)]
 
 
-def make(tmp_path, machine, packages=(), dry_run=False, fetch=lambda url: f"KEY:{url}", fetch_bytes=None):
+def make(tmp_path, machine, packages=(), dry_run=False, fetch=lambda url: f"KEY:{url}", fetch_bytes=None,
+         interactive=False, ask=input):
     fetch_bytes = fetch_bytes or (lambda url: f"KEY:{url}".encode())
     t = tools.Tooling(Logger(dry_run=dry_run, verbosity=1), tmp_path, run=machine, fetch=fetch, fetch_bytes=fetch_bytes)
     repo = tmp_path / "repo"
     repo.mkdir(exist_ok=True)
-    return ss.SystemContext(t, repo, frozenset(packages), RollbackLog(tmp_path / "rollback.log"))
+    return ss.SystemContext(t, repo, frozenset(packages), RollbackLog(tmp_path / "rollback.log"),
+                            interactive=interactive, ask=ask)
+
+
+def offline(url):
+    raise OSError("offline")
+
+
+@pytest.fixture(autouse=True)
+def sleeps(monkeypatch):
+    recorded = []
+    monkeypatch.setattr(aps.time, "sleep", recorded.append)
+    return recorded
 
 
 def test_each_selected_package_gets_its_signing_key_dearmored_into_its_keyring(tmp_path):
@@ -79,11 +92,75 @@ def test_unselected_packages_download_no_keys(tmp_path):
     assert machine.commands == []
 
 
-def test_a_key_download_failure_stops_the_step(tmp_path):
-    def broken(url):
-        raise OSError("offline")
+def test_an_unreachable_key_server_is_retried_then_skips_that_repository(tmp_path, sleeps):
+    ctx = make(tmp_path, Machine(), packages=["gh", "vim"], fetch_bytes=offline)
+    assert aps.download_apt_gpg_keys(ctx)
+    assert ctx.skipped == {"gh"}
+    assert sleeps == [10, 20]
 
-    assert not aps.download_apt_gpg_keys(make(tmp_path, Machine(), packages=["gh"], fetch_bytes=broken))
+
+def test_a_skipped_prefix_source_skips_every_package_it_matches(tmp_path):
+    ctx = make(tmp_path, Machine(), packages=["postgresql-16", "postgresql-client-16"], fetch_bytes=offline)
+    assert aps.download_apt_gpg_keys(ctx)
+    assert ctx.skipped == {"postgresql-16", "postgresql-client-16"}
+
+
+def test_declining_the_skip_prompt_stops_the_step(tmp_path):
+    ctx = make(tmp_path, Machine(), packages=["gh"], fetch_bytes=offline, interactive=True, ask=lambda q: "n")
+    assert not aps.download_apt_gpg_keys(ctx)
+    assert ctx.skipped == set()
+
+
+@pytest.mark.parametrize("answer", ["", "y", "YES"])
+def test_accepting_the_skip_prompt_continues(tmp_path, answer):
+    asked = []
+    ctx = make(tmp_path, Machine(), packages=["gh"], fetch_bytes=offline, interactive=True,
+               ask=lambda q: asked.append(q) or answer)
+    assert aps.download_apt_gpg_keys(ctx)
+    assert ctx.skipped == {"gh"}
+    assert "GitHub CLI apt repository" in asked[0]
+
+
+def test_end_of_input_at_the_skip_prompt_stops_the_step(tmp_path):
+    def closed(question):
+        raise EOFError
+
+    ctx = make(tmp_path, Machine(), packages=["gh"], fetch_bytes=offline, interactive=True, ask=closed)
+    assert not aps.download_apt_gpg_keys(ctx)
+
+
+def test_a_key_that_downloads_on_retry_is_not_skipped(tmp_path, sleeps):
+    attempts = iter([OSError("offline"), b"KEY"])
+
+    def flaky(url):
+        outcome = next(attempts)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    ctx = make(tmp_path, Machine(), packages=["gh"], fetch_bytes=flaky)
+    assert aps.download_apt_gpg_keys(ctx)
+    assert ctx.skipped == set()
+    assert sleeps == [10]
+
+
+def test_a_skipped_repository_gets_no_stowed_source_file(tmp_path):
+    machine = Machine()
+    ctx = make(tmp_path, machine, packages=["gh"])
+    ctx.skipped.add("gh")
+    assert aps.stow_apt_source_files(ctx)
+    assert r"--ignore=github-cli\.sources$" in machine.commands[0]
+
+
+def test_a_skipped_templated_source_is_neither_rendered_nor_removed(tmp_path):
+    machine = Machine()
+    sources = tmp_path / "s"
+    sources.mkdir()
+    (sources / "docker.sources").write_text(aps.RENDERED_MARKER)
+    ctx = make(tmp_path, machine, packages=["docker-ce"])
+    ctx.skipped.add("docker-ce")
+    assert aps.generate_templated_apt_sources(ctx, sources, tmp_path / "os-release")
+    assert machine.commands == []
 
 
 def test_a_binary_keyring_is_passed_to_gpg_unchanged(tmp_path):
@@ -127,18 +204,32 @@ def test_1password_gets_its_debsig_policy(tmp_path):
     assert policy == "KEY:https://downloads.1password.com/linux/debian/debsig/1password.pol"
 
 
-@pytest.fixture
-def sleeps(monkeypatch):
-    recorded = []
-    monkeypatch.setattr(aps.time, "sleep", recorded.append)
-    return recorded
-
-
-def test_a_failed_ppa_add_is_retried_then_stops_the_step(tmp_path, sleeps):
+def test_a_failed_ppa_add_is_retried_then_skips_the_package(tmp_path, sleeps):
     machine = Machine(failing=[("sudo", "add-apt-repository")])
-    assert not aps.configure_apt_ppas(make(tmp_path, machine, packages=["ghostty"]))
+    ctx = make(tmp_path, machine, packages=["ghostty", "vim"])
+    assert aps.configure_apt_ppas(ctx)
     assert machine.commands.count(["sudo", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu"]) == 3
     assert sleeps == [10, 20]
+    assert ctx.skipped == {"ghostty"}
+
+
+def test_declining_the_skip_after_a_failed_ppa_add_stops_the_step(tmp_path):
+    machine = Machine(failing=[("sudo", "add-apt-repository")])
+    ctx = make(tmp_path, machine, packages=["ghostty"], interactive=True, ask=lambda q: "n")
+    assert not aps.configure_apt_ppas(ctx)
+
+
+def test_a_skipped_firefox_ppa_writes_no_pin(tmp_path):
+    machine = Machine(failing=[("sudo", "add-apt-repository")])
+    ctx = make(tmp_path, machine, packages=["firefox"])
+    assert aps.configure_apt_ppas(ctx)
+    assert not machine.ran("sudo", "tee", "/etc/apt/preferences.d/mozillateam-firefox-pin")
+
+
+def test_an_unreachable_1password_policy_skips_1password(tmp_path):
+    ctx = make(tmp_path, Machine(), packages=["1password"], fetch=offline)
+    assert aps.configure_apt_ppas(ctx)
+    assert ctx.skipped == {"1password"}
 
 
 def test_a_ppa_add_that_succeeds_on_retry_lets_the_step_continue(tmp_path, sleeps):

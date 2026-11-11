@@ -47,7 +47,7 @@ def _remove_superseded_lists(ctx: SystemContext, sources_dir: Path) -> None:
 def install_packages(ctx: SystemContext, sources_dir: Path = Path("/etc/apt/sources.list.d")) -> bool:
     logger = ctx.t.logger
     logger.step("Step 4: Installing packages...")
-    apt_packages = sorted(p for p in ctx.packages if is_apt_package(p))
+    apt_packages = sorted(p for p in ctx.packages if is_apt_package(p) and p not in ctx.skipped)
     if not apt_packages:
         logger.warn("No apt packages to install.")
         return True

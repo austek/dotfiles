@@ -54,6 +54,14 @@ def test_only_apt_packages_are_installed_and_custom_ones_are_left_to_their_insta
     ]
 
 
+def test_packages_from_a_skipped_source_are_left_out_of_the_install(tmp_path):
+    machine = Machine()
+    ctx = make(tmp_path, machine, packages=["vim", "git", "ghostty"])
+    ctx.skipped.add("ghostty")
+    assert ap.install_packages(ctx, tmp_path / "sources")
+    assert machine.commands[1] == ["sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "git", "vim"]
+
+
 def test_no_apt_packages_means_no_apt_calls(tmp_path):
     machine = Machine()
     assert ap.install_packages(make(tmp_path, machine, packages=["nvm"]), tmp_path / "sources")

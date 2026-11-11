@@ -5,8 +5,8 @@ import getpass
 import shutil
 import threading
 import time
-from collections.abc import Collection
-from dataclasses import dataclass
+from collections.abc import Callable, Collection
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotfiles_setup.rollback import RollbackLog
@@ -26,6 +26,9 @@ class SystemContext:
     packages: Collection[str]
     changes: RollbackLog
     removals: Collection[str] = ()
+    skipped: set[str] = field(default_factory=set)
+    interactive: bool = False
+    ask: Callable[[str], str] = input
 
     def quiet(self, *argv: str, cwd: Path | None = None) -> bool:
         return self.t.logger.quiet_run(list(argv), run=self.t.run, cwd=cwd).returncode == 0
