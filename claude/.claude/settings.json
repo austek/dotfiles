@@ -54,7 +54,13 @@
       "mcp__serena__*"
     ],
     "ask": [
-      "Bash(rg *--pre*)"
+      "Bash(gh pr merge*)",
+      "Bash(git clean -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(rg *--pre*)",
+      "Bash(rtk gh pr merge*)",
+      "Bash(rtk git clean -f*)",
+      "Bash(rtk git reset --hard*)"
     ],
     "deny": [
       "Bash(gh repo delete*)",
@@ -162,24 +168,22 @@
     "command": "bash \"$HOME/.claude/statusline-command.sh\""
   },
   "enabledPlugins": {
+    "architecture@ustekai-skills": true,
+    "babysit-pane@ustekai-skills": true,
+    "claude-md-management@claude-plugins-official": true,
+    "code-craftsmanship@wondelai-skills": true,
     "code-modernization@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "receipts@claude-plugins-official": true,
     "cozempic@cozempic": true,
-    "metaskills@wondelai-skills": true,
-    "code-craftsmanship@wondelai-skills": true,
+    "dev-utilities@ustekai-skills": true,
+    "feature-dev@claude-plugins-official": true,
     "language-personas@ustekai-skills": true,
+    "pr-review-toolkit@claude-plugins-official": true,
     "pr-workflow-oss@ustekai-skills": true,
-    "babysit-pane@ustekai-skills": true,
-    "architecture@ustekai-skills": true,
     "productivity@ustekai-skills": true,
-    "dev-utilities@ustekai-skills": true
+    "receipts@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "cozempic": {
