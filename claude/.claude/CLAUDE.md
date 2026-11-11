@@ -50,6 +50,7 @@ Set the `Agent` tool's `model` explicitly; it overrides an agent's pinned model.
 - `haiku`: fan-out search, symbol/file lookup, log or CI triage, `comment-analyzer`, mechanical edits and renames.
 - `sonnet`: implementation, test writing, most reviews.
 - `opus`: architecture critique, adversarial verification, overfitting checks, security audit, hard debugging.
+- Plugin agents pin their own model; override as follows. `pr-review-toolkit:comment-analyzer`, `pr-test-analyzer`: `haiku`. `pr-review-toolkit:code-simplifier`, `code-simplifier:code-simplifier`: `sonnet` (pinned `opus`). `pr-review-toolkit:silent-failure-hunter`, `type-design-analyzer`: `sonnet`. Leave `pr-review-toolkit:code-reviewer` on `opus`.
 
 # Tool & Shell Execution
 - **File Modifications (Absolute Rule)**: NEVER use Bash, Python scripts, heredocs (`python3 - <<'EOF'`), `sed`, `sed -i`, or output redirection (`>`) to create or update files. ALWAYS use native `Edit` and `Write` tools — batching edits through scripts or shell commands triggers security prompts.
