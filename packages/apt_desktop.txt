@@ -1,5 +1,6 @@
 # Desktop-only packages (GUI machines: work, personal). Not installed on homelab.
 antigravity-ide
+claude-desktop
 code
 flatpak
 ghostty

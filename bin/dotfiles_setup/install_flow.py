@@ -51,6 +51,7 @@ class FlowInputs:
     upgrade: bool = False
     removals: tuple[str, ...] = ()
     removed: list[str] = field(default_factory=list)
+    interactive: bool = False
 
 
 def _announce(t: Tooling, kind: str, names: tuple[str, ...]) -> None:
@@ -95,6 +96,12 @@ def _report_unremoved(inputs: FlowInputs) -> None:
         inputs.t.logger.warn(f"not removed: {', '.join(left)}; they will be offered again next run")
 
 
+def _report_skipped_sources(ctx: SystemContext) -> None:
+    if ctx.skipped:
+        ctx.t.logger.warn(f"Not installed because their apt server was unreachable: {', '.join(sorted(ctx.skipped))}. "
+                          "Re-run the install to retry them.")
+
+
 def _warn_skipped_apt_removals(inputs: FlowInputs) -> None:
     split = removals.split_removals(inputs.removals)
     if split.apt or split.debs:
@@ -109,7 +116,7 @@ def _upgrade_steps(inputs: FlowInputs, ctx: SystemContext) -> list[Step]:
 
 def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackLog) -> list[Step]:
     t = inputs.t
-    ctx = SystemContext(t, inputs.dotfiles_dir, packages, changes, inputs.removals)
+    ctx = SystemContext(t, inputs.dotfiles_dir, packages, changes, inputs.removals, interactive=inputs.interactive)
     failed: list[str] = []
     stow_plan = stow.StowPlan(
         t, inputs.dotfiles_dir, inputs.overlay_root, inputs.force,
@@ -127,6 +134,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("remove_flatpaks", lambda: _remove_flatpak_apps(inputs, changes, failed)),
         ("remove_apt_packages", lambda: _remove_apt_packages(inputs, ctx, failed)),
         ("report_unremoved", lambda: _report_unremoved(inputs)),
+        ("report_skipped_sources", lambda: _report_skipped_sources(ctx)),
         ("install_post_apt_tools", lambda: tools.install_post_apt_tools(t, packages)),
         ("enable_gpaste_extension", lambda: system_steps.enable_gpaste_extension(ctx)),
         ("install_github_bins", lambda: apt_packages.install_github_bins(ctx)),

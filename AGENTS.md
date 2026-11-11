@@ -29,6 +29,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 ### 4. Apt Repositories
 - Third-party `apt` repositories are declaratively managed using `.sources` files within the `apt/` package.
 - The setup script handles securely downloading the latest GPG keys.
+- An unreachable apt source does not stop the install. A signing-key download, PPA add or 1Password policy download is retried 3 times (10 s, 20 s apart); after that the source and the packages that need it (`SystemContext.skipped`) are left out of the run: its source file is not stowed or rendered, `install_packages` leaves the packages out, and `report_skipped_sources` lists them at the end. An interactive run asks first (`Skip <source> and continue without <packages>? [Y/n]`, where `n` or EOF stops the step as before); a non-interactive run skips with a warning. Other failures (gpg, stow, `apt-get`) still stop the install. A skipped source keeps its previously rendered `.sources` file, and the packages stay in the wanted list, so the next run retries them.
 
 ### 5. Claude Code Skills
 - Shareable Claude Code skills and commands live in a separate public marketplace repo, [austek/ustekai-skills](https://github.com/austek/ustekai-skills) (marketplace name `ustekai-skills`, so plugin keys read `<plugin>@ustekai-skills`), referenced from `claude/.claude/settings.json`'s `extraKnownMarketplaces`/`enabledPlugins`.
