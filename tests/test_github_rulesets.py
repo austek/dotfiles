@@ -178,8 +178,10 @@ def test_build_payload_never_duplicates_a_managed_rule():
 
 def test_wants_pull_request_follows_the_setting_or_the_current_rules():
     has_pr = {"rules": [{"type": "pull_request"}]}
-    assert grs.wants_pull_request("1", {}) and not grs.wants_pull_request("0", has_pr)
-    assert grs.wants_pull_request("preserve", has_pr) and not grs.wants_pull_request("preserve", {})
+    assert grs.wants_pull_request("1", {})
+    assert not grs.wants_pull_request("0", has_pr)
+    assert grs.wants_pull_request("preserve", has_pr)
+    assert not grs.wants_pull_request("preserve", {})
 
 
 def test_it_stops_when_gh_is_not_installed(tmp_path):

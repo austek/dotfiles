@@ -84,7 +84,9 @@ def build_payload(want_pr: bool, current: Mapping[str, object]) -> dict[str, obj
     rules = current.get("rules", [])
     kept = [r for r in rules if r["type"] not in (*MANAGED_RULES, "pull_request")]
     old_pr = [r for r in rules if r["type"] == "pull_request"]
-    pull_request = [old_pr[0] if old_pr else PULL_REQUEST_RULE] if want_pr else []
+    pull_request = []
+    if want_pr:
+        pull_request = old_pr[:1] or [PULL_REQUEST_RULE]
     payload: dict[str, object] = {
         "name": RULESET_NAME,
         "target": "branch",
