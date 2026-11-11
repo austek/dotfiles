@@ -19,6 +19,15 @@ def isolated_home(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def syslog_lines(monkeypatch):
+    """Captures what would reach syslog, so a test run never writes to the host's log."""
+    lines = []
+    monkeypatch.setattr("dotfiles_setup.log.syslog.syslog", lambda priority, message: lines.append((priority, message)))
+    monkeypatch.setattr("dotfiles_setup.log.syslog.openlog", lambda *args, **kwargs: None)
+    return lines
+
+
+@pytest.fixture(autouse=True)
 def no_network_tool_fetch(monkeypatch):
     def refuse(url, *_args):
         raise AssertionError(f"test attempted a real network call: {url}")

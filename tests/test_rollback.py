@@ -144,6 +144,19 @@ def test_a_backup_kept_elsewhere_is_restored_to_the_recorded_original(tmp_path):
     assert machine.argvs() == [["sudo", "mv", str(backup), str(original)]]
 
 
+def test_a_moved_relative_symlink_that_now_dangles_is_still_restored(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    backup = tmp_path / "backups" / "claude-desktop.backup-1"
+    backup.parent.mkdir()
+    backup.symlink_to("../../home/user/.dotfiles/apt/etc/default/claude-desktop")
+    assert not backup.exists()
+    original = tmp_path / "etc" / "claude-desktop"
+    ctx.log.track(f"FILE_BACKUP:{backup}|{original}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert machine.argvs() == [["sudo", "mv", str(backup), str(original)]]
+
+
 def test_a_missing_backup_file_is_skipped(tmp_path):
     machine = Machine()
     ctx = context(tmp_path, machine)

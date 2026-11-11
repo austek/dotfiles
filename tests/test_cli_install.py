@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from cli_support import _add_preset, fail_flow
@@ -236,9 +237,62 @@ def test_a_failure_with_nothing_to_roll_back_offers_nothing(isolated_dotfiles, m
     assert main(["install", "--preset", "homelab"]) == 1
 
 
+def test_install_refuses_to_run_from_a_linked_worktree(isolated_dotfiles, flow_calls, capsys):
+    dotfiles_dir, _ = isolated_dotfiles
+    (dotfiles_dir / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert "linked worktree" in capsys.readouterr().err
+    assert flow_calls == []
+
+
+def test_install_refuses_a_private_overlay_that_is_a_linked_worktree(isolated_dotfiles, flow_calls, monkeypatch, capsys):
+    _, tmp_path = isolated_dotfiles
+    private_root = tmp_path / "dotfiles-private"
+    private_root.mkdir()
+    (private_root / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+    assert main(["install", "--preset", "homelab"]) == 1
+    assert str(private_root) in capsys.readouterr().err
+    assert flow_calls == []
+
+
+def test_a_dry_run_is_allowed_from_a_linked_worktree(isolated_dotfiles, flow_calls):
+    dotfiles_dir, _ = isolated_dotfiles
+    (dotfiles_dir / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert len(flow_calls) == 1
+
+
+def test_install_runs_from_a_main_checkout(isolated_dotfiles, flow_calls):
+    dotfiles_dir, _ = isolated_dotfiles
+    (dotfiles_dir / ".git").mkdir()
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert len(flow_calls) == 1
+
+
 def test_dry_run_install_writes_nothing_to_disk(isolated_dotfiles):
     _, tmp_path = isolated_dotfiles
     assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
     assert not list((tmp_path / "claude-home").rglob("*"))
     assert not (tmp_path / "state" / "state.json").exists()
     assert not (tmp_path / "state" / "claude-profiles").exists()
+
+
+def test_an_install_keeps_a_private_transcript_of_the_run(isolated_dotfiles, flow_calls):
+    assert main(["install", "--preset", "homelab"]) == 0
+    transcript = flow_calls[0].t.logger.transcript
+    assert transcript.path.parent == Path.home() / ".local/state/dotfiles/logs"
+    assert "Starting Ubuntu Dotfiles Setup..." in transcript.path.read_text()
+
+
+def test_a_dry_run_keeps_no_transcript(isolated_dotfiles, flow_calls):
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert flow_calls[0].t.logger.transcript is None
+    assert not (Path.home() / ".local/state/dotfiles/logs").exists()
+
+
+def test_commands_run_by_an_install_are_written_to_the_transcript(isolated_dotfiles, flow_calls):
+    assert main(["install", "--preset", "homelab"]) == 0
+    t = flow_calls[0].t
+    t.run(["true"], capture_output=True, text=True)
+    assert "$ true -> exit 0" in t.logger.transcript.path.read_text()

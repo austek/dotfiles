@@ -9,6 +9,7 @@ from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from dotfiles_setup.result import Err, Ok, Result
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
@@ -17,6 +18,17 @@ CORE_PACKAGES = (
 )
 GPASTE_ID = "GPaste@gnome-shell-extensions.gnome.org"
 SUDO_REFRESH_SECONDS = 60
+
+
+TIMEOUT_EXIT_CODE = 124
+
+
+def failure_reason(returncode: int, output: str) -> str:
+    """The last line a failed command printed, which for a traceback is the exception."""
+    if returncode == TIMEOUT_EXIT_CODE:
+        return "timed out"
+    last = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "")
+    return last or f"exit status {returncode}"
 
 
 @dataclass(frozen=True)
@@ -32,6 +44,15 @@ class SystemContext:
 
     def quiet(self, *argv: str, cwd: Path | None = None) -> bool:
         return self.t.logger.quiet_run(list(argv), run=self.t.run, cwd=cwd).returncode == 0
+
+    def attempt(self, *argv: str) -> Result[None]:
+        """Runs argv without printing its output; a failure comes back as a one-line reason, the output goes to syslog."""
+        done = self.t.run(list(argv), capture_output=True, text=True)
+        if done.returncode == 0:
+            return Ok(None)
+        output = (done.stdout or "") + (done.stderr or "")
+        self.t.logger.record(f"{' '.join(argv)} exited {done.returncode}\n{output}", "warning", transcribe=False)
+        return Err(failure_reason(done.returncode, output))
 
     def track(self, entry: str) -> None:
         self.changes.track(entry, dry_run=self.t.logger.dry_run)

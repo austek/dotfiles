@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotfiles_setup.result import Err, Ok, Result
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import dry_run_all
 
@@ -16,6 +17,7 @@ RENDERED_MARKER ="# Managed by dotfiles: rendered from apt-templates"
 DEFAULT_CODENAME = "noble"
 FETCH_ATTEMPTS = 3
 FETCH_RETRY_SECONDS = 10
+PPA_TIMEOUT_SECONDS = 45
 STOW_BACKUP_ROOT = Path("/var/backups/dotfiles-stow")
 SOURCE_FILES = (
     ("1password", "1password.sources"),
@@ -89,16 +91,17 @@ def _usable(ctx: SystemContext, name: str, prefix: bool = False) -> bool:
     return bool(_matching(ctx, name, prefix) - ctx.skipped)
 
 
-def _retry[T](ctx: SystemContext, label: str, attempt: Callable[[], T | None]) -> T | None:
+def _retry[T](ctx: SystemContext, label: str, attempt: Callable[[], Result[T]]) -> Result[T]:
     """Server-side failures are often brief, so each attempt is repeated with a growing delay."""
-    for number in range(1, FETCH_ATTEMPTS + 1):
-        if (result := attempt()) is not None:
-            return result
-        if number < FETCH_ATTEMPTS:
-            delay = FETCH_RETRY_SECONDS * number
-            ctx.t.logger.warn(f"{label} failed (attempt {number}/{FETCH_ATTEMPTS}); retrying in {delay}s...")
-            time.sleep(delay)
-    return None
+    outcome = attempt()
+    for number in range(1, FETCH_ATTEMPTS):
+        if isinstance(outcome, Ok):
+            return outcome
+        delay = FETCH_RETRY_SECONDS * number
+        ctx.t.logger.warn(f"{label} failed (attempt {number}/{FETCH_ATTEMPTS}): {outcome.error}; retrying in {delay}s...")
+        time.sleep(delay)
+        outcome = attempt()
+    return outcome
 
 
 def _confirm(ctx: SystemContext, question: str) -> bool:
@@ -108,10 +111,10 @@ def _confirm(ctx: SystemContext, question: str) -> bool:
         return False
 
 
-def _skip_source(ctx: SystemContext, label: str, packages: set[str]) -> bool:
+def _skip_source(ctx: SystemContext, label: str, packages: set[str], reason: str) -> bool:
     """Drops an unreachable source and its packages so the rest of the install can go on; False stops the run."""
     names = ", ".join(sorted(packages))
-    ctx.t.logger.error(f"{label} is unreachable after {FETCH_ATTEMPTS} attempts; its server may be down.")
+    ctx.t.logger.error(f"{label} is unreachable after {FETCH_ATTEMPTS} attempts ({reason}); its server may be down.")
     if ctx.interactive and not _confirm(ctx, f"Skip {label} and continue without {names}? [Y/n] "):
         return False
     ctx.skipped.update(packages)
@@ -119,12 +122,11 @@ def _skip_source(ctx: SystemContext, label: str, packages: set[str]) -> bool:
     return True
 
 
-def _try_fetch[T](fetch: Callable[[str], T], url: str, ctx: SystemContext) -> T | None:
+def _try_fetch[T](fetch: Callable[[str], T], url: str) -> Result[T]:
     try:
-        return fetch(url)
+        return Ok(fetch(url))
     except (OSError, ValueError) as error:
-        ctx.t.logger.error(f"Could not download {url}: {error}")
-        return None
+        return Err(str(error))
 
 
 def _write_as_root(ctx: SystemContext, destination: str, content: str) -> bool:
@@ -137,10 +139,11 @@ def _dearmor(ctx: SystemContext, key: bytes, destination: str) -> bool:
 
 
 def _install_key(ctx: SystemContext, key: KeySpec) -> bool:
-    data = _retry(ctx, f"{key.label} signing key download", lambda: _try_fetch(ctx.t.fetch_bytes, key.url, ctx))
-    if data is None:
-        return _skip_source(ctx, f"{key.label} apt repository", _matching(ctx, key.package, key.prefix))
-    return all(_dearmor(ctx, data, destination) for destination in key.destinations)
+    match _retry(ctx, f"{key.label} signing key download", lambda: _try_fetch(ctx.t.fetch_bytes, key.url)):
+        case Err(error=reason):
+            return _skip_source(ctx, f"{key.label} apt repository", _matching(ctx, key.package, key.prefix), reason)
+        case Ok(value=data):
+            return all(_dearmor(ctx, data, destination) for destination in key.destinations)
 
 
 def download_apt_gpg_keys(ctx: SystemContext) -> bool:
@@ -173,8 +176,15 @@ def _add_ghostty_ppa(ctx: SystemContext) -> bool:
 
 
 def _add_ppa(ctx: SystemContext, ppa: str, package: str) -> bool:
-    added = _retry(ctx, f"Adding {ppa}", lambda: True if ctx.quiet("sudo", "add-apt-repository", "-y", ppa) else None)
-    return added is True or _skip_source(ctx, ppa, {package})
+    """launchpadlib retries a dead connection without limit, so the command is cut off after PPA_TIMEOUT_SECONDS.
+
+    The cache refresh is left to `install_packages` so a slow mirror cannot be mistaken for an unreachable PPA."""
+    add = ("sudo", "timeout", str(PPA_TIMEOUT_SECONDS), "add-apt-repository", "-y", "--no-update", ppa)
+    match _retry(ctx, f"Adding {ppa}", lambda: ctx.attempt(*add)):
+        case Err(error=reason):
+            return _skip_source(ctx, ppa, {package}, reason)
+        case Ok():
+            return True
 
 
 def _add_1password_policy(ctx: SystemContext) -> bool:
@@ -184,10 +194,11 @@ def _add_1password_policy(ctx: SystemContext) -> bool:
 
 
 def _install_policy(ctx: SystemContext, url: str, destination: str) -> bool:
-    policy = _retry(ctx, "1Password policy download", lambda: _try_fetch(ctx.t.fetch, url, ctx))
-    if policy is None:
-        return _skip_source(ctx, "1Password debsig policy", {"1password"})
-    return _write_as_root(ctx, destination, policy)
+    match _retry(ctx, "1Password policy download", lambda: _try_fetch(ctx.t.fetch, url)):
+        case Err(error=reason):
+            return _skip_source(ctx, "1Password debsig policy", {"1password"}, reason)
+        case Ok(value=policy):
+            return _write_as_root(ctx, destination, policy)
 
 
 def _stow_ignores(ctx: SystemContext) -> list[str]:
@@ -221,6 +232,39 @@ def _show_stow_output(ctx: SystemContext, output: str, failed: bool) -> None:
         print(kept)
 
 
+def _back_up(ctx: SystemContext, existing: Path) -> bool:
+    backup = f"{STOW_BACKUP_ROOT}/{existing.name}.backup-{int(time.time())}"
+    if ctx.t.run(["sudo", "mv", str(existing), backup]).returncode != 0:
+        return False
+    ctx.track(f"FILE_BACKUP:{backup}|{existing}")
+    return True
+
+
+def _stowed_link(ctx: SystemContext, source_file: str) -> Path | None:
+    """The live link for a file of the apt package, when it still points into this repo."""
+    package_dir = ctx.dotfiles_dir / "apt"
+    packaged = next(package_dir.rglob(source_file), None)
+    if packaged is None:
+        return None
+    link = FS_ROOT / packaged.relative_to(package_dir)
+    return link if link.is_symlink() and package_dir.resolve() in link.resolve().parents else None
+
+
+def _retire_source_link(ctx: SystemContext, source_file: str) -> bool:
+    """Stow applies its ignore list when unstowing, so a deselected source's old link has to be moved aside."""
+    link = _stowed_link(ctx, source_file)
+    if link is None:
+        return True
+    ctx.t.logger.info(f"Removing deselected apt source: {source_file}")
+    ctx.t.run(["sudo", "mkdir", "-p", str(STOW_BACKUP_ROOT)])
+    return _back_up(ctx, link)
+
+
+def _retire_deselected_links(ctx: SystemContext) -> bool:
+    return all(_retire_source_link(ctx, source_file)
+               for package, source_file in SOURCE_FILES if not _selected(ctx, package))
+
+
 def _resolve_stow_conflicts(ctx: SystemContext, ignores: list[str]) -> bool:
     ctx.t.logger.warn("Stow encountered conflicts. Attempting to resolve...")
     simulation = _stow_apt(ctx, ignores, "--no")
@@ -233,10 +277,8 @@ def _resolve_stow_conflicts(ctx: SystemContext, ignores: list[str]) -> bool:
         if not existing.is_file():
             continue
         ctx.t.logger.info(f"Backing up conflicting file: {conflict}")
-        backup = f"{STOW_BACKUP_ROOT}/{existing.name}.backup-{int(time.time())}"
-        if ctx.t.run(["sudo", "mv", str(existing), backup]).returncode != 0:
+        if not _back_up(ctx, existing):
             return False
-        ctx.track(f"FILE_BACKUP:{backup}|{existing}")
     if not ctx.quiet("sudo", "stow", f"--dir={ctx.dotfiles_dir}", "--restow", "--no-folding", *ignores,
                      "--target=/", "--verbose=1", "apt", cwd=ctx.dotfiles_dir):
         return False
@@ -245,6 +287,8 @@ def _resolve_stow_conflicts(ctx: SystemContext, ignores: list[str]) -> bool:
 
 
 def stow_apt_source_files(ctx: SystemContext) -> bool:
+    if not _retire_deselected_links(ctx):
+        return False
     ignores = _stow_ignores(ctx)
     ctx.t.logger.info("Stowing required 'apt' source files to / ...")
     result = _stow_apt(ctx, ignores, "--restow")

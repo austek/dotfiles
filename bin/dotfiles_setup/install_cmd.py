@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Any
 
 from dotfiles_setup import (
     claude_plugins,
     foothold,
     install_flow,
+    overlay,
     rollback,
     state,
     tooling,
@@ -26,8 +28,10 @@ from dotfiles_setup.persist import _persist
 from dotfiles_setup.plan import _build_plan, _Install, _resolve_preset_name
 from dotfiles_setup.presets import Preset
 from dotfiles_setup.result import Err, Ok, Result
+from dotfiles_setup.transcript import Transcript, open_transcript
 
 PERSIST_FAILED_EXIT_CODE = 4
+TRANSCRIPT_DIR = ".local/state/dotfiles/logs"
 
 
 def _log_install_failure(logger: Logger, result: InstallResult) -> None:
@@ -38,8 +42,34 @@ def _sync_foothold(logger: Logger, preset: Preset) -> None:
     foothold.sync_footholds(logger, preset.footholds)
 
 
+def _in_linked_worktree(dotfiles_dir: Path) -> bool:
+    """A linked worktree has a `.git` file pointing at the main checkout; the main checkout has a `.git` directory."""
+    return (dotfiles_dir / ".git").is_file()
+
+
+def _refuses_worktree(args: argparse.Namespace, env: Env) -> bool:
+    roots = (env.dotfiles_dir, overlay.find_overlay_root())
+    worktree = next((root for root in roots if root is not None and _in_linked_worktree(root)), None)
+    if args.dry_run or worktree is None:
+        return False
+    Logger(dry_run=False, verbosity=args.verbosity).error(
+        f"Refusing to install with the linked worktree {worktree} as a dotfiles checkout: stow would link /etc and "
+        "$HOME into it. Use the main checkouts, or pass --dry-run.")
+    return True
+
+
+def _open_transcript(args: argparse.Namespace, env: Env) -> Transcript | None:
+    if args.dry_run:
+        return None
+    return open_transcript(env.home / TRANSCRIPT_DIR, env.clock().strftime("%Y%m%d-%H%M%S"))
+
+
 def _run_install(args: argparse.Namespace, env: Env) -> int:
-    logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
+    if _refuses_worktree(args, env):
+        return 1
+    logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity, transcript=_open_transcript(args, env))
+    if logger.transcript is not None:
+        logger.info(f"Transcript: {logger.transcript.path}")
     if args.dry_run:
         logger.warn("=== DRY-RUN MODE: No changes will be made ===")
     logger.step("Starting Ubuntu Dotfiles Setup...")

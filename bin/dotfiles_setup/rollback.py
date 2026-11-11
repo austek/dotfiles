@@ -72,7 +72,7 @@ def _restore_backup(ctx: RollbackContext, data: str) -> None:
     """The entry is `backup|original`; a bare `backup` sits next to the original with a `.backup-<ts>` suffix."""
     backup, _, recorded = data.partition("|")
     original = recorded or backup.rsplit(".backup-", 1)[0]
-    if Path(backup).is_file():
+    if Path(backup).is_file() or Path(backup).is_symlink():
         ctx.t.logger.info(f"Restoring backed up file: {original}")
         if not _run_quiet(ctx, ["sudo", "mv", backup, original]):
             ctx.t.logger.warn(f"Failed to restore {original}")
