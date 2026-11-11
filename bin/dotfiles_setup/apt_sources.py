@@ -13,6 +13,8 @@ from dotfiles_setup.tooling import dry_run_all
 FS_ROOT = Path("/")
 RENDERED_MARKER ="# Managed by dotfiles: rendered from apt-templates"
 DEFAULT_CODENAME = "noble"
+PPA_ATTEMPTS = 3
+PPA_RETRY_SECONDS = 10
 STOW_BACKUP_ROOT = Path("/var/backups/dotfiles-stow")
 SOURCE_FILES = (
     ("1password", "1password.sources"),
@@ -111,7 +113,7 @@ def configure_apt_ppas(ctx: SystemContext) -> bool:
 def _add_firefox_ppa(ctx: SystemContext) -> bool:
     if not _selected(ctx, "firefox") or dry_run_all(ctx.t, "Would add Mozilla PPA and configure Firefox pinning"):
         return True
-    return ctx.quiet("sudo", "add-apt-repository", "-y", "ppa:mozillateam/ppa") and _write_as_root(
+    return _add_ppa(ctx, "ppa:mozillateam/ppa") and _write_as_root(
         ctx, "/etc/apt/preferences.d/mozillateam-firefox-pin", FIREFOX_PIN,
     )
 
@@ -119,7 +121,20 @@ def _add_firefox_ppa(ctx: SystemContext) -> bool:
 def _add_ghostty_ppa(ctx: SystemContext) -> bool:
     if not _selected(ctx, "ghostty") or dry_run_all(ctx.t, "Would add ghostty PPA (ppa:mkasberg/ghostty-ubuntu)"):
         return True
-    return ctx.quiet("sudo", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu")
+    return _add_ppa(ctx, "ppa:mkasberg/ghostty-ubuntu")
+
+
+def _add_ppa(ctx: SystemContext, ppa: str) -> bool:
+    """Launchpad answers 5xx under load, so a failed add is retried before the step gives up."""
+    for attempt in range(1, PPA_ATTEMPTS + 1):
+        if ctx.quiet("sudo", "add-apt-repository", "-y", ppa):
+            return True
+        if attempt < PPA_ATTEMPTS:
+            delay = PPA_RETRY_SECONDS * attempt
+            ctx.t.logger.warn(f"Adding {ppa} failed (attempt {attempt}/{PPA_ATTEMPTS}); retrying in {delay}s...")
+            time.sleep(delay)
+    ctx.t.logger.error(f"Could not add {ppa}; Launchpad may be down. Re-run the install once it is back.")
+    return False
 
 
 def _add_1password_policy(ctx: SystemContext) -> bool:

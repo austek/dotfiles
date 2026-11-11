@@ -127,9 +127,34 @@ def test_1password_gets_its_debsig_policy(tmp_path):
     assert policy == "KEY:https://downloads.1password.com/linux/debian/debsig/1password.pol"
 
 
-def test_a_failed_ppa_add_stops_the_step(tmp_path):
+@pytest.fixture
+def sleeps(monkeypatch):
+    recorded = []
+    monkeypatch.setattr(aps.time, "sleep", recorded.append)
+    return recorded
+
+
+def test_a_failed_ppa_add_is_retried_then_stops_the_step(tmp_path, sleeps):
     machine = Machine(failing=[("sudo", "add-apt-repository")])
     assert not aps.configure_apt_ppas(make(tmp_path, machine, packages=["ghostty"]))
+    assert machine.commands.count(["sudo", "add-apt-repository", "-y", "ppa:mkasberg/ghostty-ubuntu"]) == 3
+    assert sleeps == [10, 20]
+
+
+def test_a_ppa_add_that_succeeds_on_retry_lets_the_step_continue(tmp_path, sleeps):
+    machine = Machine()
+    outcomes = iter([1, 0])
+    real = machine.__call__
+
+    def flaky(argv, **kwargs):
+        result = real(argv, **kwargs)
+        if argv[:2] == ["sudo", "add-apt-repository"]:
+            result.returncode = next(outcomes)
+        return result
+
+    ctx = make(tmp_path, flaky, packages=["ghostty"])
+    assert aps.configure_apt_ppas(ctx)
+    assert sleeps == [10]
 
 
 def test_ppas_are_not_added_in_a_dry_run(tmp_path):
