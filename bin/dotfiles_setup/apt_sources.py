@@ -221,6 +221,39 @@ def _show_stow_output(ctx: SystemContext, output: str, failed: bool) -> None:
         print(kept)
 
 
+def _back_up(ctx: SystemContext, existing: Path) -> bool:
+    backup = f"{STOW_BACKUP_ROOT}/{existing.name}.backup-{int(time.time())}"
+    if ctx.t.run(["sudo", "mv", str(existing), backup]).returncode != 0:
+        return False
+    ctx.track(f"FILE_BACKUP:{backup}|{existing}")
+    return True
+
+
+def _stowed_link(ctx: SystemContext, source_file: str) -> Path | None:
+    """The live link for a file of the apt package, when it still points into this repo."""
+    package_dir = ctx.dotfiles_dir / "apt"
+    packaged = next(package_dir.rglob(source_file), None)
+    if packaged is None:
+        return None
+    link = FS_ROOT / packaged.relative_to(package_dir)
+    return link if link.is_symlink() and package_dir.resolve() in link.resolve().parents else None
+
+
+def _retire_source_link(ctx: SystemContext, source_file: str) -> bool:
+    """Stow applies its ignore list when unstowing, so a deselected source's old link has to be moved aside."""
+    link = _stowed_link(ctx, source_file)
+    if link is None:
+        return True
+    ctx.t.logger.info(f"Removing deselected apt source: {source_file}")
+    ctx.t.run(["sudo", "mkdir", "-p", str(STOW_BACKUP_ROOT)])
+    return _back_up(ctx, link)
+
+
+def _retire_deselected_links(ctx: SystemContext) -> bool:
+    return all(_retire_source_link(ctx, source_file)
+               for package, source_file in SOURCE_FILES if not _selected(ctx, package))
+
+
 def _resolve_stow_conflicts(ctx: SystemContext, ignores: list[str]) -> bool:
     ctx.t.logger.warn("Stow encountered conflicts. Attempting to resolve...")
     simulation = _stow_apt(ctx, ignores, "--no")
@@ -233,10 +266,8 @@ def _resolve_stow_conflicts(ctx: SystemContext, ignores: list[str]) -> bool:
         if not existing.is_file():
             continue
         ctx.t.logger.info(f"Backing up conflicting file: {conflict}")
-        backup = f"{STOW_BACKUP_ROOT}/{existing.name}.backup-{int(time.time())}"
-        if ctx.t.run(["sudo", "mv", str(existing), backup]).returncode != 0:
+        if not _back_up(ctx, existing):
             return False
-        ctx.track(f"FILE_BACKUP:{backup}|{existing}")
     if not ctx.quiet("sudo", "stow", f"--dir={ctx.dotfiles_dir}", "--restow", "--no-folding", *ignores,
                      "--target=/", "--verbose=1", "apt", cwd=ctx.dotfiles_dir):
         return False
@@ -245,6 +276,8 @@ def _resolve_stow_conflicts(ctx: SystemContext, ignores: list[str]) -> bool:
 
 
 def stow_apt_source_files(ctx: SystemContext) -> bool:
+    if not _retire_deselected_links(ctx):
+        return False
     ignores = _stow_ignores(ctx)
     ctx.t.logger.info("Stowing required 'apt' source files to / ...")
     result = _stow_apt(ctx, ignores, "--restow")

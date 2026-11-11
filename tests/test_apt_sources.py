@@ -269,6 +269,68 @@ def test_unneeded_source_files_are_ignored_by_the_apt_stow(tmp_path):
     assert ctx.changes.entries() == ["STOW_ROOT:apt"]
 
 
+@pytest.fixture
+def stowed_mise(tmp_path, monkeypatch):
+    """A repo with a mise source file and a live link to it under a fake root."""
+    monkeypatch.setattr(aps, "FS_ROOT", tmp_path / "fs")
+    monkeypatch.setattr(aps, "STOW_BACKUP_ROOT", tmp_path / "backups")
+    packaged = tmp_path / "repo/apt/etc/apt/sources.list.d/mise.sources"
+    packaged.parent.mkdir(parents=True)
+    packaged.write_text("Types: deb")
+    link = tmp_path / "fs/etc/apt/sources.list.d/mise.sources"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(packaged)
+    return link
+
+
+def test_the_link_of_a_deselected_source_is_moved_aside_before_the_restow(tmp_path, stowed_mise):
+    machine = Machine()
+    ctx = make(tmp_path, machine, packages=["gh"])
+    assert aps.stow_apt_source_files(ctx)
+    move = next(c for c in machine.commands if c[:2] == ["sudo", "mv"])
+    assert move[2] == str(stowed_mise)
+    assert machine.commands.index(move) < next(i for i, c in enumerate(machine.commands) if c[:2] == ["sudo", "stow"])
+    assert f"FILE_BACKUP:{move[3]}|{stowed_mise}" in ctx.changes.entries()
+
+
+def test_a_selected_source_keeps_its_link(tmp_path, stowed_mise):
+    machine = Machine()
+    assert aps.stow_apt_source_files(make(tmp_path, machine, packages=["mise"]))
+    assert not machine.ran("sudo", "mv")
+
+
+def test_a_skipped_source_keeps_its_link(tmp_path, stowed_mise):
+    machine = Machine()
+    ctx = make(tmp_path, machine, packages=["mise"])
+    ctx.skipped.add("mise")
+    assert aps.stow_apt_source_files(ctx)
+    assert not machine.ran("sudo", "mv")
+
+
+def test_a_file_that_is_not_a_link_into_the_repo_is_left_alone(tmp_path, stowed_mise):
+    stowed_mise.unlink()
+    stowed_mise.write_text("hand written")
+    machine = Machine()
+    assert aps.stow_apt_source_files(make(tmp_path, machine, packages=["gh"]))
+    assert not machine.ran("sudo", "mv")
+
+
+def test_a_link_to_somewhere_else_is_left_alone(tmp_path, stowed_mise):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.write_text("x")
+    stowed_mise.unlink()
+    stowed_mise.symlink_to(elsewhere)
+    machine = Machine()
+    assert aps.stow_apt_source_files(make(tmp_path, machine, packages=["gh"]))
+    assert not machine.ran("sudo", "mv")
+
+
+def test_a_failed_move_stops_the_step(tmp_path, stowed_mise):
+    machine = Machine(failing=[("sudo", "mv")])
+    assert not aps.stow_apt_source_files(make(tmp_path, machine, packages=["gh"]))
+    assert not machine.ran("sudo", "stow")
+
+
 def test_stow_conflicts_are_backed_up_then_the_stow_is_retried(tmp_path, monkeypatch):
     monkeypatch.setattr(aps, "FS_ROOT", tmp_path / "fs")
     monkeypatch.setattr(aps, "STOW_BACKUP_ROOT", tmp_path / "backups")
