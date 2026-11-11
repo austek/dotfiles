@@ -2,9 +2,10 @@ import json
 import subprocess
 from pathlib import Path
 
+import github_rulesets as grs
 from test_local_scripts import _path_without, _stub
 
-SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "github-rulesets.sh"
+SCRIPT = Path(__file__).resolve().parent.parent / "bin" / "github-rulesets"
 
 
 def _run_rulesets(tmp_path, gh_body, without=()):
@@ -122,6 +123,72 @@ def test_forks_are_included_on_request(tmp_path):
     result = _dry_run(tmp_path, _gh_reading(tmp_path, repo_list=listing), REPOS="", INCLUDE_FORKS="1")
     assert "owner/forked: would run" in result.stdout
     assert "0 forks" in result.stdout
+
+
+def test_a_write_reports_what_gh_printed(tmp_path):
+    gh = 'case "$*" in\n  *-X\\ POST*) cat >/dev/null; echo "created (pr=0)" ;;\n  *rulesets*) : ;;\nesac\n'
+    result = subprocess.run(
+        [str(SCRIPT), "owner"], env={"PATH": _path_without(tmp_path, _stub_dir(tmp_path, gh)), "REPOS": "alpha"},
+        capture_output=True, text=True, check=False, timeout=60,
+    )
+    assert result.returncode == 0
+    assert "owner/alpha: created (pr=0)" in result.stdout
+
+
+def _stub_dir(tmp_path, gh_body):
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    _stub(stubs, "gh", gh_body)
+    return stubs
+
+
+def test_an_existing_ruleset_that_is_not_json_is_a_read_failure(tmp_path):
+    gh = 'case "$*" in\n  *rulesets/42*) echo "not json" ;;\n  *rulesets*) echo 42 ;;\nesac\n'
+    result = _dry_run(tmp_path, gh)
+    assert result.returncode == 1
+    assert "owner/alpha: FAIL (cannot read ruleset 42)" in result.stdout
+
+
+def test_settings_default_to_the_zirek_owner_and_preserve_the_pull_request_rule():
+    settings = grs.parse_settings([], {})
+    assert (settings.owner, settings.dry_run, settings.require_pr, settings.include_forks, settings.repos) == (
+        "ZirekHQ", False, "preserve", False, (),
+    )
+
+
+def test_settings_read_the_flag_the_environment_and_the_explicit_repo_list():
+    settings = grs.parse_settings(["--dry-run", "austek"], {"REPOS": "a b", "INCLUDE_FORKS": "1", "REQUIRE_PR": "1"})
+    assert (settings.owner, settings.dry_run, settings.require_pr, settings.include_forks, settings.repos) == (
+        "austek", True, "1", True, ("a", "b"),
+    )
+    assert grs.parse_settings([], {"DRY_RUN": "1"}).dry_run
+
+
+def test_build_payload_for_nothing_has_only_the_managed_rules():
+    payload = grs.build_payload(False, {})
+    assert [r["type"] for r in payload["rules"]] == list(grs.MANAGED_RULES)
+    assert "bypass_actors" not in payload
+
+
+def test_build_payload_never_duplicates_a_managed_rule():
+    current = {"rules": [{"type": "deletion"}, {"type": "non_fast_forward"}, {"type": "required_signatures"}]}
+    types = [r["type"] for r in grs.build_payload(False, current)["rules"]]
+    assert types == [*grs.MANAGED_RULES, "required_signatures"]
+
+
+def test_wants_pull_request_follows_the_setting_or_the_current_rules():
+    has_pr = {"rules": [{"type": "pull_request"}]}
+    assert grs.wants_pull_request("1", {})
+    assert not grs.wants_pull_request("0", has_pr)
+    assert grs.wants_pull_request("preserve", has_pr)
+    assert not grs.wants_pull_request("preserve", {})
+
+
+def test_a_failed_repository_listing_fails_the_run(tmp_path):
+    result = _dry_run(tmp_path, 'echo "HTTP 401: bad credentials" >&2\nexit 1\n', REPOS="")
+    assert result.returncode == 1
+    assert "cannot list repositories of owner: HTTP 401: bad credentials" in result.stderr
+    assert "skipped:" not in result.stdout
 
 
 def test_it_stops_when_gh_is_not_installed(tmp_path):
