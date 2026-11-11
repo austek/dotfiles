@@ -107,7 +107,8 @@ def discover(settings: Settings, gh: Gh) -> list[Candidate]:
         return [Candidate("PUBLIC", False, name) for name in settings.repos]
     listing = gh(["repo", "list", settings.owner, "--limit", "200", "--json", "name,isArchived,isFork,visibility", "--jq", LIST_JQ])
     if listing.returncode != 0:
-        raise DiscoveryError((listing.stdout or "").strip() or f"gh repo list exited {listing.returncode}")
+        detail = (listing.stderr or "").strip() or (listing.stdout or "").strip()
+        raise DiscoveryError(detail or f"gh repo list exited {listing.returncode}")
     return [_candidate(line) for line in (listing.stdout or "").splitlines() if len(line.split()) == 3]
 
 

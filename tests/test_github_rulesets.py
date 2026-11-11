@@ -185,7 +185,7 @@ def test_wants_pull_request_follows_the_setting_or_the_current_rules():
 
 
 def test_a_failed_repository_listing_fails_the_run(tmp_path):
-    result = _dry_run(tmp_path, 'echo "HTTP 401: bad credentials"\nexit 1\n', REPOS="")
+    result = _dry_run(tmp_path, 'echo "HTTP 401: bad credentials" >&2\nexit 1\n', REPOS="")
     assert result.returncode == 1
     assert "cannot list repositories of owner: HTTP 401: bad credentials" in result.stderr
     assert "skipped:" not in result.stdout
