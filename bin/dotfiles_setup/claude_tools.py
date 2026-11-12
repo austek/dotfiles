@@ -129,9 +129,9 @@ def _ensure_serena_mcp(t: Tooling) -> None:
 
 
 def _find_jdtls(venv: Path) -> Path | None:
-    root = venv.resolve()
-    resolved = (candidate.resolve() for candidate in sorted(venv.glob("**/solidlsp/language_servers/eclipse_jdtls.py")))
-    return next((path for path in resolved if path.is_relative_to(root)), None)
+    root = os.path.realpath(venv) + os.sep
+    resolved = (os.path.realpath(candidate) for candidate in sorted(venv.glob("**/solidlsp/language_servers/eclipse_jdtls.py")))
+    return next((Path(path) for path in resolved if path.startswith(root)), None)
 
 
 def _patch_jdtls(t: Tooling) -> None:
