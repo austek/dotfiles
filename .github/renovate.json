@@ -131,7 +131,7 @@
     {
       "customType": "regex",
       "description": "Python version SonarQube analyses the code as",
-      "managerFilePatterns": ["/^sonar-project\\.properties$/"],
+      "managerFilePatterns": ["/^sonar-project\\.properties$/", "/^\\.sonarcloud\\.properties$/"],
       "matchStrings": ["sonar\\.python\\.version=(?<currentValue>\\d+\\.\\d+)"],
       "depNameTemplate": "python",
       "datasourceTemplate": "python-version",

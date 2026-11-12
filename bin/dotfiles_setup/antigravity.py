@@ -221,25 +221,24 @@ def _installed_build(layout: Layout) -> str | None:
         return None
 
 
-def install_antigravity_ide(t: Tooling, layout: Layout | None = None, machine: str | None = None) -> bool:
+def install_antigravity_ide(t: Tooling, layout: Layout | None = None, machine: str | None = None) -> None:
     layout = layout or Layout()
     t.logger.info("Installing Antigravity IDE...")
     arch = machine or platform.machine()
     arch_dir = ARCH_DIRS.get(arch)
     if arch_dir is None:
         t.logger.warn(f"Skipping Antigravity IDE: no build for architecture {arch} (x86_64 only).")
-        return True
+        return
     if dry_run_all(
         t, f"Would download Antigravity IDE build {PINNED_BUILD}",
         f"Would install Antigravity IDE to {layout.install_dir} with a launcher and desktop entry",
     ):
-        return True
+        return
     resolved = resolve_build(arch_dir)
     if _installed_build(layout) == resolved.cache_key.removesuffix(".tar.gz"):
         t.logger.info(f"Antigravity IDE {resolved.version} is already installed. Skipping.")
-        return True
+        return
     with tempfile.TemporaryDirectory() as temp_dir:
         extracted = fetch_and_extract(t, resolved, Path(temp_dir))
         if extracted is not None and place(t, layout, extracted, resolved):
             remove_legacy(t, layout)
-    return True

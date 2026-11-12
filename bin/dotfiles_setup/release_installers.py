@@ -160,19 +160,18 @@ def _supported_arch(t: Tooling, spec: ReleaseSpec) -> bool:
     return False
 
 
-def install_release(t: Tooling, spec: ReleaseSpec) -> bool:
+def install_release(t: Tooling, spec: ReleaseSpec) -> None:
     t.logger.info(f"Installing {spec.name}...")
     if spec.is_installed(t):
         t.logger.info(f"{spec.name} is already installed. Skipping.")
-        return True
+        return
     if not _supported_arch(t, spec):
-        return True
+        return
     resolved = spec.resolve(t)
     if dry_run_all(t, f"Would download and install {spec.name} v{resolved.version}"):
-        return True
+        return
     with tempfile.TemporaryDirectory() as temp_dir:
         _fetch_and_install(t, spec, resolved, Path(temp_dir))
-    return True
 
 
 def _sudo_install(t: Tooling, binary: Path) -> bool:
@@ -252,7 +251,7 @@ def _load_spec_data() -> tuple[SpecData, ...]:
 
 SPEC_DATA: dict[str, SpecData] = {d.package: d for d in _load_spec_data()}
 RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = tuple((p, _release_spec(d)) for p, d in SPEC_DATA.items())
-RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = tuple(
+RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], None]], ...] = tuple(
     (package, lambda t, spec=spec: install_release(t, spec)) for package, spec in RELEASE_SPECS
 )
 _SPECS = dict(RELEASE_SPECS)
