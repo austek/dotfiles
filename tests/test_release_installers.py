@@ -255,39 +255,23 @@ def test_deb_install_failure_is_fixed_by_apt(tmp_path):
 
 
 def test_a_failed_upgrade_that_leaves_the_old_version_is_not_a_success(tmp_path):
-    machine = Machine(dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")])
+    machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"), fail=[("sudo", "dpkg")])
     t, _ = make(tmp_path, machine)
-    assert not dh._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
+    assert not dh._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
 
 
 def test_a_failed_upgrade_that_apt_completes_is_a_success(tmp_path):
     machine = Machine(
-        dpkg_listing=slack_listing("4.35.0"), fail=[("sudo", "dpkg")], listing_after_fix=slack_listing(ri.SPEC_DATA["slack-desktop"].version),
+        dpkg_listing=zoom_listing("7.2.1.5760"), fail=[("sudo", "dpkg")], listing_after_fix=zoom_listing(ri.SPEC_DATA["zoom"].version),
     )
     t, _ = make(tmp_path, machine)
-    assert dh._install_deb_or_fix_broken(t, tmp_path / "s.deb", "slack-desktop")
+    assert dh._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
 
 
 def test_deb_install_that_stays_broken_fails(tmp_path):
     machine = Machine(dpkg_listing="", fail=[("sudo", "dpkg")])
     t, _ = make(tmp_path, machine)
     assert not dh._install_deb_or_fix_broken(t, tmp_path / "z.deb", "zoom")
-
-
-def test_slack_downloads_its_pinned_versioned_url(tmp_path):
-    version = ri.SPEC_DATA["slack-desktop"].version
-    t, downloads = make(tmp_path, Machine())
-    assert ri.install_release(t, ri.SLACK)
-    assert downloads == [
-        f"https://downloads.slack-edge.com/desktop-releases/linux/x64/{version}/slack-desktop-{version}-amd64.deb",
-    ]
-
-
-def test_slack_removes_the_unsigned_apt_source_files(tmp_path):
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ri.install_release(t, ri.SLACK)
-    assert machine.ran("sudo", "rm", "-f", *ri.SLACK_APT_SOURCES)
 
 
 def test_jetbrains_installs_the_binary_with_exec_permission(tmp_path):
@@ -511,7 +495,7 @@ def test_upgrade_leaves_an_absent_package_to_the_install(tmp_path):
 def test_upgrade_ignores_unwanted_vendor_debs(tmp_path):
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
-    ri.upgrade_vendor_debs(t, {"slack-desktop"})
+    ri.upgrade_vendor_debs(t, set())
     assert downloads == []
 
 
@@ -524,38 +508,8 @@ def test_upgrade_dry_run_downloads_and_installs_nothing(tmp_path, capsys):
     assert f"Would upgrade Zoom from v7.2.1.5760 to v{ri.SPEC_DATA["zoom"].version}" in capsys.readouterr().out
 
 
-def slack_listing(version):
-    return f"ii  slack-desktop  {version}  amd64  Slack\n"
-
-
-def test_upgrade_installs_the_slack_pin_when_the_installed_version_is_older(tmp_path):
-    machine = Machine(dpkg_listing=slack_listing("4.35.0"))
-    t, downloads = make(tmp_path, machine)
-    ri.upgrade_vendor_debs(t, {"slack-desktop"})
-    assert len(downloads) == 1
-    assert ri.SPEC_DATA["slack-desktop"].version in downloads[0]
-    assert machine.ran("dpkg", "--compare-versions", "4.35.0", "lt", ri.SPEC_DATA["slack-desktop"].version)
-    assert machine.ran("sudo", "rm", "-f", *ri.SLACK_APT_SOURCES)
-
-
-def test_upgrade_never_downgrades_a_slack_newer_than_the_pin(tmp_path):
-    machine = Machine(dpkg_listing=slack_listing("9.0.0"), fail=NOT_OLDER)
-    t, downloads = make(tmp_path, machine)
-    ri.upgrade_vendor_debs(t, {"slack-desktop"})
-    assert downloads == []
-    assert not machine.ran("sudo")
-
-
-def test_upgrade_skips_slack_at_the_pin(tmp_path):
-    machine = Machine(dpkg_listing=slack_listing(ri.SPEC_DATA["slack-desktop"].version), fail=NOT_OLDER)
-    t, downloads = make(tmp_path, machine)
-    ri.upgrade_vendor_debs(t, {"slack-desktop"})
-    assert downloads == []
-    assert not machine.ran("sudo")
-
-
-def test_zoom_and_slack_are_the_upgradable_debs():
-    assert [package for package, _ in ri.UPGRADABLE_DEBS] == ["zoom", "slack-desktop"]
+def test_zoom_is_the_upgradable_deb():
+    assert [package for package, _ in ri.UPGRADABLE_DEBS] == ["zoom"]
 
 
 def test_install_tools_without_upgrade_skips_an_installed_zoom(tmp_path):
@@ -575,7 +529,7 @@ def test_install_tools_with_upgrade_installs_the_pin_over_an_outdated_zoom(tmp_p
 def test_release_installers_run_after_the_script_installers(tmp_path):
     names = [name for name, _ in tools.TOOL_INSTALLERS]
     assert names == [
-        "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "slack-desktop", "jetbrains-toolbox",
+        "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "jetbrains-toolbox",
         "istioctl", "awscli", "zizmor", "mcp-grafana", "coderabbit", "sonarqube-cli", "uv",
         "antigravity-ide",
     ]

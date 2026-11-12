@@ -360,6 +360,38 @@ def test_a_failed_move_stops_the_step(tmp_path, stowed_mise):
     assert not machine.ran("sudo", "stow")
 
 
+def _link_every_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(aps, "FS_ROOT", tmp_path / "fs")
+    monkeypatch.setattr(aps, "STOW_BACKUP_ROOT", tmp_path / "backups")
+    links = {}
+    for _, source_file in aps.SOURCE_FILES:
+        directory = "etc/default" if "." not in source_file else "etc/apt/sources.list.d"
+        packaged = tmp_path / "repo/apt" / directory / source_file
+        packaged.parent.mkdir(parents=True, exist_ok=True)
+        packaged.write_text("x")
+        link = tmp_path / "fs" / directory / source_file
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(packaged)
+        links[source_file] = link
+    return links
+
+
+@pytest.mark.parametrize("package,source_file", aps.SOURCE_FILES)
+def test_every_deselected_source_file_loses_its_link(tmp_path, monkeypatch, package, source_file):
+    links = _link_every_source(tmp_path, monkeypatch)
+    machine = Machine()
+    assert aps.stow_apt_source_files(make(tmp_path, machine, packages=["unrelated"]))
+    moved = {c[2] for c in machine.commands if c[:2] == ["sudo", "mv"]}
+    assert str(links[source_file]) in moved
+
+
+def test_a_dry_run_leaves_the_link_of_a_deselected_source(tmp_path, stowed_mise):
+    machine = Machine()
+    assert aps.configure_apt_sources(make(tmp_path, machine, packages=["gh"], dry_run=True))
+    assert machine.commands == []
+    assert stowed_mise.is_symlink()
+
+
 def test_stow_conflicts_are_backed_up_then_the_stow_is_retried(tmp_path, monkeypatch):
     monkeypatch.setattr(aps, "FS_ROOT", tmp_path / "fs")
     monkeypatch.setattr(aps, "STOW_BACKUP_ROOT", tmp_path / "backups")

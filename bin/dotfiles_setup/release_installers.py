@@ -31,7 +31,6 @@ SPECS_FILE = Path(__file__).resolve().parent.parent.parent / "packages" / "relea
 EXTRACT_ERRORS = (
     tarfile.TarError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, OSError,
 )
-SLACK_APT_SOURCES = ("/etc/apt/sources.list.d/slack.sources", "/etc/apt/sources.list.d/slack.list")
 
 
 @dataclass(frozen=True)
@@ -188,13 +187,6 @@ def _awscli_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Reso
     return t.run(["sudo", str(temp_dir / "aws" / "install")]).returncode == 0
 
 
-def _slack_install(t: Tooling, _temp_dir: Path, artifact: Path, _resolved: Resolved) -> bool:
-    installed = _install_deb_or_fix_broken(t, artifact, "slack-desktop")
-    # The .deb's /etc/cron.daily/slack recreates this repo file, which has no Signed-By; removal only quiets apt's warning until it runs.
-    t.run(["sudo", "rm", "-f", *SLACK_APT_SOURCES])
-    return installed
-
-
 def _jetbrains_binary(home: Path) -> Path:
     return home / ".local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
 
@@ -232,7 +224,6 @@ def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool
 
 CUSTOM_BEHAVIOR: dict[str, tuple[Callable[[Tooling], bool], Callable[[Tooling, Path, Path, Resolved], bool]]] = {
     "zoom": (_deb_installed("zoom"), _deb_install("zoom")),
-    "slack-desktop": (_deb_installed("slack-desktop"), _slack_install),
     "jetbrains-toolbox": (lambda t: _jetbrains_binary(t.home).is_file(), _jetbrains_install),
     "istioctl": (_which_installed("istioctl"), _istioctl_install),
     "awscli": (_which_installed("aws"), _awscli_install),
@@ -265,9 +256,9 @@ RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], bool]], ...] = tuple(
     (package, lambda t, spec=spec: install_release(t, spec)) for package, spec in RELEASE_SPECS
 )
 _SPECS = dict(RELEASE_SPECS)
-LAZYDOCKER, ZOOM, SLACK, JETBRAINS_TOOLBOX = (_SPECS[p] for p in ("lazydocker", "zoom", "slack-desktop", "jetbrains-toolbox"))
+LAZYDOCKER, ZOOM, JETBRAINS_TOOLBOX = (_SPECS[p] for p in ("lazydocker", "zoom", "jetbrains-toolbox"))
 ISTIOCTL, AWSCLI, ZIZMOR, MCP_GRAFANA = (_SPECS[p] for p in ("istioctl", "awscli", "zizmor", "mcp-grafana"))
-UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = (("zoom", ZOOM), ("slack-desktop", SLACK))
+UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = (("zoom", ZOOM),)
 
 
 def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:

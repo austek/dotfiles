@@ -12,11 +12,6 @@ LEGACY = {
         "0.25.2.tar.gz", "targz",
     ),
     "zoom": ("Zoom", "7.2.5.6661", "https://cdn.zoom.us/prod/7.2.5.6661/zoom_amd64.deb", "zoom_amd64-7.2.5.6661.deb", "deb"),
-    "slack-desktop": (
-        "Slack", "4.53.276",
-        "https://downloads.slack-edge.com/desktop-releases/linux/x64/4.53.276/slack-desktop-4.53.276-amd64.deb",
-        "slack-desktop-4.53.276-amd64.deb", "deb",
-    ),
     "jetbrains-toolbox": (
         "JetBrains Toolbox", "3.9.1.89198", "https://download.jetbrains.com/toolbox/jetbrains-toolbox-3.9.1.89198.tar.gz",
         "jetbrains-toolbox-3.9.1.89198.tar.gz", "targz",

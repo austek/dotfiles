@@ -370,12 +370,12 @@ def test_dry_run_removals_run_no_command(tmp_path, capsys):
 
 
 def test_removed_reports_entry_names(tmp_path):
-    machine = Machine(installed="k9s slack-desktop htop")
-    entries = ("github:derailed/k9s", "slack-desktop", "htop")
+    machine = Machine(installed="k9s zoom htop")
+    entries = ("github:derailed/k9s", "zoom", "htop")
     flow_inputs = inputs(tmp_path, run=machine, removals=entries)
     steps = dict(flow.build_steps(flow_inputs, flow_inputs.packages, RollbackLog(tmp_path / "log")))
     steps["remove_apt_packages"]()
-    assert flow_inputs.removed == ["htop", "github:derailed/k9s", "slack-desktop"]
+    assert flow_inputs.removed == ["htop", "github:derailed/k9s", "zoom"]
     assert not any("github:derailed/k9s" in c for c in machine.commands)
 
 
