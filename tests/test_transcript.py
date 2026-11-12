@@ -92,7 +92,7 @@ def test_bytes_output_is_decoded_and_missing_output_is_skipped():
     written = []
     done = SimpleNamespace(returncode=0, stdout=b"caf\xc3\xa9\xff", stderr=None)
     tr.recording(run_with(done), written.append)(["cmd"])
-    assert written == ["$ cmd -> exit 0", "café�", ""]
+    assert written == ["$ cmd -> exit 0", "caf\N{LATIN SMALL LETTER E WITH ACUTE}\N{REPLACEMENT CHARACTER}", ""]
 
 
 def test_input_given_to_a_command_is_not_recorded():
