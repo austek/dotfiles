@@ -33,10 +33,12 @@ def test_a_non_x86_64_machine_downloads_nothing(tmp_path, monkeypatch, capsys, s
     monkeypatch.setattr("platform.machine", lambda: arch)
     machine = Machine()
     t, downloads = make(tmp_path, machine)
-    assert ri.install_release(t, spec)
-    assert downloads == [] and not machine.ran("sudo")
+    ri.install_release(t, spec)
+    assert downloads == []
+    assert not machine.ran("sudo")
     captured = capsys.readouterr()
-    assert "x86_64 only" in captured.out and captured.err == ""
+    assert "x86_64 only" in captured.out
+    assert captured.err == ""
 
 
 def test_upgrade_skips_a_non_x86_64_machine(tmp_path, monkeypatch):
@@ -44,7 +46,8 @@ def test_upgrade_skips_a_non_x86_64_machine(tmp_path, monkeypatch):
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"zoom"})
-    assert downloads == [] and not machine.ran("sudo")
+    assert downloads == []
+    assert not machine.ran("sudo")
 
 
 def tarball(member):
@@ -101,15 +104,16 @@ def make(tmp_path, machine, fetch=lambda url: "", payload=b"x", dry_run=False, r
 def test_installed_tool_is_skipped(tmp_path, monkeypatch):
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/lazydocker")
     t, downloads = make(tmp_path, Machine())
-    assert ri.install_release(t, ri.LAZYDOCKER)
+    ri.install_release(t, ri.LAZYDOCKER)
     assert downloads == []
 
 
 def test_dry_run_names_the_pinned_version_and_downloads_nothing(tmp_path, capsys):
     machine = Machine()
     t, downloads = make(tmp_path, machine, dry_run=True)
-    assert ri.install_release(t, ri.LAZYDOCKER)
-    assert downloads == [] and not machine.ran("sudo")
+    ri.install_release(t, ri.LAZYDOCKER)
+    assert downloads == []
+    assert not machine.ran("sudo")
     assert f"Would download and install lazydocker v{ri.SPEC_DATA["lazydocker"].version}" in capsys.readouterr().out
 
 
@@ -177,7 +181,7 @@ def test_a_rejected_download_is_never_cached(tmp_path, spec):
 def test_lazydocker_download_failure_continues(tmp_path):
     machine = Machine()
     t, _ = make(tmp_path, machine, payload=None)
-    assert ri.install_release(t, ri.LAZYDOCKER)
+    ri.install_release(t, ri.LAZYDOCKER)
     assert not machine.ran("sudo", "install")
 
 
@@ -196,14 +200,14 @@ def test_a_digest_mismatch_reports_the_digests(tmp_path, capsys):
 def test_lazydocker_bad_archive_continues_without_installing(tmp_path):
     machine = Machine()
     t, _ = make(tmp_path, machine, payload=b"not a tarball")
-    assert ri.install_release(t, ri.LAZYDOCKER)
+    ri.install_release(t, ri.LAZYDOCKER)
     assert not machine.ran("sudo", "install")
 
 
 def test_lazydocker_installs_the_extracted_binary(tmp_path):
     machine = Machine()
     t, downloads = make(tmp_path, machine, payload=tarball("lazydocker"))
-    assert ri.install_release(t, ri.LAZYDOCKER)
+    ri.install_release(t, ri.LAZYDOCKER)
     assert downloads == [LAZYDOCKER_URL]
     install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
     assert install[2].endswith("/lazydocker")
@@ -213,7 +217,7 @@ def test_lazydocker_installs_the_extracted_binary(tmp_path):
 def test_lazydocker_install_failure_continues(tmp_path):
     machine = Machine(fail=[("sudo", "install")])
     t, _ = make(tmp_path, machine, payload=tarball("lazydocker"))
-    assert ri.install_release(t, ri.LAZYDOCKER)
+    ri.install_release(t, ri.LAZYDOCKER)
 
 
 def test_second_run_uses_the_cached_download(tmp_path):
@@ -236,14 +240,14 @@ def test_cache_drops_entries_for_other_versions(tmp_path):
 
 def test_zoom_downloads_its_pinned_versioned_url(tmp_path):
     t, downloads = make(tmp_path, Machine())
-    assert ri.install_release(t, ri.ZOOM)
+    ri.install_release(t, ri.ZOOM)
     assert downloads == [f"https://cdn.zoom.us/prod/{ri.SPEC_DATA["zoom"].version}/zoom_amd64.deb"]
     assert (tmp_path / f"cache/dotfiles-setup/Zoom/zoom_amd64-{ri.SPEC_DATA["zoom"].version}.deb").is_file()
 
 
 def test_zoom_is_installed_when_dpkg_lists_it(tmp_path):
     t, downloads = make(tmp_path, Machine(dpkg_listing="ii  zoom  6.0  amd64  Zoom\n"))
-    assert ri.install_release(t, ri.ZOOM)
+    ri.install_release(t, ri.ZOOM)
     assert downloads == []
 
 
@@ -276,7 +280,7 @@ def test_deb_install_that_stays_broken_fails(tmp_path):
 
 def test_jetbrains_installs_the_binary_with_exec_permission(tmp_path):
     t, downloads = make(tmp_path, Machine(), payload=tarball("jb/jetbrains-toolbox"))
-    assert ri.install_release(t, ri.JETBRAINS_TOOLBOX)
+    ri.install_release(t, ri.JETBRAINS_TOOLBOX)
     binary = ri._jetbrains_binary(tmp_path)
     assert downloads == [f"https://download.jetbrains.com/toolbox/jetbrains-toolbox-{ri.SPEC_DATA["jetbrains-toolbox"].version}.tar.gz"]
     assert binary.is_file()
@@ -285,7 +289,7 @@ def test_jetbrains_installs_the_binary_with_exec_permission(tmp_path):
 
 def test_jetbrains_archive_without_the_binary_installs_nothing(tmp_path):
     t, _ = make(tmp_path, Machine(), payload=tarball("jb/readme"))
-    assert ri.install_release(t, ri.JETBRAINS_TOOLBOX)
+    ri.install_release(t, ri.JETBRAINS_TOOLBOX)
     assert not ri._jetbrains_binary(tmp_path).exists()
 
 
@@ -294,7 +298,7 @@ def test_jetbrains_with_an_existing_binary_is_skipped(tmp_path):
     binary.parent.mkdir(parents=True)
     binary.write_text("")
     t, downloads = make(tmp_path, Machine())
-    assert ri.install_release(t, ri.JETBRAINS_TOOLBOX)
+    ri.install_release(t, ri.JETBRAINS_TOOLBOX)
     assert downloads == []
 
 
@@ -311,7 +315,7 @@ def test_istioctl_installs_the_binary_from_the_versioned_directory(tmp_path):
     machine = Machine()
     version = ri.SPEC_DATA["istioctl"].version
     t, downloads = make(tmp_path, machine, payload=tarball(f"istio-{version}/bin/istioctl"))
-    assert ri.install_release(t, ri.ISTIOCTL)
+    ri.install_release(t, ri.ISTIOCTL)
     assert downloads == [f"https://github.com/istio/istio/releases/download/{version}/istio-{version}-linux-amd64.tar.gz"]
     install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
     assert install[2].endswith(f"istio-{version}/bin/istioctl")
@@ -323,7 +327,7 @@ def test_istioctl_installs_the_binary_from_the_versioned_directory(tmp_path):
 ], ids=lambda value: getattr(value, "name", ""))
 def test_zizmor_and_mcp_grafana_download_their_pinned_tag(tmp_path, spec, url):
     t, downloads = make(tmp_path, Machine(), payload=tarball(spec.name))
-    assert ri.install_release(t, spec)
+    ri.install_release(t, spec)
     assert downloads == [url]
 
 
@@ -336,7 +340,7 @@ def test_every_pinned_url_has_a_shipped_digest(spec):
 def test_awscli_runs_the_extracted_installer(tmp_path):
     machine = Machine()
     t, downloads = make(tmp_path, machine, payload=zipball("aws/install", 0o755))
-    assert ri.install_release(t, ri.AWSCLI)
+    ri.install_release(t, ri.AWSCLI)
     assert downloads == [f"https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{ri.SPEC_DATA["awscli"].version}.zip"]
     assert any(c[0] == "sudo" and c[1].endswith("aws/install") for c in machine.commands)
 
@@ -404,7 +408,7 @@ def test_an_unexpected_zip_error_is_reported_not_raised(tmp_path, monkeypatch, c
     monkeypatch.setattr(ri, "_extract_zip", encrypted)
     machine = Machine()
     t, _ = make(tmp_path, machine, payload=zipball("aws/install", 0o755))
-    assert ri.install_release(t, ri.AWSCLI)
+    ri.install_release(t, ri.AWSCLI)
     assert not machine.ran("sudo")
     assert "Failed to extract AWS CLI installer: RuntimeError" in capsys.readouterr().err
 
@@ -412,7 +416,7 @@ def test_an_unexpected_zip_error_is_reported_not_raised(tmp_path, monkeypatch, c
 def test_awscli_bad_zip_is_reported_and_skipped(tmp_path):
     machine = Machine()
     t, _ = make(tmp_path, machine, payload=b"not a zip")
-    assert ri.install_release(t, ri.AWSCLI)
+    ri.install_release(t, ri.AWSCLI)
     assert not any(c[0] == "sudo" for c in machine.commands)
 
 
@@ -457,7 +461,8 @@ def test_upgrade_reports_a_version_dpkg_cannot_compare(tmp_path, capsys):
     machine = Machine(dpkg_listing=zoom_listing("bad version!"), codes={("dpkg", "--compare-versions"): 2})
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"zoom"})
-    assert downloads == [] and not machine.ran("sudo")
+    assert downloads == []
+    assert not machine.ran("sudo")
     assert "Could not compare Zoom" in capsys.readouterr().out
 
 

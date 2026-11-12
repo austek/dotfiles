@@ -71,7 +71,7 @@ def stage_files(layout):
 def test_unsupported_architecture_installs_nothing(tmp_path):
     machine = Machine()
     t, downloads, layout = make(tmp_path, machine)
-    assert ag.install_antigravity_ide(t, layout, machine="riscv64")
+    ag.install_antigravity_ide(t, layout, machine="riscv64")
     assert downloads == []
     assert machine.commands == []
 
@@ -79,7 +79,7 @@ def test_unsupported_architecture_installs_nothing(tmp_path):
 def test_dry_run_downloads_and_installs_nothing(tmp_path):
     machine = Machine()
     t, downloads, layout = make(tmp_path, machine, dry_run=True)
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert downloads == []
     assert machine.commands == []
 
@@ -93,17 +93,19 @@ def test_resolve_uses_the_pinned_build():
 def test_arm_installs_nothing(tmp_path, arch, capsys):
     machine = Machine()
     t, downloads, layout = make(tmp_path, machine)
-    assert ag.install_antigravity_ide(t, layout, machine=arch)
-    assert downloads == [] and machine.commands == []
+    ag.install_antigravity_ide(t, layout, machine=arch)
+    assert downloads == []
+    assert machine.commands == []
     captured = capsys.readouterr()
-    assert "x86_64 only" in captured.out and captured.err == ""
+    assert "x86_64 only" in captured.out
+    assert captured.err == ""
 
 
 def test_a_digest_mismatch_installs_nothing(tmp_path):
     machine = Machine()
     t, _, layout = make(tmp_path, machine)
     t = tools.Tooling(t.logger, tmp_path, run=machine, download=t.download, checksums={URL: "0" * 64})
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert not machine.ran("sudo", "cp")
 
 
@@ -120,7 +122,7 @@ def test_a_matching_digest_installs(tmp_path):
     payload = tarball("ag/antigravity-ide", "ag/chrome-sandbox")
     t, _, layout = make(tmp_path, machine, payload=payload)
     t = tools.Tooling(t.logger, tmp_path, run=machine, download=t.download, checksums={URL: digest_of(payload)})
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert machine.ran("sudo", "cp")
 
 
@@ -128,7 +130,7 @@ def test_an_unlisted_url_installs_nothing_and_says_why(tmp_path, capsys):
     machine = Machine()
     t, _, layout = make(tmp_path, machine)
     t = tools.Tooling(t.logger, tmp_path, run=machine, download=t.download, checksums={})
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert not machine.ran("sudo", "cp")
     assert "Refusing Antigravity IDE download: no digest recorded" in capsys.readouterr().err
 
@@ -163,7 +165,7 @@ def test_an_up_to_date_install_is_skipped(tmp_path):
     t, downloads, layout = make(tmp_path, machine)
     layout.build_file.parent.mkdir(parents=True)
     layout.build_file.write_text(f"{BUILD}\n")
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert downloads == []
     assert machine.commands == []
 
@@ -172,7 +174,7 @@ def test_a_new_build_is_staged_swapped_and_wired_up_in_order(tmp_path):
     machine = Machine()
     t, downloads, layout = make(tmp_path, machine)
     stage_files(layout)
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert downloads == [URL]
     order = [
         machine.index("sudo", "mkdir", "-p", str(layout.staging_dir)),
@@ -207,7 +209,7 @@ def test_a_missing_sandbox_only_warns(tmp_path):
 def test_a_failed_copy_cleans_up_staging_and_leaves_the_install_alone(tmp_path):
     machine = Machine(fail=[("sudo", "cp", "-r")])
     t, _, layout = make(tmp_path, machine)
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert not machine.ran("sudo", "mv")
     assert machine.commands[-1] == ["sudo", "rm", "-rf", "--", str(layout.staging_dir)]
 
@@ -216,7 +218,7 @@ def test_a_failed_swap_restores_the_previous_install(tmp_path):
     machine = Machine(fail=[("sudo", "mv", "--", str(tmp_path / "root/opt/antigravity-ide.staging"))])
     t, _, layout = make(tmp_path, machine)
     layout.old_dir.mkdir(parents=True)
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert machine.ran("sudo", "mv", "--", str(layout.old_dir), str(layout.install_dir))
     assert not machine.ran("sudo", "ln")
 
@@ -234,7 +236,7 @@ def test_a_wiring_failure_restores_the_previous_install(tmp_path):
     machine = Machine(fail=[("sudo", "tee", str(tmp_path / "root/usr/share/applications/antigravity-ide.desktop"))])
     t, _, layout = make(tmp_path, machine)
     layout.old_dir.mkdir(parents=True)
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert machine.ran("sudo", "mv", "--", str(layout.old_dir), str(layout.install_dir))
     assert not any(
         c[:5] == ["sudo", "rm", "-rf", "--", str(layout.old_dir)] and i > machine.index("sudo", "tee", str(layout.desktop))
@@ -251,14 +253,14 @@ def test_a_failed_download_continues_without_installing(tmp_path):
         raise OSError("offline")
 
     t = tools.Tooling(t.logger, tmp_path, run=machine, download=broken)
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert machine.commands == []
 
 
 def test_an_archive_without_the_binary_installs_nothing(tmp_path):
     machine = Machine()
     t, _, layout = make(tmp_path, machine, payload=tarball("ag/readme"))
-    assert ag.install_antigravity_ide(t, layout, machine="x86_64")
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
     assert machine.commands == []
 
 

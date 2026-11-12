@@ -35,7 +35,8 @@ dpkg_installed() {
 }
 
 source_host() {
-    grep -m1 '^URIs:' "$1" | sed -E 's|^URIs:[[:space:]]*https?://([^/[:space:]]+).*|\1|'
+    local source_file=$1
+    grep -m1 '^URIs:' "$source_file" | sed -E 's|^URIs:[[:space:]]*https?://([^/[:space:]]+).*|\1|'
 }
 
 assert_source_installed() {

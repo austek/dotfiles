@@ -128,9 +128,14 @@ def _ensure_serena_mcp(t: Tooling) -> None:
         t.run(add)
 
 
+def _find_jdtls(venv: Path) -> Path | None:
+    root = venv.resolve()
+    resolved = (candidate.resolve() for candidate in sorted(venv.glob("**/solidlsp/language_servers/eclipse_jdtls.py")))
+    return next((path for path in resolved if path.is_relative_to(root)), None)
+
+
 def _patch_jdtls(t: Tooling) -> None:
-    venv = t.home / ".local/share/pipx/venvs/serena-agent"
-    found = next(iter(sorted(venv.glob("**/solidlsp/language_servers/eclipse_jdtls.py"))), None)
+    found = _find_jdtls(t.home / ".local/share/pipx/venvs/serena-agent")
     if found is None:
         t.logger.warn("eclipse_jdtls.py not found under the serena-agent pipx venv; skipping the Gradle 9 annotation-processing patch.")
         return
