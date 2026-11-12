@@ -78,21 +78,21 @@ def test_dpkg_name_uses_repo_basename():
 
 
 def test_rule004_split_routes_debs_pins_and_manual_custom_entries():
-    split = removals.split_removals(["slack-desktop", "github:derailed/k9s", "nvm", "zoom", "vim"])
+    split = removals.split_removals(["github:derailed/k9s", "nvm", "zoom", "vim"])
     assert split.apt == ("vim",)
-    assert split.debs == ("slack-desktop", "github:derailed/k9s", "zoom")
+    assert split.debs == ("github:derailed/k9s", "zoom")
     assert split.manual == ("nvm",)
 
 
 def test_installed_custom_deb_is_removed_like_apt(tmp_path):
-    machine = Machine(installed_apt=["slack-desktop"], simulations={"slack-desktop": "Remv slack-desktop [4]\n"})
-    split = removals.split_removals(["slack-desktop"])
+    machine = Machine(installed_apt=["zoom"], simulations={"zoom": "Remv zoom [4]\n"})
+    split = removals.split_removals(["zoom"])
     kept = removals.installed_only(tooling(tmp_path, machine), split)
-    assert kept.apt == ("slack-desktop",)
+    assert kept.apt == ("zoom",)
     ctx = system_context(tmp_path, machine)
-    assert removals.remove_apt(ctx, kept.apt, deb_names=frozenset(kept.apt)) == ["slack-desktop"]
+    assert removals.remove_apt(ctx, kept.apt, deb_names=frozenset(kept.apt)) == ["zoom"]
     assert machine.index("apt-get", "-s", "remove") < machine.index("sudo", "apt-get", "remove")
-    assert ctx.changes.entries() == ["DEB_REMOVED:slack-desktop"]
+    assert ctx.changes.entries() == ["DEB_REMOVED:zoom"]
 
 
 def test_uninstalled_dpkg_backed_custom_entry_is_dropped_silently(tmp_path):

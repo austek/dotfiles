@@ -14,13 +14,13 @@ from dotfiles_setup.tooling import dry_run_all
 
 # Package names installed outside apt; the apt install skips them.
 CUSTOM_INSTALL_PACKAGES = frozenset({
-    "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "istioctl", "awscli", "slack-desktop", "jetbrains-toolbox",
+    "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "istioctl", "awscli", "jetbrains-toolbox",
     "antigravity-ide", "zizmor", "mcp-grafana", "ruff", "coderabbit", "auditr", "sonarqube-cli", "uv", "cargo-deny",
     "cargo-audit",
 })
 
 # Custom entries whose installer leaves a dpkg package of the same name.
-DPKG_BACKED_CUSTOM = frozenset({"slack-desktop", "zoom"})
+DPKG_BACKED_CUSTOM = frozenset({"zoom"})
 
 PIN_PREFIX = "github:"
 

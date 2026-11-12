@@ -11,7 +11,6 @@ f93bfbd94cde68cc2e43cf5ba55da4f8e28b1a36b14fb14dadd566fc36b1312b  https://github
 7a121264f2637a3b90767aaf5bdd43ee88b8c925a931d0479fa2ce22b1a2fa76  https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.39.6.zip
 43add3c33c9b86ee560adc8579261e8e26465a101b281720937c6d1d4967b3e4  https://download.jetbrains.com/toolbox/jetbrains-toolbox-3.9.1.89198.tar.gz
 5cd7b9f1e6dc7226a44193df23d0664790496e8267f26152b0cbbd5888025444  https://cdn.zoom.us/prod/7.2.5.6661/zoom_amd64.deb
-8974c6a9b3ffd4ef09ced4403acaa444d743d113a185504d5a1dc405be46e746  https://downloads.slack-edge.com/desktop-releases/linux/x64/4.53.276/slack-desktop-4.53.276-amd64.deb
 b060a7c7679103b2b619752f8ee7a3088dd241a7d207d4311974b56ea6f94356  https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.6.0-5526304964083712/linux-x64/Antigravity%20IDE.tar.gz
 
 # Installer scripts. Several track a moving branch, so an upstream change fails the check until re-recorded.

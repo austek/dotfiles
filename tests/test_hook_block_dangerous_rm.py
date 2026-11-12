@@ -7,9 +7,9 @@ import contextlib
 import importlib.util
 import io
 import json
-import unittest
-import unittest.mock
 from pathlib import Path
+
+import pytest
 
 HOOK_DIR = Path(__file__).resolve().parent.parent / "claude" / ".claude" / "hooks"
 SETTINGS = HOOK_DIR.parent / "settings.json"
@@ -115,74 +115,67 @@ ALLOW = [
 ]
 
 
-class TestRule041RmHookDeniesRiskyRecursiveDeletes(unittest.TestCase):
-    def test_denied(self):
-        for cmd in DENY:
-            with self.subTest(cmd=cmd):
-                verdict = hook.check(cmd)
-                self.assertIsNotNone(verdict, "expected a deny verdict")
-                payload = json.loads(verdict)["hookSpecificOutput"]
-                self.assertEqual(payload["permissionDecision"], "deny")
-
-    def test_allowed(self):
-        for cmd in ALLOW:
-            with self.subTest(cmd=cmd):
-                self.assertIsNone(hook.check(cmd), "expected no verdict")
-
-    def test_requires_both_r_and_f(self):
-        self.assertIsNone(hook.check("rm -r /"))
-        self.assertIsNone(hook.check("rm -f /"))
+@pytest.mark.parametrize("cmd", DENY)
+def test_rule041_risky_recursive_deletes_are_denied(cmd):
+    verdict = hook.check(cmd)
+    assert verdict is not None, "expected a deny verdict"
+    assert json.loads(verdict)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-def run_main(payload):
+@pytest.mark.parametrize("cmd", ALLOW)
+def test_rule041_safe_commands_get_no_verdict(cmd):
+    assert hook.check(cmd) is None, "expected no verdict"
+
+
+def test_rule041_requires_both_r_and_f():
+    assert hook.check("rm -r /") is None
+    assert hook.check("rm -f /") is None
+
+
+def run_main(monkeypatch, payload):
     out = io.StringIO()
-    stdin = io.StringIO(json.dumps(payload))
-    with contextlib.redirect_stdout(out), unittest.mock.patch.object(hook.sys, "stdin", stdin):
+    monkeypatch.setattr(hook.sys, "stdin", io.StringIO(json.dumps(payload)))
+    with contextlib.redirect_stdout(out):
         rc = hook.main()
     return rc, out.getvalue().strip()
 
 
-class TestToolGate(unittest.TestCase):
-    def test_every_guarded_tool_is_checked(self):
-        for tool in hook.GUARDED_TOOLS:
-            with self.subTest(tool=tool):
-                rc, out = run_main({"tool_name": tool, "tool_input": {"command": "rm -rf /"}})
-                self.assertEqual(rc, 0)
-                self.assertIn("permissionDecision", out, f"{tool} in GUARDED_TOOLS but not blocked")
-
-    def test_unguarded_tool_ignored(self):
-        rc, out = run_main({"tool_name": "Read", "tool_input": {"command": "rm -rf /"}})
-        self.assertEqual((rc, out), (0, ""))
-
-    def test_program_arguments_field_checked(self):
-        _rc, out = run_main({
-            "tool_name": "mcp__idea__execute_run_configuration",
-            "tool_input": {"programArguments": "rm -rf /"},
-        })
-        self.assertIn("permissionDecision", out)
-
-    def test_malformed_input_never_crashes(self):
-        for payload in ({}, {"tool_name": "Bash"}, {"tool_name": "Bash", "tool_input": None},
-                        {"tool_name": "Bash", "tool_input": {"command": None}},
-                        {"tool_name": "Bash", "tool_input": {"command": ""}}):
-            with self.subTest(payload=payload):
-                self.assertEqual(run_main(payload), (0, ""))
+@pytest.mark.parametrize("tool", sorted(hook.GUARDED_TOOLS))
+def test_every_guarded_tool_is_checked(monkeypatch, tool):
+    rc, out = run_main(monkeypatch, {"tool_name": tool, "tool_input": {"command": "rm -rf /"}})
+    assert rc == 0
+    assert "permissionDecision" in out, f"{tool} in GUARDED_TOOLS but not blocked"
 
 
-class TestSettingsInSync(unittest.TestCase):
-    """GUARDED_TOOLS and the settings.json matchers must agree exactly.
+def test_unguarded_tool_ignored(monkeypatch):
+    rc, out = run_main(monkeypatch, {"tool_name": "Read", "tool_input": {"command": "rm -rf /"}})
+    assert (rc, out) == (0, "")
 
-    Drift is silent in both directions: a matcher missing from GUARDED_TOOLS makes
-    the hook fire and return 0 without checking, and a tool in GUARDED_TOOLS with
-    no matcher means the hook is never invoked for it.
-    """
 
-    def test_matchers_equal_guarded_tools(self):
-        settings = json.loads(SETTINGS.read_text())
-        matched = set()
-        for group in settings.get("hooks", {}).get("PreToolUse", []):
-            commands = [h.get("command", "") for h in group.get("hooks", [])]
-            if not any(HOOK_PATH.name in c for c in commands):
-                continue
-            matched.update(group.get("matcher", "").split("|"))
-        self.assertEqual(matched, hook.GUARDED_TOOLS)
+def test_program_arguments_field_checked(monkeypatch):
+    _rc, out = run_main(monkeypatch, {
+        "tool_name": "mcp__idea__execute_run_configuration",
+        "tool_input": {"programArguments": "rm -rf /"},
+    })
+    assert "permissionDecision" in out
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"tool_name": "Bash"}, {"tool_name": "Bash", "tool_input": None},
+    {"tool_name": "Bash", "tool_input": {"command": None}},
+    {"tool_name": "Bash", "tool_input": {"command": ""}},
+])
+def test_malformed_input_never_crashes(monkeypatch, payload):
+    assert run_main(monkeypatch, payload) == (0, "")
+
+
+def test_settings_matchers_equal_guarded_tools():
+    """Drift is silent both ways: a matcher missing from GUARDED_TOOLS fires the hook without checking, and a tool with no matcher never invokes it."""
+    settings = json.loads(SETTINGS.read_text())
+    matched = set()
+    for group in settings.get("hooks", {}).get("PreToolUse", []):
+        commands = [h.get("command", "") for h in group.get("hooks", [])]
+        if not any(HOOK_PATH.name in c for c in commands):
+            continue
+        matched.update(group.get("matcher", "").split("|"))
+    assert matched == hook.GUARDED_TOOLS
