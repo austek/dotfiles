@@ -5,6 +5,7 @@ x-preset: &preset
       - UBUNTU_VERSION
   environment:
     GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    DOTFILES_SKIP_FLATPAK: "1"
   volumes:
     - ..:/src:ro
   stdin_open: false

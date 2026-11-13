@@ -1,12 +1,14 @@
 """User-level Flatpak apps: package entries written as `flatpak:<app-id>`, installed from Flathub without sudo."""
 from __future__ import annotations
 
+import os
 import shutil
 from collections.abc import Collection
 
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
 PREFIX = "flatpak:"
+SKIP_ENV = "DOTFILES_SKIP_FLATPAK"
 FLATHUB_REPO = "https://dl.flathub.org/repo/flathub.flatpakrepo"
 
 
@@ -56,6 +58,9 @@ def install_flatpaks(t: Tooling, package_names: Collection[str], upgrade: bool =
     """Installs the listed apps and, on upgrade, updates every Flatpak app. Returns the app ids that failed to install, all of them when Flatpak is unusable. Failures are logged and never stop the install."""
     ids = app_ids(package_names)
     if not ids and not upgrade:
+        return ()
+    if os.environ.get(SKIP_ENV):
+        t.logger.info(f"{SKIP_ENV} is set; skipping Flatpak apps.")
         return ()
     t.logger.step("Installing Flatpak apps...")
     notices = ([f"Would install Flatpak apps: {' '.join(ids)}"] if ids else []) + (["Would update Flatpak apps"] if upgrade else [])

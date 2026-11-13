@@ -126,6 +126,13 @@ def test_missing_flatpak_binary_fails_every_wanted_id(tmp_path, monkeypatch):
     assert failed == ("com.a.A",)
 
 
+def test_the_skip_variable_runs_no_flatpak_command_and_fails_nothing(tmp_path, has_flatpak, monkeypatch):
+    monkeypatch.setenv(flatpak.SKIP_ENV, "1")
+    machine = Machine()
+    assert flatpak.install_flatpaks(tooling(tmp_path, machine), ["flatpak:com.a.A"], upgrade=True) == ()
+    assert machine.commands == []
+
+
 def test_a_dry_run_makes_no_calls(tmp_path, has_flatpak):
     machine = Machine()
     flatpak.install_flatpaks(tooling(tmp_path, machine, dry_run=True), ["flatpak:com.slack.Slack"])
