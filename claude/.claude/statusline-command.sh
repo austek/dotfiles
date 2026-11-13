@@ -161,7 +161,9 @@ if [[ -n "$five_hour_used" ]] || [[ -n "$seven_day_used" ]]; then
         fh_color=$(color_for_remaining "$fh_remaining")
         fh_when=""
         [[ -n "$five_hour_resets" ]] && fh_when=$(relative_time "$five_hour_resets")
-        parts+=("${dim}5h${reset} ${fh_color}${fh_remaining}%${reset}${fh_when:+${dim}(${fh_when})${reset}}")
+        fh_suffix=""
+        [[ -n "$fh_when" ]] && fh_suffix="${dim}(${fh_when})${reset}"
+        parts+=("${dim}5h${reset} ${fh_color}${fh_remaining}%${reset}${fh_suffix}")
     fi
     if [[ -n "$seven_day_used" ]]; then
         sd_used_int=$(printf '%.0f' "$seven_day_used" 2>/dev/null || echo 0)
@@ -169,7 +171,9 @@ if [[ -n "$five_hour_used" ]] || [[ -n "$seven_day_used" ]]; then
         sd_color=$(color_for_remaining "$sd_remaining")
         sd_when=""
         [[ -n "$seven_day_resets" ]] && sd_when=$(relative_time "$seven_day_resets")
-        parts+=("${dim}wk${reset} ${sd_color}${sd_remaining}%${reset}${sd_when:+${dim}(${sd_when})${reset}}")
+        sd_suffix=""
+        [[ -n "$sd_when" ]] && sd_suffix="${dim}(${sd_when})${reset}"
+        parts+=("${dim}wk${reset} ${sd_color}${sd_remaining}%${reset}${sd_suffix}")
     fi
     IFS=' '; rate_limit_segment="${parts[*]}"; unset IFS
 fi
