@@ -36,6 +36,9 @@ _dotfiles_setup_completions() {
                 COMPREPLY=($(compgen -W "$(_dotfiles_setup_install_flags)" -- "$cur"))
             fi
             ;;
+        propose)
+            COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+            ;;
         private)
             if [[ "${COMP_WORDS[2]}" == "clone" ]]; then
                 if [[ "$prev" == "--dest" ]]; then
@@ -55,7 +58,7 @@ _dotfiles_setup_completions() {
             fi
             ;;
         *)
-            COMPREPLY=($(compgen -W "apply private foothold -h --help" -- "$cur"))
+            COMPREPLY=($(compgen -W "apply propose private foothold -h --help" -- "$cur"))
             ;;
     esac
 }

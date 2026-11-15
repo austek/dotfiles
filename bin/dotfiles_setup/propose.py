@@ -1,69 +1,48 @@
-"""Commit dotfiles changes to a branch and open a pull request.
+"""Commit dotfiles changes to a branch and open a pull request (`dotfiles-setup propose`).
 
-`save` also backs up the private overlay when it is a separate git repo.
-`save` never pushes to main. It stays on the backup branch because stowed configs symlink into this checkout."""
+`propose` also covers the private overlay when it is a separate git repo.
+`propose` never pushes to main. It stays on the backup branch because stowed configs symlink into this checkout."""
 from __future__ import annotations
 
-import argparse
 import subprocess
 import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from dotfiles_setup.overlay import find_overlay_root
-from git_ops import (
+from dotfiles_setup import worktree
+from dotfiles_setup.git_ops import (
     RunFn,
     claude_settings_changed,
     create_branch,
     current_branch,
     has_changes,
-    in_worktree,
     pr_exists,
     status_failed,
     untracked_files,
 )
+from dotfiles_setup.overlay import find_overlay_root
 
 DEFAULT_BRANCH = "main"
 COMMIT_MESSAGE = "chore: update configs and package lists NO_ISSUE"
 VALIDATE_SCRIPT = Path("scripts") / "validate-no-machine-paths.sh"
 UNTRACKED_LIST_CAP = 50
-__all__ = ["DEFAULT_BRANCH", "RunFn", "claude_settings_changed", "main"]
+LEGACY_NOTICE = "'dotfiles-backup' is deprecated; use 'dotfiles-setup propose'."
+LEGACY_USAGE = "usage: dotfiles-backup [save]"
+__all__ = ["DEFAULT_BRANCH", "RunFn", "claude_settings_changed", "legacy_main", "run_propose"]
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+    return Path(__file__).resolve().parents[2]
 
 
-def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="dotfiles-backup",
-        description="Commit dotfiles changes to a branch and open a pull request. Run it from the main checkout only.",
-        epilog="Examples:\n  dotfiles-backup save\n",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    sub = parser.add_subparsers(dest="command", metavar="command")
-    sub.add_parser(
-        "save",
-        help="commit, push the branch (backup/<timestamp> from main), and open a PR if none exists; main checkout only",
-    )
-    return parser
-
-
-def main(
-    argv: list[str] | None = None, run: RunFn = subprocess.run, now: Callable[[], datetime] = datetime.now
-) -> int:
-    parser = build_arg_parser()
-    args = parser.parse_args(argv)
-
-    if args.command is None:
-        parser.print_help()
-        return 1
-
-    if args.command == "save":
-        return _run_save(run=run, now=now)
-
-    return 1
+def legacy_main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if args not in ([], ["save"]):
+        print(LEGACY_USAGE, file=sys.stderr)
+        return 2
+    print(LEGACY_NOTICE, file=sys.stderr)
+    return run_propose()
 
 
 def _abort(message: str) -> int:
@@ -123,7 +102,7 @@ def _private_git_root(public_root: Path) -> Path | None:
     return root if is_separate_repo else None
 
 
-def _run_save(run: RunFn = subprocess.run, now: Callable[[], datetime] = datetime.now) -> int:
+def run_propose(run: RunFn = subprocess.run, now: Callable[[], datetime] = datetime.now) -> int:
     public_root = repo_root()
     codes = [_guarded(public_root, lambda: _save_repo(public_root, run, now, is_public=True))]
     private_root = _private_git_root(public_root)
@@ -141,8 +120,8 @@ def _guarded(repo: Path, save: Callable[[], int]) -> int:
 
 
 def _early_error(dotfiles_dir: Path, run: RunFn, is_public: bool) -> str | None:
-    if in_worktree(dotfiles_dir, run=run):
-        return f"Aborting: {dotfiles_dir} is a linked worktree. Run `dotfiles-backup save` from the main checkout."
+    if worktree.is_linked_worktree(dotfiles_dir):
+        return f"Aborting: {dotfiles_dir} is a linked worktree. Run `dotfiles-setup propose` from the main checkout."
     preflight = _preflight_error(dotfiles_dir, run) if is_public else None
     if preflight:
         return preflight
@@ -185,7 +164,3 @@ def _backup_branch(
         print(f"Aborting: cannot create branch {branch}.", file=sys.stderr)
         return None
     return branch
-
-
-if __name__ == "__main__":
-    sys.exit(main())

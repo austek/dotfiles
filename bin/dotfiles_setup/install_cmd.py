@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 from typing import Any
 
 from dotfiles_setup import (
@@ -14,6 +13,7 @@ from dotfiles_setup import (
     rollback,
     state,
     tooling,
+    worktree,
 )
 from dotfiles_setup.approval import _approved_removals
 from dotfiles_setup.backends import InstallResult
@@ -42,18 +42,13 @@ def _sync_foothold(logger: Logger, preset: Preset) -> None:
     foothold.sync_footholds(logger, preset.footholds)
 
 
-def _in_linked_worktree(dotfiles_dir: Path) -> bool:
-    """A linked worktree has a `.git` file pointing at the main checkout; the main checkout has a `.git` directory."""
-    return (dotfiles_dir / ".git").is_file()
-
-
 def _refuses_worktree(args: argparse.Namespace, env: Env) -> bool:
     roots = (env.dotfiles_dir, overlay.find_overlay_root())
-    worktree = next((root for root in roots if root is not None and _in_linked_worktree(root)), None)
-    if args.dry_run or worktree is None:
+    linked = next((root for root in roots if root is not None and worktree.is_linked_worktree(root)), None)
+    if args.dry_run or linked is None:
         return False
     Logger(dry_run=False, verbosity=args.verbosity).error(
-        f"Refusing to install with the linked worktree {worktree} as a dotfiles checkout: stow would link /etc and "
+        f"Refusing to install with the linked worktree {linked} as a dotfiles checkout: stow would link /etc and "
         "$HOME into it. Use the main checkouts, or pass --dry-run.")
     return True
 

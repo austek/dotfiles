@@ -33,6 +33,7 @@ _EPILOG = (
     "  dotfiles-setup apply  (reuses the preset saved on this machine)\n"
     "  dotfiles-setup apply --preset personal --dry-run\n"
     "  dotfiles-setup apply --preset homelab -v\n"
+    "  dotfiles-setup propose  (commit local config changes and open a PR)\n"
     "  dotfiles-setup private clone --repo git@github.com:you/dotfiles-private.git\n"
 )
 _VERBOSITY_FLAGS = (
@@ -146,6 +147,11 @@ def _build_foothold_parser(sub: Any) -> None:
     _build_restart_parser(foothold_sub)
 
 
+def _build_propose_parser(sub: Any) -> None:
+    summary = "commit changes to a branch, push it and open a PR (backup/<timestamp> from main); main checkout only"
+    sub.add_parser("propose", help=summary, description=summary.capitalize() + ".")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dotfiles-setup",
@@ -155,6 +161,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", metavar="command")
     _build_install_parser(sub)
+    _build_propose_parser(sub)
     _build_private_parser(sub)
     _build_foothold_parser(sub)
     return parser

@@ -9,6 +9,7 @@ from dotfiles_setup.env import Env
 from dotfiles_setup.install_cmd import _run_install
 from dotfiles_setup.log import Logger
 from dotfiles_setup.parser import build_arg_parser
+from dotfiles_setup.propose import run_propose
 
 __all__ = ["Env", "build_arg_parser", "main"]
 
@@ -49,6 +50,9 @@ def main(argv: list[str] | None = None, env: Env | None = None) -> int:
         print("'dotfiles-setup install' is deprecated; use 'dotfiles-setup apply'.", file=sys.stderr)
     if args.command in ("apply", "install"):
         return _run_install(args, env)
+
+    if args.command == "propose":
+        return run_propose()
 
     if args.command == "private" and args.private_command == "clone":
         return _run_private_clone(args, env)
