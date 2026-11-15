@@ -5,5 +5,5 @@ from pathlib import Path
 
 
 def is_linked_worktree(root: Path) -> bool:
-    """A linked worktree has a `.git` file pointing at the main checkout; the main checkout has a `.git` directory."""
+    """True when `.git` is a file, as in a linked worktree or a submodule; a main checkout has a `.git` directory."""
     return (root / ".git").is_file()

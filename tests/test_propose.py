@@ -313,11 +313,23 @@ def test_proceeds_when_claude_settings_are_clean(capsys):
     assert "Dotfiles backup complete." in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("argv", [[], ["save"]])
-def test_legacy_dotfiles_backup_warns_and_runs_propose(argv, monkeypatch, capsys):
+def test_legacy_dotfiles_backup_save_warns_and_runs_propose(monkeypatch, capsys):
     monkeypatch.setattr(propose, "run_propose", lambda: 7)
-    assert propose.legacy_main(argv) == 7
+    assert propose.legacy_main(["save"]) == 7
     assert "'dotfiles-backup' is deprecated; use 'dotfiles-setup propose'." in capsys.readouterr().err
+
+
+def test_bare_legacy_dotfiles_backup_prints_usage_and_never_runs_propose(monkeypatch, capsys):
+    monkeypatch.setattr(propose, "run_propose", lambda: pytest.fail("must not run"))
+    assert propose.legacy_main([]) == 1
+    assert "usage: dotfiles-backup [save]" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag", ["-h", "--help"])
+def test_legacy_dotfiles_backup_help_exits_zero(flag, monkeypatch, capsys):
+    monkeypatch.setattr(propose, "run_propose", lambda: pytest.fail("must not run"))
+    assert propose.legacy_main([flag]) == 0
+    assert "usage: dotfiles-backup [save]" in capsys.readouterr().out
 
 
 def test_legacy_dotfiles_backup_rejects_unknown_arguments(monkeypatch, capsys):

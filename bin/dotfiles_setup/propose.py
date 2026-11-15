@@ -1,7 +1,7 @@
 """Commit dotfiles changes to a branch and open a pull request (`dotfiles-setup propose`).
 
 `propose` also covers the private overlay when it is a separate git repo.
-`propose` never pushes to main. It stays on the backup branch because stowed configs symlink into this checkout."""
+`propose` never pushes to main. On a non-main branch it commits there; from main it creates `backup/<timestamp>` and stays on it, because stowed configs symlink into this checkout."""
 from __future__ import annotations
 
 import subprocess
@@ -38,9 +38,12 @@ def repo_root() -> Path:
 
 def legacy_main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    if args not in ([], ["save"]):
+    if args in (["-h"], ["--help"]):
+        print(LEGACY_USAGE)
+        return 0
+    if args != ["save"]:
         print(LEGACY_USAGE, file=sys.stderr)
-        return 2
+        return 1 if not args else 2
     print(LEGACY_NOTICE, file=sys.stderr)
     return run_propose()
 
