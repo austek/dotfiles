@@ -2,7 +2,7 @@
 
 local -a commands presets
 commands=(
-  'install:install packages and dotfiles for a machine profile'
+  'apply:make this machine match the repo'
   'private:manage the optional private overlay repo'
   'foothold:manage the Claude remote footholds of this machine'
 )
@@ -19,7 +19,7 @@ case $state in
     ;;
   args)
     case ${words[1]} in
-      install)
+      apply|install)
         _arguments \
           '--preset[machine profile to set up]:preset:($presets)' \
           '--dry-run[show what would be done without executing commands]' \

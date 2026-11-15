@@ -5,9 +5,13 @@ def _complete(words: list[str], cword: int) -> list[str]:
     return complete("dotfiles-setup", "_dotfiles_setup_completions", words, cword)
 
 
-def test_completes_install_subcommand_by_prefix():
-    completions = _complete(["dotfiles-setup", "ins"], 1)
-    assert completions == ["install"]
+def test_completes_apply_subcommand_by_prefix():
+    completions = _complete(["dotfiles-setup", "app"], 1)
+    assert completions == ["apply"]
+
+
+def test_does_not_offer_the_deprecated_install_alias():
+    assert _complete(["dotfiles-setup", "ins"], 1) == []
 
 
 def test_completes_long_options_by_prefix():

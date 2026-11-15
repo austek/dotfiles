@@ -11,7 +11,19 @@ from dotfiles_setup.cli import Env, main
 
 
 def test_main_returns_zero_for_valid_preset(isolated_dotfiles):
-    assert main(["install", "--preset", "homelab"]) == 0
+    assert main(["apply", "--preset", "homelab"]) == 0
+
+
+def test_install_alias_warns_on_stderr_and_matches_apply(isolated_dotfiles, capsys):
+    code = main(["install", "--preset", "homelab", "--dry-run"])
+    err = capsys.readouterr().err
+    assert code == main(["apply", "--preset", "homelab", "--dry-run"])
+    assert "'dotfiles-setup install' is deprecated; use 'dotfiles-setup apply'." in err
+
+
+def test_apply_does_not_warn_about_deprecation(isolated_dotfiles, capsys):
+    main(["apply", "--preset", "homelab", "--dry-run"])
+    assert "deprecated" not in capsys.readouterr().err
 
 
 def test_main_prints_dry_run_banner_when_requested(isolated_dotfiles, capsys):

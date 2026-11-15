@@ -52,14 +52,30 @@ def test_main_without_command_prints_help_and_returns_1(capsys):
     assert "install" in out
 
 
-def test_top_level_help_lists_install_subcommand_and_examples(capsys):
+def test_top_level_help_lists_apply_subcommand_and_examples(capsys):
     parser = build_arg_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["-h"])
     out = capsys.readouterr().out
-    assert "install" in out
+    assert "apply" in out
     assert "Examples:" in out
-    assert "dotfiles-setup install --preset work" in out
+    assert "dotfiles-setup apply --preset work" in out
+
+
+def test_help_hides_install_alias(capsys):
+    with pytest.raises(SystemExit):
+        build_arg_parser().parse_args(["-h"])
+    command_lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("    ")]
+    assert not any(line.split()[0] == "install" for line in command_lines if line.split())
+
+
+def test_apply_parses_install_flags():
+    args = build_arg_parser().parse_args(["apply", "--preset", "work", "--prune"])
+    assert (args.command, args.preset, args.prune) == ("apply", "work", True)
+
+
+def test_install_alias_still_parses():
+    assert build_arg_parser().parse_args(["install", "--preset", "work"]).command == "install"
 
 
 def test_private_clone_requires_subcommand():
