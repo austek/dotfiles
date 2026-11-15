@@ -26,7 +26,10 @@ run = "uv run --locked pytest --cov --cov-report=term-missing --cov-report=xml -
 
 [tasks.smoke]
 description = "Run the CLI entry points"
-run = ["./bin/dotfiles-setup install --preset work --dry-run", "./bin/dotfiles-backup --help"]
+run = [
+  "./bin/dotfiles-setup apply --preset work --dry-run",
+  "./bin/dotfiles-setup propose --help",
+]
 
 [tasks.completions]
 description = "Syntax-check the zsh and bash completions"
