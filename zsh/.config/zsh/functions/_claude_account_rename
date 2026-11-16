@@ -1,0 +1,18 @@
+# Renames an account. The OTel account label stays the old name unless --relabel is given, so dashboards keep one series.
+# Refuses a foothold account of the saved preset and an account with a running tmux session.
+# Usage: _claude_account_rename <old> <new> [--relabel]
+_claude_account_rename() {
+  local old=${1:-} new=${2:-} label
+  _claude_account_valid $old && _claude_account_valid $new || { print -ru2 -- "claude-account: usage: claude-account rename <old> <new> [--relabel] (neither can be main)"; return 2 }
+  [[ -d $HOME/.claude-$old ]] || { print -ru2 -- "claude-account: account '$old' does not exist"; return 1 }
+  [[ -e $HOME/.claude-$new || -e $(_claude_account_file $new) ]] && { print -ru2 -- "claude-account: account '$new' already exists"; return 1 }
+  _claude_account_rename_blocked $old && return 1
+  label=$(_claude_account_get $old '.otel_account // empty')
+  _claude_account_move $old $new || return 1
+  if [[ ${3:-} == --relabel ]]; then
+    _claude_account_edit $new 'del(.otel_account)' || return 1
+  else
+    _claude_account_edit $new '.otel_account = $l' --arg l ${label:-$old} || return 1
+  fi
+  print -r -- "Renamed '$old' to '$new'."
+}

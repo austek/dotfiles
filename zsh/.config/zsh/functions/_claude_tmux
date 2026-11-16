@@ -2,8 +2,8 @@
 # the terminal; claude-pane-loop keeps the pane briefly after exit so Cozempic can resume in place.
 # Reattaches a detached session for the directory; a session already attached elsewhere gets a -N suffix.
 # Runs it directly when already in tmux, without a TTY, for -p/--print, or without tmux.
-# Usage: claude-tmux <label> <command> [args...]
-claude-tmux() {
+# Usage: _claude_tmux <label> <command> [args...]
+_claude_tmux() {
   local label=$1
   shift
   if [[ -n $TMUX || ! -t 0 || ! -t 1 ]] || (( ! $+commands[tmux] )) || (( ${+argv[(r)(-p|--print)]} )); then

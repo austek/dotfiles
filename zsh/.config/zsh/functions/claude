@@ -1,0 +1,36 @@
+# Runs Claude Code on an account, optionally with temporary MCP servers/plugins (see _claude_with), inside a tmux session (see _claude_tmux).
+# --burst is --account burst; main is ~/.claude and any other account is ~/.claude-<name>, made by claude-account create.
+# --with <name>[,<name>...] enables entries for the session and saves them per account; a bare --with reuses the saved ones.
+# Usage: claude [--account <name> | --burst] [--with [<name>[,<name>...]]] [<claude-args>...]
+claude() {
+  local -a accounts=() with_names=() rest=()
+  local -i with_bare=0
+  _claude_parse_args "$@" || return
+  local -a distinct=(${(u)accounts})
+  (( $#distinct > 1 )) && { print -ru2 -- "claude: conflicting accounts: ${(j:, :)distinct}"; return 2 }
+  local account=${distinct[1]:-main} dir key
+  dir=$(_claude_account_ensure $account) || return
+  _claude_account_manifest_ok $account || return 1
+  key=$(_claude_account_key $account) || return
+  if (( with_bare )); then
+    with_names=($(_claude_with_cache $account)) || { print -ru2 -- "claude: no saved --with selection for account '$account'"; return 1 }
+  elif (( $#with_names )); then
+    local -a known=(${(f)"$(_claude_with_names)"})
+    local -a saved=(${${with_names//_/-}:*known})
+    (( $#saved )) && _claude_with_cache $account $saved
+  fi
+  local -a env_args=(${(f)"$(claude-otel-env $account)"})
+  [[ -n $dir ]] && env_args+=(CLAUDE_CONFIG_DIR=$dir)
+  local -a cmd=(${commands[claude]})
+  (( $#cmd )) || { print -ru2 -- "claude: claude is not on PATH"; return 127 }
+  (
+    [[ -n $key ]] && export ANTHROPIC_API_KEY=$key
+    if (( $#with_names )); then
+      export DOTFILES_CLAUDE_ACCOUNT=$account "${env_args[@]}"
+      _claude_with $with_names -- "${rest[@]}"
+    else
+      (( $#env_args )) && cmd=(env $env_args $cmd)
+      _claude_tmux $account $cmd "${rest[@]}"
+    fi
+  )
+}

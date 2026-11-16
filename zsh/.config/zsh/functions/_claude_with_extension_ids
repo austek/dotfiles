@@ -1,0 +1,8 @@
+# Prints the id of every restore_argv_<id> array the ~/.config/zsh/claude-with.d extensions define, one per line. Run it in a subshell: the extensions are trusted shell and may print or set variables.
+_claude_with_extension_ids() {
+  local extension
+  for extension in $HOME/.config/zsh/claude-with.d/*.zsh(N); do
+    source $extension
+  done
+  print -rl -- ${${(k)parameters[(I)restore_argv_*]}#restore_argv_}
+}

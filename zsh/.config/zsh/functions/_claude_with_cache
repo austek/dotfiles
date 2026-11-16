@@ -1,0 +1,11 @@
+# Writes the --with names of an account, or prints the saved ones when none are given; fails when nothing is saved.
+# Usage: _claude_with_cache <account> [<name>...]
+_claude_with_cache() {
+  local file=${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/claude-with/$1
+  shift
+  if (( $# )); then
+    mkdir -p -- ${file:h} && print -r -- "$*" >| $file
+  else
+    [[ -s $file ]] && print -r -- "$(<$file)"
+  fi
+}

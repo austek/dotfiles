@@ -1,0 +1,7 @@
+# Prints what a jq filter selects from an account's manifest; prints nothing without jq or a manifest.
+# Usage: _claude_account_get <name> <jq-filter>
+_claude_account_get() {
+  local file=$(_claude_account_file $1)
+  (( $+commands[jq] )) && [[ -r $file ]] || return 0
+  jq -r "$2" "$file" 2>/dev/null
+}

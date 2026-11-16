@@ -1,0 +1,27 @@
+#compdef claude-account
+
+# Completes claude-account subcommands, account names (from ~/.claude-*) and the create/update options.
+function _claude-account {
+    local -a subs=(create update rename ls) accounts=(main)
+    local dir
+    for dir in ~/.claude-*(N/); do
+        accounts+=(${dir:t:s/.claude-/})
+    done
+
+    if (( CURRENT == 2 )); then
+        compadd -a subs
+        return
+    fi
+    case $words[CURRENT-1] in
+        --telemetry) compadd on off; return ;;
+        --label|--unset-label|--otel-account|--api-key-env) return ;;
+    esac
+    case $words[2] in
+        update) (( CURRENT == 3 )) && { compadd -a accounts; return } ;;
+        rename) (( CURRENT == 3 )) && { compadd -a accounts; return }; (( CURRENT == 4 )) && return ;;
+    esac
+    case $words[2] in
+        create|update) compadd -- --telemetry --label --unset-label --otel-account --no-otel-account --api-key-env --no-api-key ;;
+        rename) compadd -- --relabel ;;
+    esac
+}

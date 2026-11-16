@@ -1,0 +1,8 @@
+_claude_otel_project() {
+  local root name
+  root=$(git rev-parse --show-toplevel 2>/dev/null)
+  name=${root:t}
+  [[ -n $name ]] || name=${PWD:t}
+  name=${name//[^A-Za-z0-9._-]/_}
+  print -r -- ${name:-unknown}
+}
