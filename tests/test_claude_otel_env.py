@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -34,7 +35,8 @@ def _run(
     home: Path, script: str, cwd: Path, extra: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess:
     env = {"PATH": os.environ["PATH"], "HOME": str(home), **(extra or {})}
-    setup = f"fpath=({FUNCTIONS} $fpath); autoload -Uz {FUNCTIONS}/*(:t)\n"
+    quoted = shlex.quote(str(FUNCTIONS))
+    setup = f"fpath=({quoted} $fpath); autoload -Uz {quoted}/*(:t)\n"
     return subprocess.run(
         ["zsh", "-f", "-c", setup + script],
         capture_output=True,

@@ -4,6 +4,7 @@ _claude_account_update() {
   local name=${1:-} filter=.
   (( $# )) && shift
   local -a jqargs=()
+  [[ $name == main ]] || _claude_account_valid $name || { print -ru2 -- "claude-account: invalid name '$name' (lowercase letters, digits, _ and -; 'main' is the default)"; return 2 }
   [[ $name == main || -d $HOME/.claude-$name ]] || { print -ru2 -- "claude-account: account '$name' does not exist; create it with: claude-account create $name"; return 1 }
   (( $# )) || { print -ru2 -- "claude-account: nothing to update; give an option (see claude-account usage in the function header)"; return 2 }
   _claude_account_opts "$@" || return

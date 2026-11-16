@@ -33,14 +33,14 @@ _claude_with() {
       selection+=("$token")
     done
     local args_hash=${"$(print -rn -- "${CLAUDE_CONFIG_DIR:+$CLAUDE_CONFIG_DIR }$*" | cksum)"%% *}
-    _claude_tmux "${DOTFILES_CLAUDE_ACCOUNT:-main}-with-${(j:-:)${(@o)selection}}-${args_hash}" zsh -ic '_claude_with "$@"' _claude_with "$@"
+    _claude_tmux "${DOTFILES_CLAUDE_ACCOUNT:-main}-with-${(j:-:)${(@o)selection}}-${args_hash}" zsh -ic '[[ -n ${DOTFILES_CLAUDE_API_KEY-} ]] && export ANTHROPIC_API_KEY=$DOTFILES_CLAUDE_API_KEY; _claude_with "$@"' _claude_with "$@"
     return
   fi
 
   local -a names=() claude_args=()
   local seen_sep=0 arg
   for arg in "$@"; do
-    if [[ "$arg" == "--" ]]; then
+    if [[ "$arg" == "--" ]] && (( ! seen_sep )); then
       seen_sep=1
       continue
     fi

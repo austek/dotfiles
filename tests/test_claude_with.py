@@ -86,6 +86,13 @@ def test_argv_boundaries_are_exact_and_placeholders_stay_literal(tmp_path):
     assert not (tmp_path / "PWNED").exists()
 
 
+def test_only_the_first_separator_is_consumed(tmp_path):
+    env = _setup(tmp_path, EXTENSION) | {"TRICKY_TOKEN": "s3cret"}
+    result = _run(tmp_path, "_claude_with tricky -- -- --burst", env)
+    assert result.returncode == 0, result.stderr
+    assert _calls(tmp_path)[1] == ["claude", "--", "--burst"]
+
+
 def test_builtin_grafana_placeholder_is_passed_unexpanded(tmp_path):
     env = _setup(tmp_path) | {"GRAFANA_SERVICE_ACCOUNT_TOKEN": "s3cret"}
     result = _run(tmp_path, "_claude_with grafana", env)
@@ -310,7 +317,7 @@ def test_tmux_reexec_forwards_session_name_and_arguments_intact(tmp_path):
         session,
         "zsh",
         "-ic",
-        '_claude_with "$@"',
+        '[[ -n ${DOTFILES_CLAUDE_API_KEY-} ]] && export ANTHROPIC_API_KEY=$DOTFILES_CLAUDE_API_KEY; _claude_with "$@"',
         "_claude_with",
         "sonarqube",
         "idea",

@@ -11,7 +11,7 @@ function _claude {
 
     case $words[CURRENT-1] in
         --account) compadd -a accounts; return ;;
-        --with) compadd -a names; return ;;
+        --with) compset -P '*,'; compadd -a names; return ;;
     esac
     if compset -P '--account='; then
         compadd -a accounts

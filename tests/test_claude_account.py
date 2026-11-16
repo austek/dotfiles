@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,7 +27,8 @@ def _run(tmp_path: Path, script: str, env: dict[str, str] | None = None) -> subp
         "DOTFILES_ROOT": str(tmp_path / "dotfiles"),
         **(env or {}),
     }
-    setup = f"fpath=({FUNCTIONS} $fpath); autoload -Uz {FUNCTIONS}/*(:t)\n"
+    quoted = shlex.quote(str(FUNCTIONS))
+    setup = f"fpath=({quoted} $fpath); autoload -Uz {quoted}/*(:t)\n"
     return subprocess.run(
         ["zsh", "-f", "-c", setup + script], capture_output=True, text=True, env=full_env, timeout=30, check=False
     )
@@ -293,12 +295,59 @@ def test_create_removes_the_manifest_when_linking_fails(tmp_path):
     assert not (tmp_path / "home" / ".config" / "dotfiles" / "claude-accounts" / "work2.json").exists()
 
 
-def _tmux_sessions(tmp_path: Path, sessions: list[str]) -> None:
+def _tmux_sessions(tmp_path: Path, sessions: list[str] | dict[str, str | None]) -> None:
+    recorded = sessions if isinstance(sessions, dict) else dict.fromkeys(sessions)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     stub = bin_dir / "tmux"
-    stub.write_text("#!/bin/sh\n" + "".join(f"echo {name}\n" for name in sessions))
+    listing = "".join(f"echo {shlex.quote(name)}\n" for name in recorded)
+    cases = "".join(
+        f"    ={shlex.quote(name)}) echo DOTFILES_CLAUDE_ACCOUNT={shlex.quote(account)} ;;\n"
+        for name, account in recorded.items()
+        if account is not None
+    )
+    stub.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = show-environment ]; then\n'
+        '  case "$3" in\n'
+        f"{cases}"
+        "    *) exit 1 ;;\n"
+        "  esac\n"
+        "  exit 0\n"
+        "fi\n"
+        f"{listing}"
+    )
     stub.chmod(0o755)
+
+
+def test_rename_matches_the_recorded_account_not_a_name_prefix(tmp_path):
+    _run(tmp_path, "claude-account create team")
+    _tmux_sessions(tmp_path, {"claude-team-dev-proj-123": "team-dev"})
+    assert _run(tmp_path, "claude-account rename team renamed").returncode == 0
+
+
+def test_rename_refuses_when_the_recorded_account_matches(tmp_path):
+    _run(tmp_path, "claude-account create team")
+    _tmux_sessions(tmp_path, {"claude-team-dev-proj-123": "team"})
+    assert _run(tmp_path, "claude-account rename team renamed").returncode == 1
+
+
+def test_update_rejects_a_path_alias_as_the_account_name(tmp_path):
+    _run(tmp_path, "claude-account create team")
+    _run(tmp_path, "claude-account create other")
+    result = _run(tmp_path, "claude-account update team/../other --label k=v")
+    assert result.returncode == 2
+    assert "invalid name" in result.stderr
+
+
+def test_a_failed_link_leaves_no_account_directory(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    stub = bin_dir / "claude-account-link"
+    stub.write_text('#!/bin/sh\nmkdir -p "$HOME/.claude-$1"\nexit 1\n')
+    stub.chmod(0o755)
+    assert _run(tmp_path, "claude-account create broken").returncode == 1
+    assert not (tmp_path / "home" / ".claude-broken").exists()
 
 
 def test_rename_refuses_an_account_with_a_running_tmux_session(tmp_path):

@@ -9,6 +9,6 @@ _claude_account_create() {
   _claude_account_opts "$@" || return
   _claude_account_edit $name $filter "${jqargs[@]}" || return 1
   file=$(_claude_account_file $name)
-  claude-account-link $name >/dev/null || { rm -f -- $file; return 1 }
+  claude-account-link $name >/dev/null || { rm -f -- $file; rm -rf -- $HOME/.claude-$name; return 1 }
   print -r -- "Created account '$name'. Log in with: claude --account $name, then /login"
 }
