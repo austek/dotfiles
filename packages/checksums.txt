@@ -11,14 +11,14 @@ f93bfbd94cde68cc2e43cf5ba55da4f8e28b1a36b14fb14dadd566fc36b1312b  https://github
 7a121264f2637a3b90767aaf5bdd43ee88b8c925a931d0479fa2ce22b1a2fa76  https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.39.6.zip
 43add3c33c9b86ee560adc8579261e8e26465a101b281720937c6d1d4967b3e4  https://download.jetbrains.com/toolbox/jetbrains-toolbox-3.9.1.89198.tar.gz
 5cd7b9f1e6dc7226a44193df23d0664790496e8267f26152b0cbbd5888025444  https://cdn.zoom.us/prod/7.2.5.6661/zoom_amd64.deb
-b060a7c7679103b2b619752f8ee7a3088dd241a7d207d4311974b56ea6f94356  https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.6.0-5526304964083712/linux-x64/Antigravity%20IDE.tar.gz
+9360a86521c3e5498846254b743b1f3203768ebadf65a178bc549395936f7a5d  https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.7.0-4507555968450560/linux-x64/Antigravity%20IDE.tar.gz
 
 # Installer scripts. Several track a moving branch, so an upstream change fails the check until re-recorded.
 85ae798116fa0dda42a627333b36903b71291785c7395ad3634f8419f7adaeb5  https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh
 d890e2fef6fa991b19cde2e608199bc1dca4e37f41f884edf8849ff693048de6  https://sh.rustup.rs
 434360efbde4d2ee31940ff28130fc6ec66121f1e1afc84aa37504752c4babb0  https://get.sdkman.io?rcupdate=false
 3f9f1b6269deddc51cdcab2a689f54821e6e62c24401f970de4bfafad328b2ef  https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
-48a0eee9a60e07422dce0eb5774754c83889570ca1ee2566c516acbe8af03a9e  https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh
+045932fe05f0d4247c946f2ec0ec4026dbfd8ce88a5f67ea28d8ea833227f48b  https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh
 5559c3df63dbf759c4e0b915dee6ce0df15f307b5bcb2ffaa400042064b46232  https://cli.coderabbit.ai/install.sh
 cb68f168a6b22279a58ff58da052792237b17dbcf35a16e86e38bcbfc6bf3d6a  https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/tags/1.11.0.16877/user-scripts/install.sh
 f7a56e7afaec49a3bcbc3ac3cdbe917e7c6ce30e0d815308a12e531aa5ef23b7  https://astral.sh/uv/0.13.7/install.sh
