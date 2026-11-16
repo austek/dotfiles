@@ -317,7 +317,7 @@ def test_tmux_reexec_forwards_session_name_and_arguments_intact(tmp_path):
         session,
         "zsh",
         "-ic",
-        '[[ -n ${DOTFILES_CLAUDE_API_KEY-} ]] && export ANTHROPIC_API_KEY=$DOTFILES_CLAUDE_API_KEY; _claude_with "$@"',
+        'if [[ -n ${DOTFILES_CLAUDE_API_KEY-} ]]; then export ANTHROPIC_API_KEY=$DOTFILES_CLAUDE_API_KEY; elif [[ ${DOTFILES_CLAUDE_ACCOUNT:-main} != main ]]; then unset ANTHROPIC_API_KEY; fi; _claude_with "$@"',
         "_claude_with",
         "sonarqube",
         "idea",

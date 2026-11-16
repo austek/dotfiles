@@ -4,8 +4,8 @@ _claude_account_edit() {
   local name=$1 filter=$2 file tmp
   shift 2
   file=$(_claude_account_file $name)
-  tmp=$file.$$
   mkdir -p -- ${file:h} || return
+  tmp=$(mktemp -- $file.XXXXXX) || return
   if [[ -r $file ]]; then jq "$@" "$filter" $file >| $tmp; else jq -n "$@" "{} | $filter" >| $tmp; fi || { rm -f -- $tmp; return 1 }
-  mv -f -- $tmp $file
+  mv -f -- $tmp $file || { rm -f -- $tmp; return 1 }
 }

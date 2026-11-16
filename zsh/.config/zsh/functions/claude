@@ -26,7 +26,12 @@ claude() {
   (
     [[ -z $dir ]] && unset CLAUDE_CONFIG_DIR
     export DOTFILES_CLAUDE_ACCOUNT=$account
-    [[ -n $key ]] && export ANTHROPIC_API_KEY=$key DOTFILES_CLAUDE_API_KEY=$key
+    if [[ -n $key ]]; then
+      export ANTHROPIC_API_KEY=$key DOTFILES_CLAUDE_API_KEY=$key
+    else
+      unset DOTFILES_CLAUDE_API_KEY
+      [[ $account == main ]] || unset ANTHROPIC_API_KEY
+    fi
     if (( $#with_names )); then
       (( $#env_args )) && export "${env_args[@]}"
       _claude_with $with_names -- "${rest[@]}"

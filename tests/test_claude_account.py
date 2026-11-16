@@ -332,6 +332,28 @@ def test_rename_refuses_when_the_recorded_account_matches(tmp_path):
     assert _run(tmp_path, "claude-account rename team renamed").returncode == 1
 
 
+@pytest.mark.parametrize("args", ["--account=", "--account ''"])
+def test_an_empty_account_name_is_rejected(tmp_path, args):
+    script = f"local -a accounts=() with_names=() rest=(); _claude_parse_args {args}"
+    result = _run(tmp_path, f"f() {{ {script} }}; f")
+    assert result.returncode == 2
+    assert "needs a name" in result.stderr
+
+
+def test_a_failed_manifest_write_after_the_move_restores_the_old_name(tmp_path):
+    _run(tmp_path, "claude-account create old")
+    manifests = tmp_path / "home" / ".config" / "dotfiles" / "claude-accounts"
+    (manifests / "old.json").unlink()
+    manifests.chmod(0o555)
+    try:
+        result = _run(tmp_path, "claude-account rename old new")
+    finally:
+        manifests.chmod(0o755)
+    assert result.returncode == 1
+    assert (tmp_path / "home" / ".claude-old").is_dir()
+    assert not (tmp_path / "home" / ".claude-new").exists()
+
+
 def test_update_rejects_a_path_alias_as_the_account_name(tmp_path):
     _run(tmp_path, "claude-account create team")
     _run(tmp_path, "claude-account create other")

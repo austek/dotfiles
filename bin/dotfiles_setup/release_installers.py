@@ -5,6 +5,7 @@ import os
 import platform
 import re
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import zipfile
@@ -28,6 +29,7 @@ from dotfiles_setup.tooling import Tooling, dry_run_all
 MSG_CONTINUING_SETUP = "Continuing with setup..."
 SUPPORTED_ARCH = "x86_64"
 INSTALL_DIR = Path("/usr/local/bin")
+VERSION_PROBE_TIMEOUT_SECONDS = 10
 SPECS_FILE = Path(__file__).resolve().parent.parent.parent / "packages" / "release_specs.json"
 EXTRACT_ERRORS = (
     tarfile.TarError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, OSError,
@@ -279,11 +281,15 @@ UPGRADABLE_BINARIES: tuple[tuple[str, ReleaseSpec], ...] = (("chip", CHIP),)
 
 
 def _binary_version(t: Tooling, binary: str) -> str | None:
-    """Returns the version on the first line of `<INSTALL_DIR>/<binary> --version` without a leading `v`, or None when that file is missing, exits non-zero or prints nothing."""
-    path = INSTALL_DIR / binary
-    if not path.is_file():
+    """Returns the version on the first line of `--version` of `<INSTALL_DIR>/<binary>`, else of the PATH match the install check accepts, without a leading `v`; None when neither exists, it exits non-zero or prints nothing."""
+    managed = INSTALL_DIR / binary
+    path = str(managed) if managed.is_file() else shutil.which(binary)
+    if path is None:
         return None
-    result = t.run([str(path), "--version"], capture_output=True, text=True)
+    try:
+        result = t.run([path, "--version"], capture_output=True, text=True, timeout=VERSION_PROBE_TIMEOUT_SECONDS)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
     lines = (result.stdout or "").strip().splitlines() if result.returncode == 0 else []
     return lines[0].strip().removeprefix("v") if lines else None
 

@@ -4,7 +4,9 @@ _claude_with_cache() {
   local file=${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/claude-with/$1
   shift
   if (( $# )); then
-    mkdir -p -- ${file:h} && print -r -- "$*" >| $file
+    local tmp
+    mkdir -p -- ${file:h} && tmp=$(mktemp -- $file.XXXXXX) || return
+    { print -r -- "$*" >| $tmp && mv -f -- $tmp $file } || { rm -f -- $tmp; return 1 }
   else
     [[ -s $file ]] && print -r -- "$(<$file)"
   fi

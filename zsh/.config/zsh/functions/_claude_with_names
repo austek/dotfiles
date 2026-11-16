@@ -2,8 +2,9 @@
 _claude_with_names() {
   local -a sources=(${^fpath}/_claude_with(N.[1]))
   local -aU names=()
-  local line
-  for line in ${(f)"$(cat -- $sources 2>/dev/null)"}; do
+  local line text=
+  (( $#sources )) && text=$(<$sources[1])
+  for line in ${(f)text}; do
     [[ $line =~ 'local -a restore_argv_([A-Za-z0-9_]+)=' ]] && names+=(${match[1]//_/-})
   done
   names+=(${${(f)"$(_claude_with_extension_ids 2>/dev/null)"}//_/-})
