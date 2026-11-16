@@ -33,6 +33,10 @@ LEGACY = {
         "https://github.com/grafana/mcp-grafana/releases/download/v2.2.0/mcp-grafana_Linux_x86_64.tar.gz",
         "mcp-grafana-v2.2.0.tar.gz", "targz",
     ),
+    "chip": (
+        "chip", "0.0.67", "https://github.com/collibra/chip/releases/download/v0.0.67/chip-0.0.67-linux-amd64",
+        "chip-0.0.67", "binary",
+    ),
 }
 GOOD = {
     "package": "tool", "name": "Tool", "version": "1.0", "url": "https://example.com/{version}/tool.tgz",
@@ -62,6 +66,11 @@ def test_a_well_formed_spec_loads():
 
 def test_the_binary_field_is_optional_and_kept():
     assert parse({**GOOD, "binary": "tool"}).value[0].binary == "tool"
+
+
+def test_a_binary_kind_needs_the_binary_field():
+    assert isinstance(parse({**GOOD, "kind": "binary"}), Err)
+    assert isinstance(parse({**GOOD, "kind": "binary", "binary": "tool"}), Ok)
 
 
 @pytest.mark.parametrize("field", rs.REQUIRED_FIELDS)

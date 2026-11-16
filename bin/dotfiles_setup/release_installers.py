@@ -45,7 +45,7 @@ class ReleaseSpec:
     name: str
     is_installed: Callable[[Tooling], bool]
     resolve: Callable[[Tooling], Resolved]
-    kind: Literal["targz", "zip", "deb"]
+    kind: Literal["targz", "zip", "deb", "binary"]
     install: Callable[[Tooling, Path, Path, Resolved], bool]
 
 
@@ -217,6 +217,12 @@ def _binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bo
     return lambda t, temp_dir, _artifact, _resolved: _sudo_install(t, temp_dir / binary)
 
 
+def _raw_binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
+    return lambda t, _dir, artifact, _resolved: t.run(
+        ["sudo", "install", "-T", str(artifact), f"/usr/local/bin/{binary}"],
+    ).returncode == 0
+
+
 def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
     return lambda t, _dir, artifact, _resolved: _install_deb_or_fix_broken(t, artifact, package)
 
@@ -232,7 +238,8 @@ CUSTOM_BEHAVIOR: dict[str, tuple[Callable[[Tooling], bool], Callable[[Tooling, P
 def _release_spec(data: SpecData) -> ReleaseSpec:
     resolved = Resolved(data.version, data.download_url, data.artifact_name)
     if data.binary:
-        is_installed, install = _which_installed(data.binary), _binary_install(data.binary)
+        place = _raw_binary_install if data.kind == "binary" else _binary_install
+        is_installed, install = _which_installed(data.binary), place(data.binary)
     else:
         is_installed, install = CUSTOM_BEHAVIOR[data.package]
     return ReleaseSpec(data.name, is_installed, lambda _t: resolved, data.kind, install)
@@ -257,11 +264,21 @@ RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], None]], ...] = tuple(
 _SPECS = dict(RELEASE_SPECS)
 LAZYDOCKER, ZOOM, JETBRAINS_TOOLBOX = (_SPECS[p] for p in ("lazydocker", "zoom", "jetbrains-toolbox"))
 ISTIOCTL, AWSCLI, ZIZMOR, MCP_GRAFANA = (_SPECS[p] for p in ("istioctl", "awscli", "zizmor", "mcp-grafana"))
+CHIP = _SPECS["chip"]
 UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = (("zoom", ZOOM),)
+UPGRADABLE_BINARIES: tuple[tuple[str, ReleaseSpec], ...] = (("chip", CHIP),)
 
 
-def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:
-    installed = _dpkg_version(t, package)
+def _binary_version(t: Tooling, binary: str) -> str | None:
+    """Returns the version on the first line of `<binary> --version` without a leading `v`, or None when the binary is not on PATH, exits non-zero or prints nothing."""
+    if shutil.which(binary) is None:
+        return None
+    result = t.run([binary, "--version"], capture_output=True, text=True)
+    lines = (result.stdout or "").strip().splitlines() if result.returncode == 0 else []
+    return lines[0].strip().removeprefix("v") if lines else None
+
+
+def upgrade_release(t: Tooling, spec: ReleaseSpec, installed: str | None) -> None:
     if installed is None or not _supported_arch(t, spec):
         return
     resolved = spec.resolve(t)
@@ -279,7 +296,10 @@ def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:
 
 
 def upgrade_vendor_debs(t: Tooling, package_names: Collection[str]) -> None:
-    """Installs the pinned version of each wanted vendor .deb whose installed version is older than the pin."""
+    """Installs the pinned version of each wanted vendor .deb or release binary whose installed version is older than the pin."""
     for package, spec in UPGRADABLE_DEBS:
         if package in package_names:
-            upgrade_release(t, spec, package)
+            upgrade_release(t, spec, _dpkg_version(t, package))
+    for package, spec in UPGRADABLE_BINARIES:
+        if package in package_names:
+            upgrade_release(t, spec, _binary_version(t, SPEC_DATA[package].binary or package))
