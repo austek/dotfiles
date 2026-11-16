@@ -1,0 +1,15 @@
+# Succeeds when a tmux session belongs to the account. Sessions record DOTFILES_CLAUDE_ACCOUNT; sessions started before that fall back to the claude-<name>- name prefix, which cannot tell team from team-dev.
+_claude_account_has_session() {
+  local name=$1 session recorded
+  (( $+commands[tmux] )) || return 1
+  for session in ${(f)"$(tmux list-sessions -F '#S' 2>/dev/null)"}; do
+    [[ $session == claude-* ]] || continue
+    recorded=$(tmux show-environment -t "=$session" DOTFILES_CLAUDE_ACCOUNT 2>/dev/null)
+    if [[ $recorded == DOTFILES_CLAUDE_ACCOUNT=* ]]; then
+      [[ ${recorded#*=} == $name ]] && return 0
+    elif [[ $session == claude-$name-* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}

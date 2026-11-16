@@ -1,0 +1,5 @@
+# Succeeds for a usable account name: lowercase letters, digits, _ and -, starting with a letter or digit, and not main.
+# Usage: _claude_account_valid <name>
+_claude_account_valid() {
+  [[ $1 =~ '^[a-z0-9][a-z0-9_-]*$' && $1 != main ]]
+}

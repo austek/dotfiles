@@ -204,7 +204,7 @@ def install_foothold(
     """
     unit = unit_dir / unit_name(account)
     if account == "burst" and not (burst_dir / ".credentials.json").is_file():
-        logger.warn(f"Skipping {unit.name}: log in once with `claude-burst` then /login, and re-run the install.")
+        logger.warn(f"Skipping {unit.name}: log in once with `claude --burst` then /login, and re-run the install.")
         return False
     if logger.dry_run_notice(f"Would install {unit}, enable linger and start {unit.name}."):
         return True

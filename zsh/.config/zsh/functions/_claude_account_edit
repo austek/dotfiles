@@ -1,0 +1,11 @@
+# Rewrites an account's manifest through a jq filter (a missing manifest starts as {}), replacing the file atomically.
+# Usage: _claude_account_edit <name> <jq-filter> [<jq-arg>...]
+_claude_account_edit() {
+  local name=$1 filter=$2 file tmp
+  shift 2
+  file=$(_claude_account_file $name)
+  mkdir -p -- ${file:h} || return
+  tmp=$(mktemp -- $file.XXXXXX) || return
+  if [[ -r $file ]]; then jq "$@" "$filter" $file >| $tmp; else jq -n "$@" "{} | $filter" >| $tmp; fi || { rm -f -- $tmp; return 1 }
+  mv -f -- $tmp $file || { rm -f -- $tmp; return 1 }
+}

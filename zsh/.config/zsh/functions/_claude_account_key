@@ -1,0 +1,8 @@
+# Prints the API key an account takes from the secrets variable its manifest names; prints nothing when it names none, fails when the variable is unset or empty.
+# Usage: _claude_account_key <name>
+_claude_account_key() {
+  local var=$(_claude_account_get $1 '.api_key_env // empty')
+  [[ -n $var ]] || return 0
+  [[ -n ${(P)var} ]] || { print -ru2 -- "claude: \$$var is not set for account '$1' (check ~/.config/dotfiles/secrets.env)"; return 1 }
+  print -rn -- ${(P)var}
+}

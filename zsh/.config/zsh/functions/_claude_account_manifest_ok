@@ -1,0 +1,9 @@
+# Succeeds when an account has no manifest or its manifest is a JSON object; otherwise says so on stderr. Without jq it cannot judge and succeeds.
+# Usage: _claude_account_manifest_ok <name>
+_claude_account_manifest_ok() {
+  local file=$(_claude_account_file $1)
+  [[ -e $file ]] && (( $+commands[jq] )) || return 0
+  jq -e 'type == "object"' $file >/dev/null 2>&1 && return 0
+  print -ru2 -- "claude: $file is not valid JSON; fix or remove it"
+  return 1
+}

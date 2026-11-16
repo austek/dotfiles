@@ -1,7 +1,7 @@
 # Temporarily enables MCP servers/plugins (local scope) for one claude session, reverting them on exit.
 # Entries are argv arrays named restore_argv_<id> and revert_argv_<id>, both required (id: '-' becomes '_'); optional claude_with_secrets_<id> lists env vars that must be set.
-# Extensions in ~/.config/zsh/claude-with.d/*.zsh define those arrays. Usage: claude-with <name> [<name> ...] [-- <claude-args...>]
-claude-with() {
+# Extensions in ~/.config/zsh/claude-with.d/*.zsh define those arrays, and may define _claude_with_hint <name> to print how to create a missing entry. Called by claude --with; usage: _claude_with <name> [<name> ...] [-- <claude-args...>]
+_claude_with() {
   local -a restore_argv_idea=(claude mcp add --transport http idea http://127.0.0.1:64342/stream -s local)
   local -a revert_argv_idea=(claude mcp remove idea -s local)
   local -a restore_argv_sonarqube=(claude mcp add sonarqube -s local -- sonar run mcp)
@@ -16,11 +16,11 @@ claude-with() {
     source "$extension"
   done
   if (( ${+restore_commands} || ${+revert_commands} )); then
-    echo "claude-with: a claude-with.d extension uses the removed restore_commands format; define restore_argv_<id>/revert_argv_<id>/claude_with_secrets_<id>" >&2
+    echo "claude --with: a claude-with.d extension uses the removed restore_commands format; define restore_argv_<id>/revert_argv_<id>/claude_with_secrets_<id>" >&2
   fi
 
   if [[ $# -eq 0 ]]; then
-    echo "Usage: claude-with <name> [<name> ...] [-- <claude-args>]" >&2
+    echo "Usage: claude --with <name>[,<name>...] [<claude-args>]" >&2
     return 1
   fi
 
@@ -32,15 +32,15 @@ claude-with() {
       [[ "$token" == "--" ]] && break
       selection+=("$token")
     done
-    local args_hash=${"$(print -rn -- "$*" | cksum)"%% *}
-    claude-tmux "with-${(j:-:)${(@o)selection}}-${args_hash}" zsh -ic 'claude-with "$@"' claude-with "$@"
+    local args_hash=${"$(print -rn -- "${CLAUDE_CONFIG_DIR:+$CLAUDE_CONFIG_DIR }$*" | cksum)"%% *}
+    _claude_tmux "${DOTFILES_CLAUDE_ACCOUNT:-main}-with-${(j:-:)${(@o)selection}}-${args_hash}" zsh -ic 'if [[ -n ${DOTFILES_CLAUDE_API_KEY-} ]]; then export ANTHROPIC_API_KEY=$DOTFILES_CLAUDE_API_KEY; elif [[ ${DOTFILES_CLAUDE_ACCOUNT:-main} != main ]]; then unset ANTHROPIC_API_KEY; fi; _claude_with "$@"' _claude_with "$@"
     return
   fi
 
   local -a names=() claude_args=()
   local seen_sep=0 arg
   for arg in "$@"; do
-    if [[ "$arg" == "--" ]]; then
+    if [[ "$arg" == "--" ]] && (( ! seen_sep )); then
       seen_sep=1
       continue
     fi
@@ -58,7 +58,7 @@ claude-with() {
     [[ ${(Pt)decl} == array* ]] && vars=("${(@P)decl}")
     shift
     for var in "${vars[@]}"; do
-      [[ $var =~ $ident ]] || { print -r -- "claude-with: invalid secret name '$var' declared for '$name'" >&2; return 2; }
+      [[ $var =~ $ident ]] || { print -r -- "claude --with: invalid secret name '$var' declared for '$name'" >&2; return 2; }
     done
     for arg in "$@"; do
       while [[ $arg =~ $re ]]; do
@@ -76,27 +76,31 @@ claude-with() {
   _claude_with_enable() {
     local name=$1 id=${1//-/_} missing add_output rc
     if [[ ! $name =~ '^[A-Za-z0-9_-]+$' ]]; then
-      print -r -- "claude-with: invalid name '$name' (allowed: letters, digits, _ and -)" >&2
+      print -r -- "claude --with: invalid name '$name' (allowed: letters, digits, _ and -)" >&2
       return 1
     fi
     local ref="restore_argv_$id" vref="revert_argv_$id"
-    [[ ${(Pt)ref} == array* ]] || { echo "claude-with: no restore entry for '$name'" >&2; return 1; }
-    [[ ${(Pt)vref} == array* ]] || { echo "claude-with: no revert entry for '$name'" >&2; return 1; }
+    if [[ ${(Pt)ref} != array* ]]; then
+      echo "claude --with: no restore entry for '$name'" >&2
+      (( $+functions[_claude_with_hint] )) && _claude_with_hint "$name"
+      return 1
+    fi
+    [[ ${(Pt)vref} == array* ]] || { echo "claude --with: no revert entry for '$name'" >&2; return 1; }
     local -a cmd=("${(@P)ref}")
     missing=$(_claude_with_missing_secret "$name" "${cmd[@]}"); rc=$?
     (( rc == 2 )) && return 1
     if (( rc == 0 )); then
-      echo "claude-with: \$$missing is not set (check ~/.config/dotfiles/secrets.env)" >&2
+      echo "claude --with: \$$missing is not set (check ~/.config/dotfiles/secrets.env)" >&2
       return 1
     fi
-    echo "claude-with: enabling $name (local scope)..."
+    echo "claude --with: enabling $name (local scope)..."
     add_output=$(command "${cmd[@]}" 2>&1) && { echo "$add_output"; added+=("$name"); return 0; }
     if [[ "$add_output" == *"already"* ]]; then
-      echo "claude-with: $name already enabled in local scope, leaving as-is"
+      echo "claude --with: $name already enabled in local scope, leaving as-is"
       already+=("$name")
       return 0
     fi
-    echo "claude-with: failed to add $name" >&2
+    echo "claude --with: failed to add $name" >&2
     echo "$add_output" >&2
     return 1
   }
@@ -108,7 +112,7 @@ claude-with() {
   done
 
   if [[ ${#added[@]} -eq 0 && ${#already[@]} -eq 0 ]]; then
-    echo "claude-with: nothing enabled, aborting" >&2
+    echo "claude --with: nothing enabled, aborting" >&2
     return 1
   fi
 
@@ -118,14 +122,14 @@ claude-with() {
     for n in "${added[@]}"; do
       rref="revert_argv_${n//-/_}"
       local -a rcmd=("${(@P)rref}")
-      out=$(command "${rcmd[@]}" 2>&1) || print -r -- "claude-with: failed to revert $n; run: ${(j: :)${(@q)rcmd}}" >&2
+      out=$(command "${rcmd[@]}" 2>&1) || print -r -- "claude --with: failed to revert $n; run: ${(j: :)${(@q)rcmd}}" >&2
     done
     added=()
   }
   setopt localtraps
   trap '_claude_with_revert; return 143' HUP TERM
 
-  (( ${#skipped} )) && print -r -- "claude-with: running WITHOUT: ${skipped[*]}" >&2
+  (( ${#skipped} )) && print -r -- "claude --with: running WITHOUT: ${skipped[*]}" >&2
   command claude "${claude_args[@]}"
   local exit_status=$?
 

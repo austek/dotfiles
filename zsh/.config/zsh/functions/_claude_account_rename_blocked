@@ -1,0 +1,13 @@
+# Succeeds, after saying why, when an account cannot be renamed: the saved preset lists it as a foothold, or tmux has a session for it.
+# Usage: _claude_account_rename_blocked <name>
+_claude_account_rename_blocked() {
+  local name=$1 preset
+  local presets=${DOTFILES_ROOT:-$HOME/.dotfiles}/presets
+  preset=$(jq -r '.preset_name // empty' $HOME/.config/dotfiles/state.json 2>/dev/null)
+  if [[ -n $preset && -r $presets/$preset.json ]] && jq -e --arg n $name '(.footholds // []) | index($n)' $presets/$preset.json >/dev/null 2>&1; then
+    print -ru2 -- "claude-account: '$name' is a foothold account of preset '$preset'; its boot unit is named after it"
+    return 0
+  fi
+  _claude_account_has_session $name || return 1
+  print -ru2 -- "claude-account: '$name' has a running tmux session; close it first"
+}

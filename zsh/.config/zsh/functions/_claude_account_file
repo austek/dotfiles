@@ -1,0 +1,5 @@
+# Prints the manifest path of an account. The manifest lives outside ~/.claude, whose entries claude-account-link links into every account.
+# Usage: _claude_account_file <name>
+_claude_account_file() {
+  print -r -- ${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/claude-accounts/$1.json
+}

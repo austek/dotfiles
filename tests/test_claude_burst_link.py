@@ -22,6 +22,30 @@ def _link(tmp_path: Path, **env: str) -> subprocess.CompletedProcess:
     )
 
 
+ACCOUNT_SCRIPT = SCRIPT.with_name("claude-account-link")
+
+
+def _account_link(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(ACCOUNT_SCRIPT), *args], env={"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"},
+        capture_output=True, text=True, check=False,
+    )
+
+
+def test_account_link_makes_and_links_the_named_dir(tmp_path):
+    claude = _home(tmp_path)
+    result = _account_link(tmp_path, "work2")
+    assert (result.returncode, result.stdout.strip()) == (0, str(tmp_path / ".claude-work2"))
+    assert (tmp_path / ".claude-work2" / "settings.json").resolve() == (claude / "settings.json").resolve()
+
+
+def test_account_link_rejects_every_unusable_name(tmp_path):
+    for name in ["", "main", "Bad", "-x", "_x", "a/b", "a b", "a/../../t\nok", "ok\n"]:
+        result = _account_link(tmp_path, name)
+        assert result.returncode == 2, repr(name)
+    assert [p.name for p in tmp_path.iterdir()] == []
+
+
 def test_prints_the_default_burst_dir(tmp_path):
     _home(tmp_path)
     assert _link(tmp_path).stdout.strip() == str(tmp_path / ".claude-burst")

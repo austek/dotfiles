@@ -1,0 +1,15 @@
+# Creates ~/.claude-<name>, links it to ~/.claude and writes its manifest. Log in afterwards with claude --account <name>.
+# Usage: _claude_account_create <name> [<option>...]
+_claude_account_create() {
+  local name=${1:-} filter=. file
+  (( $# )) && shift
+  local -a jqargs=()
+  _claude_account_valid $name || { print -ru2 -- "claude-account: invalid name '$name' (lowercase letters, digits, _ and -; 'main' is the default)"; return 2 }
+  [[ -e $HOME/.claude-$name ]] && { print -ru2 -- "claude-account: account '$name' already exists; change it with: claude-account update $name"; return 1 }
+  _claude_account_opts "$@" || return
+  mkdir -- $HOME/.claude-$name 2>/dev/null || { print -ru2 -- "claude-account: account '$name' already exists; change it with: claude-account update $name"; return 1 }
+  _claude_account_edit $name $filter "${jqargs[@]}" || { rmdir -- $HOME/.claude-$name; return 1 }
+  file=$(_claude_account_file $name)
+  claude-account-link $name >/dev/null || { rm -f -- $file; rm -rf -- $HOME/.claude-$name; return 1 }
+  print -r -- "Created account '$name'. Log in with: claude --account $name, then /login"
+}
