@@ -189,6 +189,18 @@ def test_claude_without_flags_runs_the_main_account(tmp_path):
     assert _log(tmp_path) == ["claude -p hi", "cfg=unset otel=unset res=unset"]
 
 
+def test_an_explicit_main_account_ignores_an_inherited_config_dir(tmp_path):
+    _env_stub(tmp_path)
+    _run(tmp_path, "claude --account main -p hi", env={"CLAUDE_CONFIG_DIR": "/elsewhere"})
+    assert _log(tmp_path)[1] == "cfg=unset otel=unset res=unset"
+
+
+def test_no_account_flag_keeps_an_inherited_config_dir(tmp_path):
+    _env_stub(tmp_path)
+    _run(tmp_path, "claude -p hi", env={"CLAUDE_CONFIG_DIR": "/chrome"})
+    assert _log(tmp_path)[1] == "cfg=/chrome otel=unset res=unset"
+
+
 @pytest.mark.parametrize("flags", ["--account work2", "--account=work2"])
 def test_claude_account_flag_selects_that_accounts_config_dir(tmp_path, flags):
     _env_stub(tmp_path)

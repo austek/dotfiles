@@ -24,7 +24,7 @@ claude() {
   local -a cmd=(${commands[claude]})
   (( $#cmd )) || { print -ru2 -- "claude: claude is not on PATH"; return 127 }
   (
-    [[ -z $dir ]] && unset CLAUDE_CONFIG_DIR
+    [[ -z $dir ]] && (( $#distinct )) && unset CLAUDE_CONFIG_DIR
     export DOTFILES_CLAUDE_ACCOUNT=$account
     if [[ -n $key ]]; then
       export ANTHROPIC_API_KEY=$key DOTFILES_CLAUDE_API_KEY=$key
