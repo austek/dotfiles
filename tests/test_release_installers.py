@@ -518,15 +518,28 @@ def test_zoom_is_the_upgradable_deb():
 
 
 class ChipMachine(Machine):
-    def __init__(self, version, **kwargs):
+    """Answers `--version` for the chip at `path`; any other chip path reports a stale 0.0.1."""
+
+    def __init__(self, version, path, **kwargs):
         super().__init__(**kwargs)
         self.version = version
+        self.path = path
 
     def __call__(self, argv, **kwargs):
         result = super().__call__(argv, **kwargs)
-        if argv == ["chip", "--version"]:
-            return SimpleNamespace(returncode=0, stdout=self.version, stderr="")
+        if argv[1:] == ["--version"] and argv[0].endswith("chip"):
+            stdout = self.version if argv[0] == str(self.path) else "0.0.1"
+            return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
         return result
+
+
+@pytest.fixture
+def managed_chip(tmp_path, monkeypatch):
+    monkeypatch.setattr(ri, "INSTALL_DIR", tmp_path / "bin")
+    (tmp_path / "bin").mkdir()
+    path = tmp_path / "bin" / "chip"
+    path.write_text("")
+    return path
 
 
 def chip_url(version):
@@ -539,7 +552,7 @@ def test_chip_installs_the_raw_pinned_binary_under_its_own_name(tmp_path):
     ri.install_release(t, ri.CHIP)
     assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
     install = next(c for c in machine.commands if c[:3] == ["sudo", "install", "-T"])
-    assert install[4] == "/usr/local/bin/chip"
+    assert install[4] == str(ri.INSTALL_DIR / "chip")
 
 
 def test_chip_install_failure_warns_and_continues(tmp_path, capsys):
@@ -548,9 +561,8 @@ def test_chip_install_failure_warns_and_continues(tmp_path, capsys):
     assert "Failed to install chip." in capsys.readouterr().err
 
 
-def test_upgrade_installs_the_chip_pin_over_an_older_binary(tmp_path, monkeypatch):
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/chip")
-    machine = ChipMachine("0.0.60\nCollibra MCP Server 0.0.60\n")
+def test_upgrade_installs_the_chip_pin_over_an_older_binary(tmp_path, managed_chip):
+    machine = ChipMachine("0.0.60\nCollibra MCP Server 0.0.60\n", managed_chip)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"chip"})
     assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
@@ -559,24 +571,32 @@ def test_upgrade_installs_the_chip_pin_over_an_older_binary(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize("installed", ["0.0.67", "0.1.0"])
-def test_upgrade_leaves_a_chip_at_or_above_the_pin(tmp_path, monkeypatch, installed):
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/chip")
-    machine = ChipMachine(installed, fail=NOT_OLDER)
+def test_upgrade_leaves_a_chip_at_or_above_the_pin(tmp_path, managed_chip, installed):
+    machine = ChipMachine(installed, managed_chip, fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"chip"})
     assert downloads == []
     assert not machine.ran("sudo")
 
 
-def test_upgrade_skips_chip_when_it_is_not_installed_or_not_wanted(tmp_path, monkeypatch):
-    monkeypatch.setattr("shutil.which", lambda name: None)
-    machine = ChipMachine("0.0.1")
+def test_upgrade_reads_the_managed_chip_not_a_stale_one_on_path(tmp_path, managed_chip, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: str(tmp_path / "local" / "chip"))
+    machine = ChipMachine("0.1.0", managed_chip, fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_vendor_debs(t, {"chip"})
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/chip")
-    ri.upgrade_vendor_debs(t, set())
     assert downloads == []
+    assert not machine.ran("sudo")
     assert not machine.ran("chip")
+
+
+def test_upgrade_skips_chip_when_it_is_not_installed_or_not_wanted(tmp_path, managed_chip):
+    machine = ChipMachine("0.0.1", managed_chip)
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, set())
+    managed_chip.unlink()
+    ri.upgrade_vendor_debs(t, {"chip"})
+    assert downloads == []
+    assert not machine.ran(str(managed_chip))
 
 
 def test_install_tools_without_upgrade_skips_an_installed_zoom(tmp_path):

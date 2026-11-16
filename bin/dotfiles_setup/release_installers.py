@@ -27,6 +27,7 @@ from dotfiles_setup.tooling import Tooling, dry_run_all
 
 MSG_CONTINUING_SETUP = "Continuing with setup..."
 SUPPORTED_ARCH = "x86_64"
+INSTALL_DIR = Path("/usr/local/bin")
 SPECS_FILE = Path(__file__).resolve().parent.parent.parent / "packages" / "release_specs.json"
 EXTRACT_ERRORS = (
     tarfile.TarError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, OSError,
@@ -219,7 +220,7 @@ def _binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bo
 
 def _raw_binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
     return lambda t, _dir, artifact, _resolved: t.run(
-        ["sudo", "install", "-T", str(artifact), f"/usr/local/bin/{binary}"],
+        ["sudo", "install", "-T", str(artifact), str(INSTALL_DIR / binary)],
     ).returncode == 0
 
 
@@ -270,10 +271,11 @@ UPGRADABLE_BINARIES: tuple[tuple[str, ReleaseSpec], ...] = (("chip", CHIP),)
 
 
 def _binary_version(t: Tooling, binary: str) -> str | None:
-    """Returns the version on the first line of `<binary> --version` without a leading `v`, or None when the binary is not on PATH, exits non-zero or prints nothing."""
-    if shutil.which(binary) is None:
+    """Returns the version on the first line of `<INSTALL_DIR>/<binary> --version` without a leading `v`, or None when that file is missing, exits non-zero or prints nothing."""
+    path = INSTALL_DIR / binary
+    if not path.is_file():
         return None
-    result = t.run([binary, "--version"], capture_output=True, text=True)
+    result = t.run([str(path), "--version"], capture_output=True, text=True)
     lines = (result.stdout or "").strip().splitlines() if result.returncode == 0 else []
     return lines[0].strip().removeprefix("v") if lines else None
 
