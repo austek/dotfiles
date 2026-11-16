@@ -65,6 +65,25 @@ def test_packages_installed_outside_apt_are_not_checked_against_dpkg(tmp_path, n
     assert sc.system_stage_reasons(ctx, nosnap) == []
 
 
+def test_a_missing_sudo_release_tool_is_a_reason(tmp_path, nosnap, monkeypatch):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "chip", "uv"))
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 release tool(s) not installed (chip)"]
+
+
+def test_an_installed_sudo_release_tool_is_not_a_reason(tmp_path, nosnap, monkeypatch):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    monkeypatch.setattr("shutil.which", lambda name, path=None: "/usr/local/bin/chip" if name == "chip" else None)
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "chip"))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
+
+
+def test_a_sudo_release_tool_is_not_a_reason_on_an_unsupported_architecture(tmp_path, nosnap, monkeypatch):
+    monkeypatch.setattr("platform.machine", lambda: "aarch64")
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "chip"))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
+
+
 def test_system_check_reports_pending_apt_removal(tmp_path, nosnap):
     ctx = make(tmp_path, Machine(installed=("vim", "git", "htop")))
     ctx = SystemContext(ctx.t, ctx.dotfiles_dir, ctx.packages, ctx.changes, removals=("htop", "flatpak:a.B", "nvm"))

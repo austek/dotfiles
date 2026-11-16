@@ -517,24 +517,116 @@ def test_zoom_is_the_upgradable_deb():
     assert [package for package, _ in ri.UPGRADABLE_DEBS] == ["zoom"]
 
 
+class ChipMachine(Machine):
+    """Answers `--version` for the chip at `path`; any other chip path reports a stale 0.0.1."""
+
+    def __init__(self, version, path, **kwargs):
+        super().__init__(**kwargs)
+        self.version = version
+        self.path = path
+
+    def __call__(self, argv, **kwargs):
+        result = super().__call__(argv, **kwargs)
+        if argv[1:] == ["--version"] and argv[0].endswith("chip"):
+            stdout = self.version if argv[0] == str(self.path) else "0.0.1"
+            return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+        return result
+
+
+@pytest.fixture
+def managed_chip(tmp_path, monkeypatch):
+    monkeypatch.setattr(ri, "INSTALL_DIR", tmp_path / "bin")
+    (tmp_path / "bin").mkdir()
+    path = tmp_path / "bin" / "chip"
+    path.write_text("")
+    return path
+
+
+def chip_url(version):
+    return f"https://github.com/collibra/chip/releases/download/v{version}/chip-{version}-linux-amd64"
+
+
+def test_chip_installs_the_raw_pinned_binary_under_its_own_name(tmp_path):
+    machine = Machine()
+    t, downloads = make(tmp_path, machine, payload=b"\x7fELF")
+    ri.install_release(t, ri.CHIP)
+    assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
+    install = next(c for c in machine.commands if c[:3] == ["sudo", "install", "-T"])
+    assert install[4] == str(ri.INSTALL_DIR / "chip")
+
+
+def test_chip_install_failure_warns_and_continues(tmp_path, capsys):
+    t, _ = make(tmp_path, Machine(fail=[("sudo", "install")]), payload=b"\x7fELF")
+    ri.install_release(t, ri.CHIP)
+    assert "Failed to install chip." in capsys.readouterr().err
+
+
+def test_upgrade_installs_the_chip_pin_over_an_older_binary(tmp_path, managed_chip):
+    machine = ChipMachine("0.0.60\nCollibra MCP Server 0.0.60\n", managed_chip)
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, {"chip"})
+    assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
+    assert machine.ran("dpkg", "--compare-versions", "0.0.60", "lt", ri.SPEC_DATA["chip"].version)
+    assert machine.ran("sudo", "install", "-T")
+
+
+@pytest.mark.parametrize("installed", ["0.0.67", "0.1.0"])
+def test_upgrade_leaves_a_chip_at_or_above_the_pin(tmp_path, managed_chip, installed):
+    machine = ChipMachine(installed, managed_chip, fail=NOT_OLDER)
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, {"chip"})
+    assert downloads == []
+    assert not machine.ran("sudo")
+
+
+def test_upgrade_reads_the_managed_chip_not_a_stale_one_on_path(tmp_path, managed_chip, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: str(tmp_path / "local" / "chip"))
+    machine = ChipMachine("0.1.0", managed_chip, fail=NOT_OLDER)
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, {"chip"})
+    assert downloads == []
+    assert not machine.ran("sudo")
+    assert not machine.ran("chip")
+
+
+def test_upgrade_skips_chip_when_it_is_not_installed_or_not_wanted(tmp_path, managed_chip):
+    machine = ChipMachine("0.0.1", managed_chip)
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, set())
+    managed_chip.unlink()
+    ri.upgrade_vendor_debs(t, {"chip"})
+    assert downloads == []
+    assert not machine.ran(str(managed_chip))
+
+
 def test_install_tools_without_upgrade_skips_an_installed_zoom(tmp_path):
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
-    assert tools.install_tools(t, {"zoom"})
+    assert tools.install_system_tools(t, {"zoom"})
     assert downloads == []
 
 
 def test_install_tools_with_upgrade_installs_the_pin_over_an_outdated_zoom(tmp_path):
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
-    assert tools.install_tools(t, {"zoom"}, upgrade=True)
+    assert tools.install_system_tools(t, {"zoom"}, upgrade=True)
     assert downloads == [ri.SPEC_DATA["zoom"].download_url]
+
+
+def test_user_stage_tools_never_run_the_sudo_release_installers(tmp_path):
+    machine = Machine()
+    t, downloads = make(tmp_path, machine, payload=b"\x7fELF")
+    assert tools.install_tools(t, {"chip", "zoom", "istioctl", "awscli", "lazydocker", "zizmor", "mcp-grafana"})
+    assert downloads == []
+    assert not machine.ran("sudo")
 
 
 def test_release_installers_run_after_the_script_installers(tmp_path):
     names = [name for name, _ in tools.TOOL_INSTALLERS]
     assert names == [
-        "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "jetbrains-toolbox",
-        "istioctl", "awscli", "zizmor", "mcp-grafana", "coderabbit", "sonarqube-cli", "uv",
+        "oh-my-zsh", "sdkman", "nvm", "jetbrains-toolbox", "coderabbit", "sonarqube-cli", "uv",
         "antigravity-ide",
+    ]
+    assert [name for name, _ in tools.SYSTEM_TOOL_INSTALLERS] == [
+        "lazydocker", "zoom", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip",
     ]

@@ -392,7 +392,7 @@ def test_start_warns_to_stderr_about_a_missing_secrets_file_and_still_starts(tmp
 
 def test_start_warns_to_stderr_about_unsafe_secrets_and_still_starts(tmp_path):
     result, calls = _run_start(tmp_path, ["sess", "/w", "host"], session_exists=False, secrets="A=b\n", secrets_mode=0o644)
-    assert "claude-foothold-launch: secrets.env skipped: group/other can access it (mode 644)" in result.stderr
+    assert "claude-env-load: secrets.env skipped: group/other can access it (mode 644)" in result.stderr
     assert result.returncode == 0
     assert calls[-1][0] == "new-session"
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dotfiles_setup.result import Err, Ok, Result
 
-KINDS = ("targz", "zip", "deb")
+KINDS = ("targz", "zip", "deb", "binary")
 REQUIRED_FIELDS = ("package", "name", "version", "url", "cache_key", "kind")
 OPTIONAL_FIELDS = ("binary",)
 
@@ -53,6 +53,8 @@ def _non_empty_str(value: object) -> bool:
 def _checked(spec: SpecData, where: str) -> Result[SpecData]:
     if spec.kind not in KINDS:
         return Err(f"{where} ({spec.package}) has kind '{spec.kind}'; expected one of {', '.join(KINDS)}.")
+    if spec.kind == "binary" and not spec.binary:
+        return Err(f"{where} ({spec.package}) has kind 'binary' and needs a 'binary' field.")
     if not spec.url.startswith("https://"):
         return Err(f"{where} ({spec.package}) must use an https:// url.")
     try:

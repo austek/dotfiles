@@ -103,6 +103,19 @@
     },
     {
       "customType": "regex",
+      "description": "collibra/chip release: version constant and the checksums.txt URL; the digest stays stale until re-recorded",
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "\"package\": \"chip\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
+        "collibra/chip/releases/download/v(?<currentValue>\\d[^/\\s\"]*)/",
+        "chip-(?<currentValue>\\d[\\d.]*)-linux-amd64"
+      ],
+      "depNameTemplate": "collibra/chip",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
       "description": "kind node image used by kdev",
       "managerFilePatterns": ["/^local/\\.local/bin/kdev$/"],
       "matchStrings": ["K8S_VERSION=\"(?<currentValue>v[^\"]+)\""],

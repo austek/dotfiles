@@ -27,6 +27,7 @@ from dotfiles_setup.tooling import Tooling, dry_run_all
 
 MSG_CONTINUING_SETUP = "Continuing with setup..."
 SUPPORTED_ARCH = "x86_64"
+INSTALL_DIR = Path("/usr/local/bin")
 SPECS_FILE = Path(__file__).resolve().parent.parent.parent / "packages" / "release_specs.json"
 EXTRACT_ERRORS = (
     tarfile.TarError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError, OSError,
@@ -45,7 +46,7 @@ class ReleaseSpec:
     name: str
     is_installed: Callable[[Tooling], bool]
     resolve: Callable[[Tooling], Resolved]
-    kind: Literal["targz", "zip", "deb"]
+    kind: Literal["targz", "zip", "deb", "binary"]
     install: Callable[[Tooling, Path, Path, Resolved], bool]
 
 
@@ -217,6 +218,12 @@ def _binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bo
     return lambda t, temp_dir, _artifact, _resolved: _sudo_install(t, temp_dir / binary)
 
 
+def _raw_binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
+    return lambda t, _dir, artifact, _resolved: t.run(
+        ["sudo", "install", "-T", str(artifact), str(INSTALL_DIR / binary)],
+    ).returncode == 0
+
+
 def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
     return lambda t, _dir, artifact, _resolved: _install_deb_or_fix_broken(t, artifact, package)
 
@@ -232,7 +239,8 @@ CUSTOM_BEHAVIOR: dict[str, tuple[Callable[[Tooling], bool], Callable[[Tooling, P
 def _release_spec(data: SpecData) -> ReleaseSpec:
     resolved = Resolved(data.version, data.download_url, data.artifact_name)
     if data.binary:
-        is_installed, install = _which_installed(data.binary), _binary_install(data.binary)
+        place = _raw_binary_install if data.kind == "binary" else _binary_install
+        is_installed, install = _which_installed(data.binary), place(data.binary)
     else:
         is_installed, install = CUSTOM_BEHAVIOR[data.package]
     return ReleaseSpec(data.name, is_installed, lambda _t: resolved, data.kind, install)
@@ -251,17 +259,36 @@ def _load_spec_data() -> tuple[SpecData, ...]:
 
 SPEC_DATA: dict[str, SpecData] = {d.package: d for d in _load_spec_data()}
 RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = tuple((p, _release_spec(d)) for p, d in SPEC_DATA.items())
-RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], None]], ...] = tuple(
-    (package, lambda t, spec=spec: install_release(t, spec)) for package, spec in RELEASE_SPECS
-)
+PRIVILEGED_PACKAGES = frozenset({"zoom", "istioctl", "awscli", *(p for p, d in SPEC_DATA.items() if d.binary)})
+USER_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p not in PRIVILEGED_PACKAGES)
+SYSTEM_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p in PRIVILEGED_PACKAGES)
+
+
+def _installers(specs: tuple[tuple[str, ReleaseSpec], ...]) -> tuple[tuple[str, Callable[[Tooling], None]], ...]:
+    return tuple((package, lambda t, spec=spec: install_release(t, spec)) for package, spec in specs)
+
+
+USER_RELEASE_INSTALLERS = _installers(USER_SPECS)
+SYSTEM_RELEASE_INSTALLERS = _installers(SYSTEM_SPECS)
 _SPECS = dict(RELEASE_SPECS)
 LAZYDOCKER, ZOOM, JETBRAINS_TOOLBOX = (_SPECS[p] for p in ("lazydocker", "zoom", "jetbrains-toolbox"))
 ISTIOCTL, AWSCLI, ZIZMOR, MCP_GRAFANA = (_SPECS[p] for p in ("istioctl", "awscli", "zizmor", "mcp-grafana"))
+CHIP = _SPECS["chip"]
 UPGRADABLE_DEBS: tuple[tuple[str, ReleaseSpec], ...] = (("zoom", ZOOM),)
+UPGRADABLE_BINARIES: tuple[tuple[str, ReleaseSpec], ...] = (("chip", CHIP),)
 
 
-def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:
-    installed = _dpkg_version(t, package)
+def _binary_version(t: Tooling, binary: str) -> str | None:
+    """Returns the version on the first line of `<INSTALL_DIR>/<binary> --version` without a leading `v`, or None when that file is missing, exits non-zero or prints nothing."""
+    path = INSTALL_DIR / binary
+    if not path.is_file():
+        return None
+    result = t.run([str(path), "--version"], capture_output=True, text=True)
+    lines = (result.stdout or "").strip().splitlines() if result.returncode == 0 else []
+    return lines[0].strip().removeprefix("v") if lines else None
+
+
+def upgrade_release(t: Tooling, spec: ReleaseSpec, installed: str | None) -> None:
     if installed is None or not _supported_arch(t, spec):
         return
     resolved = spec.resolve(t)
@@ -278,8 +305,18 @@ def upgrade_release(t: Tooling, spec: ReleaseSpec, package: str) -> None:
         _fetch_and_install(t, spec, resolved, Path(temp_dir))
 
 
+def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[str]:
+    """Names of wanted sudo-installed releases that are absent; empty on an unsupported architecture."""
+    if platform.machine() != SUPPORTED_ARCH:
+        return []
+    return [p for p, spec in SYSTEM_SPECS if p in package_names and not spec.is_installed(t)]
+
+
 def upgrade_vendor_debs(t: Tooling, package_names: Collection[str]) -> None:
-    """Installs the pinned version of each wanted vendor .deb whose installed version is older than the pin."""
+    """Installs the pinned version of each wanted vendor .deb or release binary whose installed version is older than the pin."""
     for package, spec in UPGRADABLE_DEBS:
         if package in package_names:
-            upgrade_release(t, spec, package)
+            upgrade_release(t, spec, _dpkg_version(t, package))
+    for package, spec in UPGRADABLE_BINARIES:
+        if package in package_names:
+            upgrade_release(t, spec, _binary_version(t, SPEC_DATA[package].binary or package))
