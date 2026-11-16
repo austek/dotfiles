@@ -16,7 +16,7 @@ from dotfiles_setup.tooling import dry_run_all
 CUSTOM_INSTALL_PACKAGES = frozenset({
     "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "istioctl", "awscli", "jetbrains-toolbox",
     "antigravity-ide", "zizmor", "mcp-grafana", "ruff", "coderabbit", "auditr", "sonarqube-cli", "uv", "cargo-deny",
-    "cargo-audit",
+    "cargo-audit", "chip",
 })
 
 # Custom entries whose installer leaves a dpkg package of the same name.

@@ -5,5 +5,6 @@
   {"package": "istioctl", "name": "istioctl", "version": "1.31.4", "url": "https://github.com/istio/istio/releases/download/{version}/istio-{version}-linux-amd64.tar.gz", "cache_key": "istio-{version}-linux-amd64.tar.gz", "kind": "targz"},
   {"package": "awscli", "name": "AWS CLI", "version": "2.39.6", "url": "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{version}.zip", "cache_key": "awscliv2-{version}.zip", "kind": "zip"},
   {"package": "zizmor", "name": "zizmor", "version": "v1.32.0", "url": "https://github.com/zizmorcore/zizmor/releases/download/{version}/zizmor-x86_64-unknown-linux-gnu.tar.gz", "cache_key": "zizmor-{version}.tar.gz", "kind": "targz", "binary": "zizmor"},
-  {"package": "mcp-grafana", "name": "mcp-grafana", "version": "v2.2.0", "url": "https://github.com/grafana/mcp-grafana/releases/download/{version}/mcp-grafana_Linux_x86_64.tar.gz", "cache_key": "mcp-grafana-{version}.tar.gz", "kind": "targz", "binary": "mcp-grafana"}
+  {"package": "mcp-grafana", "name": "mcp-grafana", "version": "v2.2.0", "url": "https://github.com/grafana/mcp-grafana/releases/download/{version}/mcp-grafana_Linux_x86_64.tar.gz", "cache_key": "mcp-grafana-{version}.tar.gz", "kind": "targz", "binary": "mcp-grafana"},
+  {"package": "chip", "name": "chip", "version": "0.0.67", "url": "https://github.com/collibra/chip/releases/download/v{version}/chip-{version}-linux-amd64", "cache_key": "chip-{version}", "kind": "binary", "binary": "chip"}
 ]

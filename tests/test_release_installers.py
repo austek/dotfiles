@@ -517,6 +517,68 @@ def test_zoom_is_the_upgradable_deb():
     assert [package for package, _ in ri.UPGRADABLE_DEBS] == ["zoom"]
 
 
+class ChipMachine(Machine):
+    def __init__(self, version, **kwargs):
+        super().__init__(**kwargs)
+        self.version = version
+
+    def __call__(self, argv, **kwargs):
+        result = super().__call__(argv, **kwargs)
+        if argv == ["chip", "--version"]:
+            return SimpleNamespace(returncode=0, stdout=self.version, stderr="")
+        return result
+
+
+def chip_url(version):
+    return f"https://github.com/collibra/chip/releases/download/v{version}/chip-{version}-linux-amd64"
+
+
+def test_chip_installs_the_raw_pinned_binary_under_its_own_name(tmp_path):
+    machine = Machine()
+    t, downloads = make(tmp_path, machine, payload=b"\x7fELF")
+    ri.install_release(t, ri.CHIP)
+    assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
+    install = next(c for c in machine.commands if c[:3] == ["sudo", "install", "-T"])
+    assert install[4] == "/usr/local/bin/chip"
+
+
+def test_chip_install_failure_warns_and_continues(tmp_path, capsys):
+    t, _ = make(tmp_path, Machine(fail=[("sudo", "install")]), payload=b"\x7fELF")
+    ri.install_release(t, ri.CHIP)
+    assert "Failed to install chip." in capsys.readouterr().err
+
+
+def test_upgrade_installs_the_chip_pin_over_an_older_binary(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/chip")
+    machine = ChipMachine("0.0.60\nCollibra MCP Server 0.0.60\n")
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, {"chip"})
+    assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
+    assert machine.ran("dpkg", "--compare-versions", "0.0.60", "lt", ri.SPEC_DATA["chip"].version)
+    assert machine.ran("sudo", "install", "-T")
+
+
+@pytest.mark.parametrize("installed", ["0.0.67", "0.1.0"])
+def test_upgrade_leaves_a_chip_at_or_above_the_pin(tmp_path, monkeypatch, installed):
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/chip")
+    machine = ChipMachine(installed, fail=NOT_OLDER)
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, {"chip"})
+    assert downloads == []
+    assert not machine.ran("sudo")
+
+
+def test_upgrade_skips_chip_when_it_is_not_installed_or_not_wanted(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    machine = ChipMachine("0.0.1")
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_vendor_debs(t, {"chip"})
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/chip")
+    ri.upgrade_vendor_debs(t, set())
+    assert downloads == []
+    assert not machine.ran("chip")
+
+
 def test_install_tools_without_upgrade_skips_an_installed_zoom(tmp_path):
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
@@ -535,6 +597,6 @@ def test_release_installers_run_after_the_script_installers(tmp_path):
     names = [name for name, _ in tools.TOOL_INSTALLERS]
     assert names == [
         "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "jetbrains-toolbox",
-        "istioctl", "awscli", "zizmor", "mcp-grafana", "coderabbit", "sonarqube-cli", "uv",
+        "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "coderabbit", "sonarqube-cli", "uv",
         "antigravity-ide",
     ]
