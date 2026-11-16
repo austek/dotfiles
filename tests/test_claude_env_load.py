@@ -14,13 +14,19 @@ def _run(tmp_path, args, secrets=None, mode=0o600):
     return subprocess.run(
         [str(LOADER), *args],
         env={"HOME": str(home), "PATH": "/usr/bin:/bin"},
-        capture_output=True, text=True, cwd=tmp_path,
+        capture_output=True, text=True, cwd=tmp_path, check=False,
     )
 
 
 def test_exports_secrets_to_the_command(tmp_path):
     result = _run(tmp_path, ["sh", "-c", 'echo "$FOO"'], secrets="FOO='bar baz'\n")
     assert result.stdout.strip() == "bar baz"
+
+
+def test_secrets_named_like_parser_state_keep_their_values(tmp_path):
+    secrets = "value=first\nkey=second\nline=third\nreason=fourth\nmode=fifth\nFOO=last\n"
+    result = _run(tmp_path, ["sh", "-c", 'echo "$value|$key|$line|$reason|$mode|$FOO"'], secrets=secrets)
+    assert result.stdout.strip() == "first|second|third|fourth|fifth|last"
 
 
 def test_skips_and_warns_for_a_group_readable_file(tmp_path):

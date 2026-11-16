@@ -1,44 +1,45 @@
 #!/bin/sh
 # The only loader of secrets.env: exports it and the newest nvm node dir, then execs the command.
 # Usage: claude-env-load <command> [args...]   |   claude-env-load --check (warn about an unsafe secrets file, run nothing)
+# Internal variables carry the _cel_ prefix so a secret named like one cannot overwrite loader state.
 set -eu
 
-secrets="$HOME/.config/dotfiles/secrets.env"
+_cel_file="$HOME/.config/dotfiles/secrets.env"
 
 # Echoes why the file is unsafe, nothing when it is a regular file of ours with no group/other access.
 # Never fails, so a stat or id error cannot abort the script under `set -e`.
 unsafe_reason() {
-    mode=$(stat -L -c %a "$1") || { echo "cannot stat it"; return 0; }
-    case $mode in *00) ;; *) echo "group/other can access it (mode $mode)"; return 0 ;; esac
-    owner=$(stat -L -c %u "$1") || { echo "cannot stat it"; return 0; }
-    uid=$(id -u) || { echo "cannot determine the current user"; return 0; }
-    [ "$owner" = "$uid" ] || { echo "owned by uid $owner"; return 0; }
-    kind=$(stat -L -c %F "$1") || { echo "cannot stat it"; return 0; }
-    case $kind in regular*file) ;; *) echo "not a regular file"; return 0 ;; esac
+    _cel_mode=$(stat -L -c %a "$1") || { echo "cannot stat it"; return 0; }
+    case $_cel_mode in *00) ;; *) echo "group/other can access it (mode $_cel_mode)"; return 0 ;; esac
+    _cel_owner=$(stat -L -c %u "$1") || { echo "cannot stat it"; return 0; }
+    _cel_uid=$(id -u) || { echo "cannot determine the current user"; return 0; }
+    [ "$_cel_owner" = "$_cel_uid" ] || { echo "owned by uid $_cel_owner"; return 0; }
+    _cel_kind=$(stat -L -c %F "$1") || { echo "cannot stat it"; return 0; }
+    case $_cel_kind in regular*file) ;; *) echo "not a regular file"; return 0 ;; esac
 }
 
-# Sets $reason to why secrets.env will not load; empty when it is absent or safe.
+# Sets $_cel_reason to why secrets.env will not load; empty when it is absent or safe.
 check_secrets() {
-    reason=
-    if [ -r "$secrets" ]; then
-        reason=$(unsafe_reason "$secrets") || reason="cannot check it"
-        [ -z "$reason" ] || echo "claude-env-load: secrets.env skipped: $reason" >&2
+    _cel_reason=
+    if [ -r "$_cel_file" ]; then
+        _cel_reason=$(unsafe_reason "$_cel_file") || _cel_reason="cannot check it"
+        [ -z "$_cel_reason" ] || echo "claude-env-load: secrets.env skipped: $_cel_reason" >&2
     fi
 }
 
 # Parses KEY=value lines as data; values are never evaluated.
 export_assignment() {
     case $1 in *=*) ;; *) return 0 ;; esac
-    key=${1%%=*}
-    value=${1#*=}
-    case $key in '' | *[!A-Za-z0-9_]* | [0-9]*) return 0 ;; esac
-    value=${value#"${value%%[![:space:]]*}"}
-    value=${value%"${value##*[![:space:]]}"}
-    case $value in
-        \"*\") value=${value#\"}; value=${value%\"} ;;
-        \'*\') value=${value#\'}; value=${value%\'} ;;
+    _cel_key=${1%%=*}
+    _cel_value=${1#*=}
+    case $_cel_key in '' | *[!A-Za-z0-9_]* | [0-9]*) return 0 ;; esac
+    _cel_value=${_cel_value#"${_cel_value%%[![:space:]]*}"}
+    _cel_value=${_cel_value%"${_cel_value##*[![:space:]]}"}
+    case $_cel_value in
+        \"*\") _cel_value=${_cel_value#\"}; _cel_value=${_cel_value%\"} ;;
+        \'*\') _cel_value=${_cel_value#\'}; _cel_value=${_cel_value%\'} ;;
     esac
-    export "$key=$value"
+    export "$_cel_key=$_cel_value"
 }
 
 check_secrets
@@ -49,15 +50,15 @@ fi
 
 [ $# -gt 0 ] || { echo "usage: $0 <command> [args...]" >&2; exit 64; }
 
-if [ -r "$secrets" ] && [ -z "$reason" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-        case $line in '' | '#'* | ';'*) continue ;; esac
-        export_assignment "$line"
-    done < "$secrets"
+if [ -r "$_cel_file" ] && [ -z "$_cel_reason" ]; then
+    while IFS= read -r _cel_line || [ -n "$_cel_line" ]; do
+        case $_cel_line in '' | '#'* | ';'*) continue ;; esac
+        export_assignment "$_cel_line"
+    done < "$_cel_file"
 fi
 
 # Hooks run `node`, which nvm installs under a versioned directory the unit's PATH cannot name.
-nvm_node=$(find "$HOME/.nvm/versions/node" -mindepth 2 -maxdepth 2 -name bin -type d 2>/dev/null | sort -V | tail -n 1)
-[ -z "$nvm_node" ] || export PATH="$nvm_node:$PATH"
+_cel_node=$(find "$HOME/.nvm/versions/node" -mindepth 2 -maxdepth 2 -name bin -type d 2>/dev/null | sort -V | tail -n 1)
+[ -z "$_cel_node" ] || export PATH="$_cel_node:$PATH"
 
 exec "$@"
