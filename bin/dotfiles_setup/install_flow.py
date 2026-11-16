@@ -32,7 +32,7 @@ Step = tuple[str, Callable[[], bool | None]]
 INTERRUPTED_EXIT_CODE = 130
 SYSTEM_STEPS = frozenset({
     "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
-    "install_packages", "upgrade_packages", "remove_apt_packages", "install_github_bins", "configure_docker_group",
+    "install_system_tools", "install_packages", "upgrade_packages", "remove_apt_packages", "install_github_bins", "configure_docker_group",
     "change_shell", "set_default_terminal",
 })
 
@@ -127,7 +127,8 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("disable_snapd", lambda: system_steps.disable_snapd(ctx)),
         ("strip_snap_from_system_path", lambda: system_steps.strip_snap_from_system_path(ctx)),
         ("configure_apt_sources", lambda: apt_sources.configure_apt_sources(ctx)),
-        ("install_tools", lambda: tools.install_tools(t, packages, inputs.upgrade)),
+        ("install_tools", lambda: tools.install_tools(t, packages)),
+        ("install_system_tools", lambda: tools.install_system_tools(t, packages, inputs.upgrade)),
         ("install_packages", lambda: apt_packages.install_packages(ctx)),
         *_upgrade_steps(inputs, ctx),
         ("install_flatpaks", lambda: failed.extend(flatpak.install_flatpaks(t, packages, inputs.upgrade))),

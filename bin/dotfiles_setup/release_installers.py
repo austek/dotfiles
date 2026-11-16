@@ -259,9 +259,17 @@ def _load_spec_data() -> tuple[SpecData, ...]:
 
 SPEC_DATA: dict[str, SpecData] = {d.package: d for d in _load_spec_data()}
 RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = tuple((p, _release_spec(d)) for p, d in SPEC_DATA.items())
-RELEASE_INSTALLERS: tuple[tuple[str, Callable[[Tooling], None]], ...] = tuple(
-    (package, lambda t, spec=spec: install_release(t, spec)) for package, spec in RELEASE_SPECS
-)
+PRIVILEGED_PACKAGES = frozenset({"zoom", "istioctl", "awscli", *(p for p, d in SPEC_DATA.items() if d.binary)})
+USER_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p not in PRIVILEGED_PACKAGES)
+SYSTEM_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p in PRIVILEGED_PACKAGES)
+
+
+def _installers(specs: tuple[tuple[str, ReleaseSpec], ...]) -> tuple[tuple[str, Callable[[Tooling], None]], ...]:
+    return tuple((package, lambda t, spec=spec: install_release(t, spec)) for package, spec in specs)
+
+
+USER_RELEASE_INSTALLERS = _installers(USER_SPECS)
+SYSTEM_RELEASE_INSTALLERS = _installers(SYSTEM_SPECS)
 _SPECS = dict(RELEASE_SPECS)
 LAZYDOCKER, ZOOM, JETBRAINS_TOOLBOX = (_SPECS[p] for p in ("lazydocker", "zoom", "jetbrains-toolbox"))
 ISTIOCTL, AWSCLI, ZIZMOR, MCP_GRAFANA = (_SPECS[p] for p in ("istioctl", "awscli", "zizmor", "mcp-grafana"))
@@ -295,6 +303,13 @@ def upgrade_release(t: Tooling, spec: ReleaseSpec, installed: str | None) -> Non
         return
     with tempfile.TemporaryDirectory() as temp_dir:
         _fetch_and_install(t, spec, resolved, Path(temp_dir))
+
+
+def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[str]:
+    """Names of wanted sudo-installed releases that are absent; empty on an unsupported architecture."""
+    if platform.machine() != SUPPORTED_ARCH:
+        return []
+    return [p for p, spec in SYSTEM_SPECS if p in package_names and not spec.is_installed(t)]
 
 
 def upgrade_vendor_debs(t: Tooling, package_names: Collection[str]) -> None:

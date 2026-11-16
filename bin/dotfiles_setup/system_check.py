@@ -3,7 +3,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dotfiles_setup import apt_packages, desktop_defaults, system_steps
+from dotfiles_setup import (
+    apt_packages,
+    desktop_defaults,
+    release_installers,
+    system_steps,
+)
 from dotfiles_setup.system_steps import SystemContext
 
 NOSNAP_PREFERENCE = Path("/etc/apt/preferences.d/nosnap.pref")
@@ -43,6 +48,11 @@ def _missing_debs(ctx: SystemContext) -> str | None:
     return f"{len(missing)} GitHub .deb package(s) missing or outdated" if missing else None
 
 
+def _missing_releases(ctx: SystemContext) -> str | None:
+    missing = release_installers.pending_system_releases(ctx.t, ctx.packages)
+    return f"{len(missing)} release tool(s) not installed ({', '.join(missing)})" if missing else None
+
+
 def system_stage_reasons(ctx: SystemContext, nosnap: Path = NOSNAP_PREFERENCE) -> list[str]:
     installed = _installed_packages(ctx)
     checks = (
@@ -50,6 +60,7 @@ def system_stage_reasons(ctx: SystemContext, nosnap: Path = NOSNAP_PREFERENCE) -
         _pending_removals(ctx, installed),
         _snapd_state(installed, nosnap),
         _missing_debs(ctx),
+        _missing_releases(ctx),
         "the docker group is not set up" if system_steps.docker_group_pending(ctx) else None,
         "the login shell is not zsh" if desktop_defaults.shell_change_pending() else None,
     )
