@@ -1,5 +1,6 @@
 import json
 import os
+import pty
 import shutil
 import stat
 import subprocess
@@ -192,6 +193,36 @@ def test_claude_without_flags_runs_the_main_account(tmp_path):
 def test_an_explicit_main_account_ignores_an_inherited_config_dir(tmp_path):
     _env_stub(tmp_path)
     _run(tmp_path, "claude --account main -p hi", env={"CLAUDE_CONFIG_DIR": "/elsewhere"})
+    assert _log(tmp_path)[1] == "cfg=unset otel=unset res=unset"
+
+
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux not installed")
+def test_an_explicit_main_account_ignores_a_tmux_servers_config_dir(tmp_path):
+    _env_stub(tmp_path)
+    socket_dir = tmp_path / "tmux"
+    socket_dir.mkdir()
+    env = {**os.environ, "HOME": str(tmp_path / "home"), "TMUX_TMPDIR": str(socket_dir), "TERM": "xterm"}
+    env.pop("TMUX", None)
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    tmux = ["tmux", "-f", "/dev/null"]
+    subprocess.run([*tmux, "new-session", "-d", "-s", "keep", "sleep 60"], env=env, check=True, timeout=10)
+    try:
+        subprocess.run([*tmux, "set-environment", "-g", "CLAUDE_CONFIG_DIR", "/server"], env=env, check=True, timeout=10)
+        master, slave = pty.openpty()
+        setup = f"fpath=({FUNCTIONS} $fpath); autoload -Uz {FUNCTIONS}/*(:t)\nclaude --account main"
+        env["PATH"] = f"{tmp_path / 'bin'}:{REPO_BIN}:{env['PATH']}"
+        env["LOG"] = str(tmp_path / "log")
+        (tmp_path / "home").mkdir(exist_ok=True)
+        proc = subprocess.Popen(
+            ["zsh", "-f", "-c", setup], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True
+        )
+        os.close(slave)
+        try:
+            proc.wait(timeout=20)
+        finally:
+            os.close(master)
+    finally:
+        subprocess.run([*tmux, "kill-server"], env=env, check=False, timeout=10)
     assert _log(tmp_path)[1] == "cfg=unset otel=unset res=unset"
 
 
