@@ -21,4 +21,4 @@ d890e2fef6fa991b19cde2e608199bc1dca4e37f41f884edf8849ff693048de6  https://sh.rus
 48a0eee9a60e07422dce0eb5774754c83889570ca1ee2566c516acbe8af03a9e  https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh
 5559c3df63dbf759c4e0b915dee6ce0df15f307b5bcb2ffaa400042064b46232  https://cli.coderabbit.ai/install.sh
 cb68f168a6b22279a58ff58da052792237b17dbcf35a16e86e38bcbfc6bf3d6a  https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/tags/1.11.0.16877/user-scripts/install.sh
-f7a56e7afaec49a3bcbc3ac3cdbe917e7c6ce30e0d815308a12e531aa5ef23b7  https://astral.sh/uv/0.13.6/install.sh
+f7a56e7afaec49a3bcbc3ac3cdbe917e7c6ce30e0d815308a12e531aa5ef23b7  https://astral.sh/uv/0.13.7/install.sh
