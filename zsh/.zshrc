@@ -63,7 +63,6 @@ autoload -Uz $fpath[1]/*(:t)
 
 # Base PATH is defined in .zshenv.
 
-alias claude='claude-tmux main claude'
 alias claude-chrome='CLAUDE_CONFIG_DIR=~/.claude-chrome claude --chrome'
 
 # --- LOAD SECRET/MANUAL OVERRIDES ---

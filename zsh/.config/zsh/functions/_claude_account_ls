@@ -1,0 +1,16 @@
+# Lists accounts: main, every ~/.claude-<name> dir and every manifest.
+_claude_account_ls() {
+  local -aU names=(main)
+  local entry name dir login telemetry label key
+  for entry in $HOME/.claude-*(N/); do names+=(${${entry:t}#.claude-}); done
+  for entry in ${$(_claude_account_file x):h}/*.json(N); do names+=(${entry:t:r}); done
+  printf '%-14s %-8s %-10s %-14s %s\n' ACCOUNT LOGIN TELEMETRY LABEL API_KEY_ENV
+  for name in ${(o)names}; do
+    dir=$HOME/.claude-$name; [[ $name == main ]] && dir=$HOME/.claude
+    [[ -s $dir/.credentials.json ]] && login=yes || login=no
+    telemetry=on; [[ -n $(_claude_account_get $name 'select(.telemetry == false) | "off"') ]] && telemetry=off
+    label=$(_claude_account_get $name '.otel_account // empty')
+    key=$(_claude_account_get $name '.api_key_env // empty')
+    printf '%-14s %-8s %-10s %-14s %s\n' $name $login $telemetry ${label:--} ${key:--}
+  done
+}

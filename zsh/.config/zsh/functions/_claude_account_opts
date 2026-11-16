@@ -1,0 +1,26 @@
+# Turns claude-account options into a jq filter. Sets filter and jqargs in the caller's scope; filter stays "." when no option was given.
+# Usage: _claude_account_opts <option>...
+_claude_account_opts() {
+  local -i n=0
+  local key val ident='^[A-Za-z0-9._-]+$' var='^[A-Za-z_][A-Za-z0-9_]*$'
+  while (( $# )); do
+    n+=1
+    case $1 in
+      --telemetry) [[ ${2:-} == (on|off) ]] || { print -ru2 -- "claude-account: --telemetry takes on or off"; return 2 }
+        filter+=" | .telemetry = (\$a$n == \"on\")"; jqargs+=(--arg a$n $2); shift ;;
+      --label) key=${2%%=*} val=${2#*=}
+        [[ $2 == *=* && $key =~ $ident && $val =~ $ident && $key != (account|host|project) ]] || { print -ru2 -- "claude-account: --label takes <key>=<value> (letters, digits, . _ -; not account, host or project)"; return 2 }
+        filter+=" | .labels[\$k$n] = \$v$n"; jqargs+=(--arg k$n $key --arg v$n $val); shift ;;
+      --unset-label) [[ ${2:-} =~ $ident ]] || { print -ru2 -- "claude-account: --unset-label takes a key"; return 2 }
+        filter+=" | del(.labels[\$a$n])"; jqargs+=(--arg a$n $2); shift ;;
+      --otel-account) [[ ${2:-} =~ $ident ]] || { print -ru2 -- "claude-account: --otel-account takes a label"; return 2 }
+        filter+=" | .otel_account = \$a$n"; jqargs+=(--arg a$n $2); shift ;;
+      --no-otel-account) filter+=" | del(.otel_account)" ;;
+      --api-key-env) [[ ${2:-} =~ $var ]] || { print -ru2 -- "claude-account: --api-key-env takes a variable name"; return 2 }
+        filter+=" | .api_key_env = \$a$n"; jqargs+=(--arg a$n $2); shift ;;
+      --no-api-key) filter+=" | del(.api_key_env)" ;;
+      *) print -ru2 -- "claude-account: unknown option '$1'"; return 2 ;;
+    esac
+    shift
+  done
+}

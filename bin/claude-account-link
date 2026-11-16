@@ -1,0 +1,55 @@
+#!/bin/sh
+# Prepares ~/.claude-<name> for an extra Claude account and prints its path: every ~/.claude entry except .credentials.json, .claude.json and backups is symlinked in, so the account shares settings, sessions and plugins and keeps its own login.
+# Run on every launch to pick up new entries. Called by _claude_account_ensure; claude-burst-link runs it for burst, as claude-foothold-launch does.
+# Usage: claude-account-link <name>
+set -eu
+
+account=${1:-}
+case $account in
+    '' | main | *[!a-z0-9_-]* | [!a-z0-9]*)
+        echo "claude-account-link: usage: claude-account-link <name> (lowercase letters, digits, _ and -; not 'main')" >&2
+        exit 2 ;;
+esac
+
+claude_home="$HOME/.claude"
+account_dir="$HOME/.claude-$account"
+
+mkdir -p -- "$account_dir"
+tmp="$account_dir/.claude-account-link.$$"
+trap 'rm -f -- "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+if [ -d "$claude_home" ] && [ "$(cd -P -- "$account_dir" && pwd)" = "$(cd -P -- "$claude_home" && pwd)" ]; then
+    echo "claude-account-link: $account_dir is $claude_home; make it a separate directory" >&2
+    exit 1
+fi
+
+# Drop links whose ~/.claude entry is gone. An entry that is itself a broken symlink is still an entry, and
+# another launch's temporary link (below) is never touched.
+for link in "$account_dir"/* "$account_dir"/.[!.]* "$account_dir"/..?*; do
+    case ${link##*/} in .claude-account-link.*) continue ;; esac
+    [ -L "$link" ] && [ ! -e "$link" ] || continue
+    target=$(readlink -- "$link")
+    case $target in "$claude_home"/*) ;; *) continue ;; esac
+    [ -L "$target" ] || rm -f -- "$link"
+done
+
+for entry in "$claude_home"/* "$claude_home"/.[!.]* "$claude_home"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    case $name in .credentials.json | .claude.json | backups) continue ;; esac
+    link="$account_dir/$name"
+    if [ -L "$link" ] && [ "$(readlink -- "$link")" = "$entry" ]; then
+        continue
+    fi
+    if [ -d "$link" ] && [ ! -L "$link" ]; then
+        echo "claude-account-link: $link is a real directory, so $account keeps its own copy; remove it to share ~/.claude/$name" >&2
+        continue
+    fi
+    # rename(2) swaps the link in atomically, replacing a stale link or a file claude wrote over it (the shared copy wins),
+    # so concurrent launches never delete each other's links. -T names the link, never a directory to move into; -n does the same for ln.
+    rm -f -- "$tmp"
+    ln -sn -- "$entry" "$tmp"
+    mv -fT -- "$tmp" "$link"
+done
+
+printf '%s\n' "$account_dir"

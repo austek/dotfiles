@@ -1,0 +1,14 @@
+# Moves an account's manifest, config dir and saved --with names from <old> to <new>; a failed step leaves the account under its old name.
+# Usage: _claude_account_move <old> <new>
+_claude_account_move() {
+  local old=$1 new=$2 file target with_dir=${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/claude-with
+  file=$(_claude_account_file $old)
+  target=$(_claude_account_file $new)
+  [[ ! -e $file ]] || mv -- $file $target || { print -ru2 -- "claude-account: cannot move $file"; return 1 }
+  mv -- $HOME/.claude-$old $HOME/.claude-$new || { [[ ! -e $target ]] || mv -- $target $file; return 1 }
+  [[ ! -e $with_dir/$old ]] || mv -- $with_dir/$old $with_dir/$new || {
+    mv -- $HOME/.claude-$new $HOME/.claude-$old
+    [[ ! -e $target ]] || mv -- $target $file
+    return 1
+  }
+}

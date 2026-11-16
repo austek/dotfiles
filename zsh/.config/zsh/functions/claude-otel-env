@@ -1,0 +1,21 @@
+# Prints the Claude Code OTel env (one KEY=value per line) for an account; prints nothing on a work machine, for an account with telemetry off or an unreadable manifest, or when the preset is unknown.
+# The account's manifest can rename the account label (otel_account) and add labels.
+# Usage: claude-otel-env <account>
+claude-otel-env() {
+  local state=${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/state.json
+  local host account=${1:-main} label extra pair
+  (( $+commands[jq] )) && [[ -r $state ]] || return 0
+  host=$(jq -r '.preset_name // empty' "$state" 2>/dev/null)
+  [[ -n $host && $host != work ]] || return 0
+  _claude_account_manifest_ok $account || return 0
+  [[ -z $(_claude_account_get $account 'select(.telemetry == false) | "off"') ]] || return 0
+  label=$(_claude_account_get $account '.otel_account // empty')
+  local -a attrs=("account=${${label:-$account}//[^A-Za-z0-9._-]/_}" "host=${host//[^A-Za-z0-9._-]/_}" "project=$(_claude_otel_project)")
+  for pair in ${(f)"$(_claude_account_get $account '(.labels // {}) | to_entries[] | "\(.key)=\(.value)"')"}; do
+    attrs+=("${${pair%%=*}//[^A-Za-z0-9._-]/_}=${${pair#*=}//[^A-Za-z0-9._-]/_}")
+  done
+  print -rl -- CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_METRICS_EXPORTER=otlp OTEL_LOGS_EXPORTER=otlp \
+    OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf OTEL_METRIC_EXPORT_INTERVAL=10000 \
+    "OTEL_EXPORTER_OTLP_ENDPOINT=${CLAUDE_OTEL_ENDPOINT:-http://192.168.50.2:4318}" \
+    "OTEL_RESOURCE_ATTRIBUTES=${(j:,:)attrs}"
+}

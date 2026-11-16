@@ -2,8 +2,8 @@
 # the terminal; claude-pane-loop keeps the pane briefly after exit so Cozempic can resume in place.
 # Reattaches a detached session for the directory; a session already attached elsewhere gets a -N suffix.
 # Runs it directly when already in tmux, without a TTY, for -p/--print, or without tmux.
-# Usage: claude-tmux <label> <command> [args...]
-claude-tmux() {
+# Usage: _claude_tmux <label> <command> [args...]
+_claude_tmux() {
   local label=$1
   shift
   if [[ -n $TMUX || ! -t 0 || ! -t 1 ]] || (( ! $+commands[tmux] )) || (( ${+argv[(r)(-p|--print)]} )); then
@@ -14,7 +14,7 @@ claude-tmux() {
   # A running tmux server hands new sessions its own environment; update-environment makes it copy
   # ours instead, keeping values off the command line. Names stay listed so later unsets propagate.
   local -a names=(${(k)parameters[(R)scalar*export*]:#(TMUX|TMUX_PANE|_)})
-  local -aU watched=(${(f)"$(tmux start-server \; show-options -gv update-environment 2>/dev/null)"} $names)
+  local -aU watched=(${(f)"$(tmux start-server \; show-options -gv update-environment 2>/dev/null)"} $names CLAUDE_CONFIG_DIR ANTHROPIC_API_KEY DOTFILES_CLAUDE_API_KEY)
   local -a setup=(set-option -gu update-environment)
   local name
   for name in $watched; do setup+=(\; set-option -ga update-environment $name); done

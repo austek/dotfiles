@@ -1,0 +1,9 @@
+# Prints the config dir of an account after linking it to ~/.claude; prints nothing for main. Fails for an account claude-account has not created.
+# Usage: _claude_account_ensure <name>
+_claude_account_ensure() {
+  local name=$1
+  [[ $name == main ]] && return 0
+  _claude_account_valid $name || { print -ru2 -- "claude: invalid account '$name' (lowercase letters, digits, _ and -; 'main' is the default)"; return 2 }
+  [[ -d $HOME/.claude-$name ]] || { print -ru2 -- "claude: account '$name' does not exist; create it with: claude-account create $name"; return 1 }
+  claude-account-link $name
+}

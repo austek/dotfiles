@@ -464,7 +464,7 @@ def test_install_skips_the_burst_unit_until_the_burst_account_has_logged_in(tmp_
     assert _install(tmp_path, account="burst", run=run) is False
     assert calls == []
     assert not (tmp_path / "claude-foothold-burst.service").exists()
-    assert "claude-burst" in capsys.readouterr().out
+    assert "claude --burst" in capsys.readouterr().out
 
 
 def test_install_sets_up_the_burst_unit_once_logged_in(tmp_path):
