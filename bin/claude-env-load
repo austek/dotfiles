@@ -1,0 +1,63 @@
+#!/bin/sh
+# The only loader of secrets.env: exports it and the newest nvm node dir, then execs the command.
+# Usage: claude-env-load <command> [args...]   |   claude-env-load --check (warn about an unsafe secrets file, run nothing)
+set -eu
+
+secrets="$HOME/.config/dotfiles/secrets.env"
+
+# Echoes why the file is unsafe, nothing when it is a regular file of ours with no group/other access.
+# Never fails, so a stat or id error cannot abort the script under `set -e`.
+unsafe_reason() {
+    mode=$(stat -L -c %a "$1") || { echo "cannot stat it"; return 0; }
+    case $mode in *00) ;; *) echo "group/other can access it (mode $mode)"; return 0 ;; esac
+    owner=$(stat -L -c %u "$1") || { echo "cannot stat it"; return 0; }
+    uid=$(id -u) || { echo "cannot determine the current user"; return 0; }
+    [ "$owner" = "$uid" ] || { echo "owned by uid $owner"; return 0; }
+    kind=$(stat -L -c %F "$1") || { echo "cannot stat it"; return 0; }
+    case $kind in regular*file) ;; *) echo "not a regular file"; return 0 ;; esac
+}
+
+# Sets $reason to why secrets.env will not load; empty when it is absent or safe.
+check_secrets() {
+    reason=
+    if [ -r "$secrets" ]; then
+        reason=$(unsafe_reason "$secrets") || reason="cannot check it"
+        [ -z "$reason" ] || echo "claude-env-load: secrets.env skipped: $reason" >&2
+    fi
+}
+
+# Parses KEY=value lines as data; values are never evaluated.
+export_assignment() {
+    case $1 in *=*) ;; *) return 0 ;; esac
+    key=${1%%=*}
+    value=${1#*=}
+    case $key in '' | *[!A-Za-z0-9_]* | [0-9]*) return 0 ;; esac
+    value=${value#"${value%%[![:space:]]*}"}
+    value=${value%"${value##*[![:space:]]}"}
+    case $value in
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+    esac
+    export "$key=$value"
+}
+
+check_secrets
+
+if [ "${1:-}" = --check ]; then
+    exit 0
+fi
+
+[ $# -gt 0 ] || { echo "usage: $0 <command> [args...]" >&2; exit 64; }
+
+if [ -r "$secrets" ] && [ -z "$reason" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        case $line in '' | '#'* | ';'*) continue ;; esac
+        export_assignment "$line"
+    done < "$secrets"
+fi
+
+# Hooks run `node`, which nvm installs under a versioned directory the unit's PATH cannot name.
+nvm_node=$(find "$HOME/.nvm/versions/node" -mindepth 2 -maxdepth 2 -name bin -type d 2>/dev/null | sort -V | tail -n 1)
+[ -z "$nvm_node" ] || export PATH="$nvm_node:$PATH"
+
+exec "$@"

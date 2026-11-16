@@ -1,31 +1,11 @@
 #!/bin/sh
 # Foothold entry point: the unit runs it with --start; tmux then runs it again in the pane.
 # Pane usage: claude-foothold-launch <remote-control-name> [burst]. With `burst`, claude runs on the burst
-# account (see claude-burst-link). This script is the only loader of secrets.env; the unit has no EnvironmentFile.
+# account (see claude-burst-link). secrets.env is loaded by claude-env-load; the unit has no EnvironmentFile.
 set -eu
 
 secrets="$HOME/.config/dotfiles/secrets.env"
-
-# Echoes why the file is unsafe, nothing when it is a regular file of ours with no group/other access.
-# Never fails, so a stat or id error cannot abort the script under `set -e`.
-unsafe_reason() {
-    mode=$(stat -L -c %a "$1") || { echo "cannot stat it"; return 0; }
-    case $mode in *00) ;; *) echo "group/other can access it (mode $mode)"; return 0 ;; esac
-    owner=$(stat -L -c %u "$1") || { echo "cannot stat it"; return 0; }
-    uid=$(id -u) || { echo "cannot determine the current user"; return 0; }
-    [ "$owner" = "$uid" ] || { echo "owned by uid $owner"; return 0; }
-    kind=$(stat -L -c %F "$1") || { echo "cannot stat it"; return 0; }
-    case $kind in regular*file) ;; *) echo "not a regular file"; return 0 ;; esac
-}
-
-# Sets $reason to why secrets.env will not load; empty when it is absent or safe.
-check_secrets() {
-    reason=
-    if [ -r "$secrets" ]; then
-        reason=$(unsafe_reason "$secrets") || reason="cannot check it"
-        [ -z "$reason" ] || echo "claude-foothold-launch: secrets.env skipped: $reason" >&2
-    fi
-}
+case $0 in */*) bin_dir=${0%/*} ;; *) bin_dir=. ;; esac
 
 # Unit entry point: claude-foothold-launch --start <tmux-session> <start-dir> <remote-control-name> [burst]
 # Starts the detached session running this script in the pane; a session that already exists is left alone.
@@ -37,41 +17,12 @@ if [ "${1:-}" = --start ]; then
     shift 3
     tmux has-session -t "=$session" 2>/dev/null && exit 0
     [ -r "$secrets" ] || echo "claude-foothold-launch: secrets.env not found or unreadable" >&2
-    check_secrets
+    "$bin_dir/claude-env-load" --check
     exec tmux new-session -d -s "$session" -c "$dir" "$0" "$@"
 fi
 
-# Parses KEY=value lines as data; values are never evaluated.
-export_assignment() {
-    case $1 in *=*) ;; *) return 0 ;; esac
-    key=${1%%=*}
-    value=${1#*=}
-    case $key in '' | *[!A-Za-z0-9_]* | [0-9]*) return 0 ;; esac
-    value=${value#"${value%%[![:space:]]*}"}
-    value=${value%"${value##*[![:space:]]}"}
-    case $value in
-        \"*\") value=${value#\"}; value=${value%\"} ;;
-        \'*\') value=${value#\'}; value=${value%\'} ;;
-    esac
-    export "$key=$value"
-}
-
-check_secrets
-
-if [ -r "$secrets" ] && [ -z "$reason" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-        case $line in '' | '#'* | ';'*) continue ;; esac
-        export_assignment "$line"
-    done < "$secrets"
-fi
-
-# Hooks run `node`, which nvm installs under a versioned directory the unit's PATH cannot name.
-nvm_node=$(find "$HOME/.nvm/versions/node" -mindepth 2 -maxdepth 2 -name bin -type d 2>/dev/null | sort -V | tail -n 1)
-[ -z "$nvm_node" ] || export PATH="$nvm_node:$PATH"
-
-bin_dir=$(dirname -- "$0")
 if [ "${2:-}" = burst ]; then
     burst_dir=$("$bin_dir/claude-burst-link")
-    exec "$bin_dir/claude-pane-loop" env CLAUDE_CONFIG_DIR="$burst_dir" claude --remote-control "$1"
+    exec "$bin_dir/claude-env-load" "$bin_dir/claude-pane-loop" env CLAUDE_CONFIG_DIR="$burst_dir" claude --remote-control "$1"
 fi
-exec "$bin_dir/claude-pane-loop" claude --remote-control "$1"
+exec "$bin_dir/claude-env-load" "$bin_dir/claude-pane-loop" claude --remote-control "$1"
