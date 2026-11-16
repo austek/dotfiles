@@ -602,21 +602,31 @@ def test_upgrade_skips_chip_when_it_is_not_installed_or_not_wanted(tmp_path, man
 def test_install_tools_without_upgrade_skips_an_installed_zoom(tmp_path):
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
-    assert tools.install_tools(t, {"zoom"})
+    assert tools.install_system_tools(t, {"zoom"})
     assert downloads == []
 
 
 def test_install_tools_with_upgrade_installs_the_pin_over_an_outdated_zoom(tmp_path):
     machine = Machine(dpkg_listing=zoom_listing("7.2.1.5760"))
     t, downloads = make(tmp_path, machine)
-    assert tools.install_tools(t, {"zoom"}, upgrade=True)
+    assert tools.install_system_tools(t, {"zoom"}, upgrade=True)
     assert downloads == [ri.SPEC_DATA["zoom"].download_url]
+
+
+def test_user_stage_tools_never_run_the_sudo_release_installers(tmp_path):
+    machine = Machine()
+    t, downloads = make(tmp_path, machine, payload=b"\x7fELF")
+    assert tools.install_tools(t, {"chip", "zoom", "istioctl", "awscli", "lazydocker", "zizmor", "mcp-grafana"})
+    assert downloads == []
+    assert not machine.ran("sudo")
 
 
 def test_release_installers_run_after_the_script_installers(tmp_path):
     names = [name for name, _ in tools.TOOL_INSTALLERS]
     assert names == [
-        "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "jetbrains-toolbox",
-        "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "coderabbit", "sonarqube-cli", "uv",
+        "oh-my-zsh", "sdkman", "nvm", "jetbrains-toolbox", "coderabbit", "sonarqube-cli", "uv",
         "antigravity-ide",
+    ]
+    assert [name for name, _ in tools.SYSTEM_TOOL_INSTALLERS] == [
+        "lazydocker", "zoom", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip",
     ]

@@ -15,7 +15,7 @@ from dotfiles_setup import (
 )
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all, fetch_https
 
-__all__ = ["TOOL_INSTALLERS", "Tooling", "fetch_https", "install_tools"]
+__all__ = ["SYSTEM_TOOL_INSTALLERS", "TOOL_INSTALLERS", "Tooling", "fetch_https", "install_system_tools", "install_tools"]
 
 SDKMAN_URL = "https://get.sdkman.io?rcupdate=false"
 OMZ_URL = "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
@@ -114,10 +114,11 @@ TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("oh-my-zsh", install_omz),
     ("sdkman", install_sdkman),
     ("nvm", install_nvm),
-    *release_installers.RELEASE_INSTALLERS,
+    *release_installers.USER_RELEASE_INSTALLERS,
     *vendor_installers.VENDOR_INSTALLERS,
     ("antigravity-ide", antigravity.install_antigravity_ide),
 )
+SYSTEM_TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = release_installers.SYSTEM_RELEASE_INSTALLERS
 
 
 def _run_installers(t: Tooling, table: tuple[tuple[str, Installer], ...], package_names: Collection[str]) -> bool:
@@ -127,8 +128,13 @@ def _run_installers(t: Tooling, table: tuple[tuple[str, Installer], ...], packag
     return True
 
 
-def install_tools(t: Tooling, package_names: Collection[str], upgrade: bool = False) -> bool:
-    installed = _run_installers(t, TOOL_INSTALLERS, package_names)
+def install_tools(t: Tooling, package_names: Collection[str]) -> bool:
+    return _run_installers(t, TOOL_INSTALLERS, package_names)
+
+
+def install_system_tools(t: Tooling, package_names: Collection[str], upgrade: bool = False) -> bool:
+    """Installs the release artifacts that need sudo, and with `upgrade` replaces older vendor debs and binaries."""
+    installed = _run_installers(t, SYSTEM_TOOL_INSTALLERS, package_names)
     if installed and upgrade:
         release_installers.upgrade_vendor_debs(t, package_names)
     return installed
