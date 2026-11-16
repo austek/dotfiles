@@ -125,6 +125,8 @@ def _guarded(repo: Path, save: Callable[[], int]) -> int:
 def _early_error(dotfiles_dir: Path, run: RunFn, is_public: bool) -> str | None:
     if worktree.is_linked_worktree(dotfiles_dir):
         return f"Aborting: {dotfiles_dir} is a linked worktree. Run `dotfiles-setup propose` from the main checkout."
+    if worktree.lacks_git_dir(dotfiles_dir):
+        return f"Aborting: {dotfiles_dir} has no .git directory, so git would act on an enclosing repository."
     preflight = _preflight_error(dotfiles_dir, run) if is_public else None
     if preflight:
         return preflight

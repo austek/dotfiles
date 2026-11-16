@@ -11,7 +11,9 @@ def test_propose_dispatches_to_run_propose(monkeypatch):
 def test_propose_help_says_main_checkout_only(capsys):
     with pytest.raises(SystemExit):
         build_arg_parser().parse_args(["propose", "-h"])
-    assert "main checkout" in capsys.readouterr().out.replace("\n", " ")
+    out = capsys.readouterr().out.replace("\n", " ")
+    assert "main checkout" in out
+    assert "open a PR" in out
 
 
 def test_top_level_help_lists_propose(capsys):

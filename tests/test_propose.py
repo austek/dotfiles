@@ -19,6 +19,13 @@ def linked_roots(monkeypatch):
     return roots
 
 
+@pytest.fixture(autouse=True)
+def git_dirless(monkeypatch):
+    roots: set[Path] = set()
+    monkeypatch.setattr(worktree, "lacks_git_dir", lambda root: root in roots)
+    return roots
+
+
 @pytest.fixture
 def private_repo(monkeypatch, tmp_path):
     root = tmp_path / "private"
@@ -232,6 +239,15 @@ def test_refuses_linked_worktree_without_mutating(linked_roots, capsys):
     assert "main checkout" in err
     assert "dotfiles-setup propose" in err
     assert not any(c[:2] in (["git", "add"], ["git", "commit"], ["git", "push"], ["git", "switch"]) for c in calls)
+
+
+def test_refuses_checkout_without_git_dir_without_mutating(git_dirless, capsys):
+    calls = []
+    git_dirless.add(propose.repo_root())
+
+    assert run_propose(run=fake_run(calls), now=fixed_now) == 1
+    assert "no .git directory" in capsys.readouterr().err
+    assert not any(c[:2] in (["git", "add"], ["git", "commit"], ["git", "push"], ["git", "status"]) for c in calls)
 
 
 def test_overlay_worktree_aborts_only_the_overlay(private_repo, linked_roots, capsys):

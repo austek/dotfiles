@@ -149,7 +149,7 @@ def _build_foothold_parser(sub: Any) -> None:
 
 def _build_propose_parser(sub: Any) -> None:
     summary = "commit changes to a branch, push it and open a PR (backup/<timestamp> from main); main checkout only"
-    sub.add_parser("propose", help=summary, description=summary.capitalize() + ".")
+    sub.add_parser("propose", help=summary, description=f"{summary[0].upper()}{summary[1:]}.")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
