@@ -66,6 +66,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 ### Zsh Configuration
 - Custom Zsh functions must be stored in `~/.config/zsh/functions`.
 - They are efficiently loaded using `fpath` and `autoload`.
+- zsh's completion dump (`~/.zcompdump*`) is rebuilt only when the number of completion files changes, so a rename, or a changed `#compdef` line, that keeps the count equal leaves stale completers. `dfctl apply` therefore fingerprints the names and `#compdef` header lines of every `_*` file in `~/.config/zsh/completions` and `~/.oh-my-zsh/custom/completions`, the directories already on `fpath` when oh-my-zsh runs `compinit` (`zsh_cache.py`, run after the stow step; `~/.config/zsh/functions` is added later and is not watched) and removes `~/.zcompdump*` when the fingerprint, kept in `~/.local/state/dotfiles/zsh-completions.sha256`, changes or has no record yet. A dump it cannot remove, or a fingerprint it cannot record, only warns and is retried next run; `--dry-run` only reports. It cannot see a dump kept elsewhere through `$ZSH_COMPDUMP`. Open a new shell afterwards.
 - The base `PATH` lives in `zsh/.zshenv`, not `.zshrc`, so non-interactive shells (IDE-launched agents) get it. Edit its `path=(...)` array; `typeset -U path` keeps entries unique and `path=( ${^path}(N-/) )` drops directories that do not exist. Use `path_prepend` / `path_append` only for additions in `.zshrc` (e.g. tool installers), never `export PATH=...`.
 
 ### No Machine-Specific Paths

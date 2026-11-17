@@ -20,6 +20,7 @@ from dotfiles_setup import (
     stow,
     system_steps,
     tools,
+    zsh_cache,
 )
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.log import Logger
@@ -141,6 +142,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("install_github_bins", lambda: apt_packages.install_github_bins(ctx)),
         ("configure_docker_group", lambda: system_steps.configure_docker_group(ctx)),
         ("configure_dotfiles", lambda: stow.configure_dotfiles(stow_plan)),
+        ("refresh_zsh_completion_cache", lambda: zsh_cache.refresh_zsh_completion_cache(t)),
         ("ensure_secrets_env", lambda: secrets_env.ensure_secrets_env(t, changes)),
         ("retire_claude_profile", lambda: claude_profile.retire_claude_profile(t)),
         ("configure_claude_tools", lambda: claude_tools.configure_claude_tools(t, inputs.preset_name)),
