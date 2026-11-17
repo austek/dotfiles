@@ -1,6 +1,7 @@
 import json
 import os
 import pty
+import shlex
 import shutil
 import stat
 import subprocess
@@ -356,10 +357,10 @@ def test_with_names_lists_builtin_and_extension_entries(tmp_path):
 
 
 def test_with_names_find_the_built_in_entries_when_the_function_file_is_a_stow_symlink(tmp_path):
-    links = tmp_path / "links"
+    links = tmp_path / "stow links"
     links.mkdir()
     (links / "_claude_with").symlink_to(FUNCTIONS / "_claude_with")
-    script = f"autoload +X _claude_with_names _claude_with_extension_ids\nfpath=({links})\n_claude_with_names"
+    script = f"autoload +X _claude_with_names _claude_with_extension_ids\nfpath=({shlex.quote(str(links))})\n_claude_with_names"
     names = _run(tmp_path, script).stdout.split()
     assert {"idea", "sonarqube", "grafana", "coralogix"} <= set(names)
 
