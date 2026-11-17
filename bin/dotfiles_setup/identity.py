@@ -2,7 +2,7 @@
 unconditionally from the repo's identity-free git/.gitconfig, Task 11) so a
 stranger's fork never inherits your name/email, and prompts only once.
 
-When the private overlay (see overlay.py) provides `git/gitconfig.local`,
+When the overlay (see overlay.py) provides `git/gitconfig.local`,
 ~/.gitconfig.local is symlinked to it and the prompt is skipped, including
 under `force`."""
 from __future__ import annotations

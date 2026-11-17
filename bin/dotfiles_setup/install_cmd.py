@@ -10,6 +10,7 @@ from dotfiles_setup import (
     foothold,
     install_flow,
     overlay,
+    overlay_migrate,
     rollback,
     state,
     tooling,
@@ -80,6 +81,8 @@ def _install_for_preset(args: argparse.Namespace, logger: Logger, env: Env) -> i
     if preset_name is None:
         logger.error("No preset saved on this machine; pass --preset <name>.")
         return 2
+    if not overlay_migrate.migrate_legacy_overlay(_tooling(logger, env), rollback.RollbackLog.for_home(env.home)):
+        return 1
     match _build_plan(args, logger, env, preset_name, prior):
         case Err(error=message):
             logger.error(message)

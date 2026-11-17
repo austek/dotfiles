@@ -61,7 +61,7 @@ def pull_if_behind(repo: Path, logger: Logger, run=subprocess.run, label: str = 
 
 
 def pull_overlay_if_git(overlay_root: Path | None, logger: Logger, run=subprocess.run) -> bool:
-    """Pulls the private overlay when it is a git checkout; a bare local overlay directory is left alone."""
+    """Pulls the overlay when it is a git checkout; a bare local overlay directory is left alone."""
     if overlay_root is None or not (overlay_root / ".git").exists():
         return False
-    return pull_if_behind(overlay_root, logger, run=run, label="dotfiles-private")
+    return pull_if_behind(overlay_root, logger, run=run, label="dotfiles-overlay")

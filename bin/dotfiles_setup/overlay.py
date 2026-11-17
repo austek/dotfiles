@@ -1,7 +1,8 @@
-"""Detects an optional local-overlay root — a sibling private repo, or a bare
+"""Detects an optional local-overlay root — a sibling overlay repo, or a bare
 local directory — and merges its content over the public repo's generic
 defaults. One mechanism serves a stranger's plain fork (no overlay found)
-and a work machine with ~/.dotfiles-private cloned alongside alike."""
+and a work machine with ~/.dotfiles-overlay cloned alongside alike.
+The names it used before the rename (~/.dotfiles-private, DOTFILES_PRIVATE_ROOT) still resolve."""
 from __future__ import annotations
 
 import functools
@@ -13,20 +14,21 @@ from typing import Any
 
 from dotfiles_setup.presets import package_names
 
-DEFAULT_OVERLAY_ROOT = Path.home() / ".dotfiles-private"
+DEFAULT_OVERLAY_ROOT = Path.home() / ".dotfiles-overlay"
+LEGACY_OVERLAY_ROOT = Path.home() / ".dotfiles-private"
 LOCAL_OVERLAY_ROOT = Path.home() / ".config" / "dotfiles" / "local-overlay"
+OVERLAY_ROOT_VARIABLE = "DOTFILES_OVERLAY_ROOT"
+LEGACY_ROOT_VARIABLE = "DOTFILES_PRIVATE_ROOT"
 
 
 def find_overlay_root() -> Path | None:
-    env_override = os.environ.get("DOTFILES_PRIVATE_ROOT")
-    if env_override:
-        candidate = Path(env_override)
-        return candidate if candidate.is_dir() else None
-    if DEFAULT_OVERLAY_ROOT.is_dir():
-        return DEFAULT_OVERLAY_ROOT
-    if LOCAL_OVERLAY_ROOT.is_dir():
-        return LOCAL_OVERLAY_ROOT
-    return None
+    """An override variable wins even when its path is missing, which means no overlay rather than a fallback."""
+    for variable in (OVERLAY_ROOT_VARIABLE, LEGACY_ROOT_VARIABLE):
+        override = os.environ.get(variable)
+        if override:
+            candidate = Path(override)
+            return candidate if candidate.is_dir() else None
+    return next((root for root in (DEFAULT_OVERLAY_ROOT, LEGACY_OVERLAY_ROOT, LOCAL_OVERLAY_ROOT) if root.is_dir()), None)
 
 
 def overlay_package_names(overlay_root: Path | None, preset_name: str) -> tuple[str, ...]:

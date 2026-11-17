@@ -1,6 +1,6 @@
 """Commit dotfiles changes to a branch and open a pull request (`dfctl propose`).
 
-`propose` also covers the private overlay when it is a separate git repo.
+`propose` also covers the overlay when it is a separate git repo.
 `propose` never pushes to main. On a non-main branch it commits there; from main it creates `backup/<timestamp>` and stays on it, because stowed configs symlink into this checkout."""
 from __future__ import annotations
 
@@ -108,10 +108,10 @@ def _private_git_root(public_root: Path) -> Path | None:
 def run_propose(run: RunFn = subprocess.run, now: Callable[[], datetime] = datetime.now) -> int:
     public_root = repo_root()
     codes = [_guarded(public_root, lambda: _save_repo(public_root, run, now, is_public=True))]
-    private_root = _private_git_root(public_root)
-    if private_root is not None:
-        print(f"Backing up private overlay: {private_root}")
-        codes.append(_guarded(private_root, lambda: _save_repo(private_root, run, now, is_public=False)))
+    overlay_root = _private_git_root(public_root)
+    if overlay_root is not None:
+        print(f"Backing up overlay: {overlay_root}")
+        codes.append(_guarded(overlay_root, lambda: _save_repo(overlay_root, run, now, is_public=False)))
     return max(codes)
 
 

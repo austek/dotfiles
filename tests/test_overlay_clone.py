@@ -1,4 +1,4 @@
-from dotfiles_setup.private import clone_overlay
+from dotfiles_setup.overlay_clone import clone_overlay
 
 
 def test_clone_overlay_runs_git_clone_with_repo_and_dest(tmp_path):
@@ -13,23 +13,23 @@ def test_clone_overlay_runs_git_clone_with_repo_and_dest(tmp_path):
             stderr = ""
         return _Result()
 
-    dest = tmp_path / "dotfiles-private"
-    result = clone_overlay("git@github.com:you/dotfiles-private.git", dest, run=fake_run)
+    dest = tmp_path / "dotfiles-overlay"
+    result = clone_overlay("git@github.com:you/dotfiles-overlay.git", dest, run=fake_run)
     assert result.succeeded
     assert calls == [(
-        ["git", "clone", "git@github.com:you/dotfiles-private.git", str(dest)],
+        ["git", "clone", "git@github.com:you/dotfiles-overlay.git", str(dest)],
         {"capture_output": True, "text": True},
     )]
 
 
 def test_clone_overlay_refuses_to_overwrite_existing_dest(tmp_path):
-    dest = tmp_path / "dotfiles-private"
+    dest = tmp_path / "dotfiles-overlay"
     dest.mkdir()
 
     def unexpected_run(argv, **kwargs):
         raise AssertionError("git clone should not run when dest already exists")
 
-    result = clone_overlay("git@github.com:you/dotfiles-private.git", dest, run=unexpected_run)
+    result = clone_overlay("git@github.com:you/dotfiles-overlay.git", dest, run=unexpected_run)
     assert not result.succeeded
     assert "already exists" in result.stdout
 
@@ -42,20 +42,20 @@ def test_clone_overlay_reports_git_failure(tmp_path):
             stderr = "fatal: repository not found"
         return _Result()
 
-    dest = tmp_path / "dotfiles-private"
-    result = clone_overlay("git@github.com:you/dotfiles-private.git", dest, run=failing_run)
+    dest = tmp_path / "dotfiles-overlay"
+    result = clone_overlay("git@github.com:you/dotfiles-overlay.git", dest, run=failing_run)
     assert not result.succeeded
     assert result.returncode == 128
     assert "not found" in result.stdout
 
 
 def test_clone_overlay_refuses_a_dangling_symlink_dest(tmp_path):
-    dest = tmp_path / "dotfiles-private"
+    dest = tmp_path / "dotfiles-overlay"
     dest.symlink_to(tmp_path / "missing")
 
     def unexpected_run(argv, **kwargs):
         raise AssertionError("git clone should not run when dest is a symlink")
 
-    result = clone_overlay("git@github.com:you/dotfiles-private.git", dest, run=unexpected_run)
+    result = clone_overlay("git@github.com:you/dotfiles-overlay.git", dest, run=unexpected_run)
     assert not result.succeeded
     assert "already exists" in result.stdout

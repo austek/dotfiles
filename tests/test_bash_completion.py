@@ -24,10 +24,14 @@ def test_completes_preset_values_after_preset_flag():
     assert set(completions) == {"work", "personal", "homelab"}
 
 
-def test_completes_private_clone_subcommand_and_options():
-    assert _complete(["dfctl", "pri"], 1) == ["private"]
-    assert _complete(["dfctl", "private", "cl"], 2) == ["clone"]
-    assert "--repo" in _complete(["dfctl", "private", "clone", "--"], 3)
+def test_completes_overlay_clone_subcommand_and_options():
+    assert _complete(["dfctl", "ove"], 1) == ["overlay"]
+    assert _complete(["dfctl", "overlay", "cl"], 2) == ["clone"]
+    assert "--repo" in _complete(["dfctl", "overlay", "clone", "--"], 3)
+
+
+def test_the_deprecated_private_command_is_not_offered():
+    assert _complete(["dfctl", "pri"], 1) == []
 
 
 def test_completes_preset_equals_form():
