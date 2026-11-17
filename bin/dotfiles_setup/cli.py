@@ -1,4 +1,4 @@
-"""Entry point for dotfiles-setup."""
+"""Entry point for dfctl."""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,7 @@ def _run_private_clone(args: argparse.Namespace, env: Env) -> int:
         logger.error(result.stdout or f"git clone exited with code {result.returncode}.")
         return result.returncode
     logger.success(f"Cloned private overlay to {dest}.")
-    logger.success("Re-run 'dotfiles-setup apply --preset <name>' to layer it in.")
+    logger.success("Re-run 'dfctl apply --preset <name>' to layer it in.")
     return 0
 
 
@@ -32,7 +32,7 @@ def _run_foothold_restart(args: argparse.Namespace, env: Env) -> int:
     logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
     saved = state.load_state(state.state_file(env.state_dir))
     if saved is None:
-        logger.error("No preset saved on this machine; run 'dotfiles-setup apply --preset <name>' first.")
+        logger.error("No preset saved on this machine; run 'dfctl apply --preset <name>' first.")
         return 2
     return 0 if foothold.restart_footholds(logger, run=env.run) else 1
 
@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None, env: Env | None = None) -> int:
         return 1
 
     if args.command == "install":
-        print("'dotfiles-setup install' is deprecated; use 'dotfiles-setup apply'.", file=sys.stderr)
+        print("'dfctl install' is deprecated; use 'dfctl apply'.", file=sys.stderr)
     if args.command in ("apply", "install"):
         return _run_install(args, env)
 

@@ -183,7 +183,7 @@ def test_restart_without_an_installed_unit_warns_and_runs_nothing(tmp_path, caps
     run, calls = _recording_run()
     assert _restart(tmp_path, run=run) is False
     assert calls == []
-    assert "dotfiles-setup apply" in capsys.readouterr().out
+    assert "dfctl apply" in capsys.readouterr().out
 
 
 def test_restart_dry_run_runs_nothing(tmp_path):

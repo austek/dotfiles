@@ -1,4 +1,4 @@
-#compdef dotfiles-setup
+#compdef dfctl
 
 local -a commands presets
 commands=(

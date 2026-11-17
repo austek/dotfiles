@@ -1,4 +1,4 @@
-"""The `dotfiles-setup apply` command (alias `install`): plan, ask, apply, then persist."""
+"""The `dfctl apply` command (alias `install`): plan, ask, apply, then persist."""
 from __future__ import annotations
 
 import argparse

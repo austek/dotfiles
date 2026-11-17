@@ -1,4 +1,4 @@
-"""Commit dotfiles changes to a branch and open a pull request (`dotfiles-setup propose`).
+"""Commit dotfiles changes to a branch and open a pull request (`dfctl propose`).
 
 `propose` also covers the private overlay when it is a separate git repo.
 `propose` never pushes to main. On a non-main branch it commits there; from main it creates `backup/<timestamp>` and stays on it, because stowed configs symlink into this checkout."""
@@ -27,7 +27,7 @@ DEFAULT_BRANCH = "main"
 COMMIT_MESSAGE = "chore: update configs and package lists NO_ISSUE"
 VALIDATE_SCRIPT = Path("scripts") / "validate-no-machine-paths.sh"
 UNTRACKED_LIST_CAP = 50
-LEGACY_NOTICE = "'dotfiles-backup' is deprecated; use 'dotfiles-setup propose'."
+LEGACY_NOTICE = "'dotfiles-backup' is deprecated; use 'dfctl propose'."
 LEGACY_USAGE = "usage: dotfiles-backup [save]"
 __all__ = ["DEFAULT_BRANCH", "RunFn", "claude_settings_changed", "legacy_main", "run_propose"]
 
@@ -124,7 +124,7 @@ def _guarded(repo: Path, save: Callable[[], int]) -> int:
 
 def _early_error(dotfiles_dir: Path, run: RunFn, is_public: bool) -> str | None:
     if worktree.is_linked_worktree(dotfiles_dir):
-        return f"Aborting: {dotfiles_dir} is a linked worktree. Run `dotfiles-setup propose` from the main checkout."
+        return f"Aborting: {dotfiles_dir} is a linked worktree. Run `dfctl propose` from the main checkout."
     if worktree.lacks_git_dir(dotfiles_dir):
         return f"Aborting: {dotfiles_dir} has no .git directory, so git would act on an enclosing repository."
     preflight = _preflight_error(dotfiles_dir, run) if is_public else None

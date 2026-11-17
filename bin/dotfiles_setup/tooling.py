@@ -33,7 +33,7 @@ class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
 
 
 _OPENER = urllib.request.build_opener(_HttpsOnlyRedirect)
-USER_AGENT = "dotfiles-setup"
+USER_AGENT = "dfctl"
 GITHUB_API = "https://api.github.com/"
 
 

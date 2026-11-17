@@ -188,7 +188,7 @@ def upgradable_count(ctx: SystemContext) -> int | None:
 def report_upgradable(ctx: SystemContext) -> None:
     count = upgradable_count(ctx)
     if count:
-        ctx.t.logger.info(f"{count} apt package(s) can be upgraded; run `dotfiles-setup apply --upgrade` to apply them.")
+        ctx.t.logger.info(f"{count} apt package(s) can be upgraded; run `dfctl apply --upgrade` to apply them.")
 
 
 def upgrade_packages(ctx: SystemContext) -> bool:

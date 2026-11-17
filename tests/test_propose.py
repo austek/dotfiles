@@ -237,7 +237,7 @@ def test_refuses_linked_worktree_without_mutating(linked_roots, capsys):
     assert run_propose(run=fake_run(calls), now=fixed_now) == 1
     err = capsys.readouterr().err
     assert "main checkout" in err
-    assert "dotfiles-setup propose" in err
+    assert "dfctl propose" in err
     assert not any(c[:2] in (["git", "add"], ["git", "commit"], ["git", "push"], ["git", "switch"]) for c in calls)
 
 
@@ -332,7 +332,7 @@ def test_proceeds_when_claude_settings_are_clean(capsys):
 def test_legacy_dotfiles_backup_save_warns_and_runs_propose(monkeypatch, capsys):
     monkeypatch.setattr(propose, "run_propose", lambda: 7)
     assert propose.legacy_main(["save"]) == 7
-    assert "'dotfiles-backup' is deprecated; use 'dotfiles-setup propose'." in capsys.readouterr().err
+    assert "'dotfiles-backup' is deprecated; use 'dfctl propose'." in capsys.readouterr().err
 
 
 def test_bare_legacy_dotfiles_backup_prints_usage_and_never_runs_propose(monkeypatch, capsys):

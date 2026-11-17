@@ -1,13 +1,4 @@
-#!/usr/bin/env python3
-"""Entry point for dotfiles-setup. Resolves its own real path (following
-the ~/bin -> repo/bin stow symlink) so sibling modules import correctly
-regardless of how this file was invoked."""
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from dotfiles_setup.cli import main
-
-if __name__ == "__main__":
-    sys.exit(main())
+#!/bin/sh
+# Deprecated entry point: dotfiles-setup is now dfctl. Remove one release after this lands.
+echo "'dotfiles-setup' is deprecated; use 'dfctl'." >&2
+exec "$(dirname -- "$(readlink -f -- "$0")")/dfctl" "$@"
