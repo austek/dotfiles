@@ -22,7 +22,7 @@ reviews:
         wrapper (no .py extension, sys.path.insert + call main()) beside an
         importable, pytest-tested module (see local/.local/bin/coderabbitFullAudit
         and coderabbit_full_audit.py, or bin/dotfiles-backup and
-        dotfiles_backup.py). Tests are plain pytest functions using tmp_path
+        dotfiles_setup/propose.py). Tests are plain pytest functions using tmp_path
         and monkeypatch, not unittest classes.
     - path: "**/*.sh"
       instructions: >

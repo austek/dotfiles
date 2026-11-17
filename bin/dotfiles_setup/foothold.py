@@ -181,7 +181,7 @@ def restart_foothold(logger: Logger, account: str, unit_dir: Path = UNIT_DIR, ru
     """
     unit = unit_dir / unit_name(account)
     if not unit.is_file():
-        logger.warn(f"{unit.name} is not installed; run `dotfiles-setup install` first.")
+        logger.warn(f"{unit.name} is not installed; run `dotfiles-setup apply` first.")
         return False
     return _restart_units(logger, [account], unit_dir, run)
 
@@ -190,7 +190,7 @@ def restart_footholds(logger: Logger, unit_dir: Path = UNIT_DIR, run=subprocess.
     """Restarts every installed account unit together. Returns False when none is installed or the restart fails."""
     installed = [account for account in ACCOUNTS if (unit_dir / unit_name(account)).is_file()]
     if not installed:
-        logger.warn("No foothold is installed; run `dotfiles-setup install` on a preset that enables one.")
+        logger.warn("No foothold is installed; run `dotfiles-setup apply` on a preset that enables one.")
         return False
     return _restart_units(logger, installed, unit_dir, run)
 

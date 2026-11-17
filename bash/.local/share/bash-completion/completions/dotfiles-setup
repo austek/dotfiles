@@ -27,7 +27,7 @@ _dotfiles_setup_completions() {
     [[ "$cur" == "=" ]] && cur=""
 
     case "${COMP_WORDS[1]}" in
-        install)
+        apply|install)
             if [[ "$prev" == "--preset" ]]; then
                 COMPREPLY=($(compgen -W "$(_dotfiles_setup_presets)" -- "$cur"))
             elif [[ "$cur" == --preset=* ]]; then
@@ -35,6 +35,9 @@ _dotfiles_setup_completions() {
             else
                 COMPREPLY=($(compgen -W "$(_dotfiles_setup_install_flags)" -- "$cur"))
             fi
+            ;;
+        propose)
+            COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
             ;;
         private)
             if [[ "${COMP_WORDS[2]}" == "clone" ]]; then
@@ -55,7 +58,7 @@ _dotfiles_setup_completions() {
             fi
             ;;
         *)
-            COMPREPLY=($(compgen -W "install private foothold -h --help" -- "$cur"))
+            COMPREPLY=($(compgen -W "apply propose private foothold -h --help" -- "$cur"))
             ;;
     esac
 }

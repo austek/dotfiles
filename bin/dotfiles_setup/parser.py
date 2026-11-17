@@ -29,10 +29,11 @@ class _AddVerbosity(argparse.Action):
 _DRY_RUN_HELP = "Show what would be done without executing commands."
 _EPILOG = (
     "Examples:\n"
-    "  dotfiles-setup install --preset work\n"
-    "  dotfiles-setup install  (reuses the preset saved on this machine)\n"
-    "  dotfiles-setup install --preset personal --dry-run\n"
-    "  dotfiles-setup install --preset homelab -v\n"
+    "  dotfiles-setup apply --preset work\n"
+    "  dotfiles-setup apply  (reuses the preset saved on this machine)\n"
+    "  dotfiles-setup apply --preset personal --dry-run\n"
+    "  dotfiles-setup apply --preset homelab -v\n"
+    "  dotfiles-setup propose  (commit local config changes and open a PR)\n"
     "  dotfiles-setup private clone --repo git@github.com:you/dotfiles-private.git\n"
 )
 _VERBOSITY_FLAGS = (
@@ -92,10 +93,12 @@ def _add_verbosity_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _build_install_parser(sub: Any) -> None:
-    install_p = sub.add_parser("install", help="install packages and dotfiles for a machine profile")
-    _add_install_flags(install_p)
-    _add_verbosity_flags(install_p)
-    install_p.set_defaults(verbosity=0)
+    apply_help = {"help": "make this machine match the repo: install, update and remove packages and config"}
+    for name, extra in {"apply": apply_help, "install": {}}.items():
+        command_p = sub.add_parser(name, **extra)
+        _add_install_flags(command_p)
+        _add_verbosity_flags(command_p)
+        command_p.set_defaults(verbosity=0)
 
 
 def _build_clone_parser(private_sub: Any) -> None:
@@ -144,6 +147,11 @@ def _build_foothold_parser(sub: Any) -> None:
     _build_restart_parser(foothold_sub)
 
 
+def _build_propose_parser(sub: Any) -> None:
+    summary = "commit changes to a branch, push it and open a PR (backup/<timestamp> from main); main checkout only"
+    sub.add_parser("propose", help=summary, description=f"{summary[0].upper()}{summary[1:]}.")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dotfiles-setup",
@@ -153,6 +161,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", metavar="command")
     _build_install_parser(sub)
+    _build_propose_parser(sub)
     _build_private_parser(sub)
     _build_foothold_parser(sub)
     return parser
