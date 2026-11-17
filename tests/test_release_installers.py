@@ -214,6 +214,51 @@ def test_lazydocker_installs_the_extracted_binary(tmp_path):
     assert install[3] == "/usr/local/bin"
 
 
+def test_helm_installs_the_binary_from_the_archives_nested_directory(tmp_path):
+    machine = Machine()
+    t, _ = make(tmp_path, machine, payload=tarball("linux-amd64/helm"))
+    ri.install_release(t, dict(ri.RELEASE_SPECS)["helm"])
+    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
+    assert install[2].endswith("/linux-amd64/helm")
+    assert install[3] == "/usr/local/bin"
+
+
+def test_a_tarball_without_the_binary_installs_nothing_and_says_so(tmp_path, capsys):
+    machine = Machine()
+    t, _ = make(tmp_path, machine, payload=tarball("README"))
+    ri.install_release(t, dict(ri.RELEASE_SPECS)["flux"])
+    captured = capsys.readouterr()
+    assert not machine.ran("sudo", "install")
+    assert "Failed to install flux" in captured.out + captured.err
+
+
+def tarball_of(*members):
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, is_dir in members:
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.DIRTYPE if is_dir else tarfile.REGTYPE
+            info.size = 0 if is_dir else 3
+            archive.addfile(info, None if is_dir else io.BytesIO(b"bin"))
+    return buffer.getvalue()
+
+
+def test_a_directory_named_like_the_binary_is_never_installed(tmp_path):
+    machine = Machine()
+    t, _ = make(tmp_path, machine, payload=tarball_of(("helm", True), ("linux-amd64/helm", False)))
+    ri.install_release(t, dict(ri.RELEASE_SPECS)["helm"])
+    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
+    assert install[2].endswith("/linux-amd64/helm")
+
+
+def test_equally_deep_matches_pick_the_first_path_in_sorted_order(tmp_path):
+    machine = Machine()
+    t, _ = make(tmp_path, machine, payload=tarball_of(("b/helm", False), ("a/helm", False)))
+    ri.install_release(t, dict(ri.RELEASE_SPECS)["helm"])
+    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
+    assert install[2].endswith("/a/helm")
+
+
 def test_lazydocker_install_failure_continues(tmp_path):
     machine = Machine(fail=[("sudo", "install")])
     t, _ = make(tmp_path, machine, payload=tarball("lazydocker"))
@@ -616,7 +661,10 @@ def test_install_tools_with_upgrade_installs_the_pin_over_an_outdated_zoom(tmp_p
 def test_user_stage_tools_never_run_the_sudo_release_installers(tmp_path):
     machine = Machine()
     t, downloads = make(tmp_path, machine, payload=b"\x7fELF")
-    assert tools.install_tools(t, {"chip", "zoom", "istioctl", "awscli", "lazydocker", "zizmor", "mcp-grafana"})
+    assert tools.install_tools(
+        t, {"chip", "zoom", "istioctl", "awscli", "lazydocker", "zizmor", "mcp-grafana", "kubectl", "helm", "flux",
+            "kubeconform", "sops"},
+    )
     assert downloads == []
     assert not machine.ran("sudo")
 
@@ -628,5 +676,6 @@ def test_release_installers_run_after_the_script_installers(tmp_path):
         "antigravity-ide",
     ]
     assert [name for name, _ in tools.SYSTEM_TOOL_INSTALLERS] == [
-        "lazydocker", "zoom", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip",
+        "lazydocker", "zoom", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux",
+        "kubeconform", "sops",
     ]

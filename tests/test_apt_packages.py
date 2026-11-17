@@ -2,10 +2,16 @@ from types import SimpleNamespace
 
 import pytest
 from dotfiles_setup import apt_packages as ap
+from dotfiles_setup import release_installers as ri
 from dotfiles_setup import system_steps as ss
 from dotfiles_setup import tools
 from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
+
+
+@pytest.mark.parametrize("package", sorted(ri.SPEC_DATA))
+def test_every_release_spec_package_is_installed_outside_apt(package):
+    assert not ap.is_apt_package(package)
 
 
 class Machine:

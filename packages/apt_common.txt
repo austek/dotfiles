@@ -12,6 +12,7 @@ gnupg
 htop
 iotop
 jq
+kubectl
 lazydocker
 lm-sensors
 mise

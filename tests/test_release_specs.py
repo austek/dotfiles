@@ -37,6 +37,25 @@ LEGACY = {
         "chip", "0.0.67", "https://github.com/collibra/chip/releases/download/v0.0.67/chip-0.0.67-linux-amd64",
         "chip-0.0.67", "binary",
     ),
+    "kubectl": (
+        "kubectl", "v1.36.6", "https://dl.k8s.io/release/v1.36.6/bin/linux/amd64/kubectl", "kubectl-v1.36.6", "binary",
+    ),
+    "helm": (
+        "helm", "v4.3.2", "https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz", "helm-v4.3.2.tar.gz", "targz",
+    ),
+    "flux": (
+        "flux", "2.10.0", "https://github.com/fluxcd/flux2/releases/download/v2.10.0/flux_2.10.0_linux_amd64.tar.gz",
+        "flux-2.10.0.tar.gz", "targz",
+    ),
+    "kubeconform": (
+        "kubeconform", "v0.8.0",
+        "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz",
+        "kubeconform-v0.8.0.tar.gz", "targz",
+    ),
+    "sops": (
+        "sops", "v3.13.3", "https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64",
+        "sops-v3.13.3", "binary",
+    ),
 }
 GOOD = {
     "package": "tool", "name": "Tool", "version": "1.0", "url": "https://example.com/{version}/tool.tgz",
