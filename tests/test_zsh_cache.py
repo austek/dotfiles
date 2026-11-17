@@ -36,7 +36,7 @@ def test_the_first_run_drops_an_existing_dump_and_remembers_the_completions(tmp_
     t, home = setup(tmp_path)
     completer(home, "_dfctl")
     cache = dump(home)
-    assert zsh_cache.refresh_zsh_completion_cache(t)
+    zsh_cache.refresh_zsh_completion_cache(t)
     assert not cache.exists()
     assert stored(home) == zsh_cache.fingerprint(home)
 
@@ -46,7 +46,7 @@ def test_unchanged_completions_leave_the_dump_alone(tmp_path):
     completer(home, "_dfctl")
     zsh_cache.refresh_zsh_completion_cache(t)
     cache = dump(home)
-    assert zsh_cache.refresh_zsh_completion_cache(t)
+    zsh_cache.refresh_zsh_completion_cache(t)
     assert cache.read_text() == "dump"
 
 
@@ -156,7 +156,7 @@ def test_a_symlinked_dump_is_unlinked_without_touching_its_target(tmp_path):
 def test_a_dangling_completion_link_does_not_break_the_fingerprint(tmp_path):
     t, home = setup(tmp_path)
     (home / COMPLETIONS / "_gone").symlink_to(home / "missing")
-    assert zsh_cache.refresh_zsh_completion_cache(t)
+    zsh_cache.refresh_zsh_completion_cache(t)
     assert len(zsh_cache.fingerprint(home)) == 64
 
 
@@ -164,7 +164,7 @@ def test_missing_completion_directories_are_fine(tmp_path):
     home = tmp_path / "bare"
     home.mkdir()
     t = tools.Tooling(Logger(dry_run=False, verbosity=1), home)
-    assert zsh_cache.refresh_zsh_completion_cache(t)
+    zsh_cache.refresh_zsh_completion_cache(t)
     assert stored(home) == zsh_cache.fingerprint(home)
 
 
@@ -172,7 +172,7 @@ def test_a_dry_run_changes_nothing(tmp_path):
     t, home = setup(tmp_path, dry_run=True)
     completer(home, "_dfctl")
     cache = dump(home)
-    assert zsh_cache.refresh_zsh_completion_cache(t)
+    zsh_cache.refresh_zsh_completion_cache(t)
     assert cache.exists()
     assert not (home / STORE).exists()
 
@@ -195,7 +195,7 @@ def test_a_dump_that_cannot_be_removed_warns_and_is_retried_next_run(tmp_path, m
         raise PermissionError("denied")
 
     monkeypatch.setattr(Path, "unlink", refuse)
-    assert zsh_cache.refresh_zsh_completion_cache(t)
+    zsh_cache.refresh_zsh_completion_cache(t)
     assert "delete ~/.zcompdump* by hand" in capsys.readouterr().out
     assert not (home / STORE).exists()
     monkeypatch.undo()
@@ -209,9 +209,54 @@ def test_a_fingerprint_that_cannot_be_recorded_warns_instead_of_failing_the_inst
     cache = dump(home)
     (home / ".local/state").mkdir(parents=True)
     (home / ".local/state/dotfiles").write_text("a file where the directory should be")
-    assert zsh_cache.refresh_zsh_completion_cache(t)
+    zsh_cache.refresh_zsh_completion_cache(t)
     assert "Could not record the zsh completion fingerprint" in capsys.readouterr().out
     assert not cache.exists()
+
+
+def test_a_fingerprint_file_with_invalid_bytes_counts_as_no_record(tmp_path):
+    t, home = setup(tmp_path)
+    completer(home, "_dfctl")
+    cache = dump(home)
+    store = home / STORE
+    store.parent.mkdir(parents=True)
+    store.write_bytes(b"\xff\xfe\x00")
+    zsh_cache.refresh_zsh_completion_cache(t)
+    assert not cache.exists()
+    assert stored(home) == zsh_cache.fingerprint(home)
+
+
+def test_a_dump_symlink_is_removed_without_following_it(tmp_path, monkeypatch):
+    t, home = setup(tmp_path)
+    link = home / ".zcompdump"
+    link.symlink_to(tmp_path / "unreachable" / "dump")
+
+    def refuse(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "is_dir", refuse)
+    zsh_cache.refresh_zsh_completion_cache(t)
+    assert not link.is_symlink()
+
+
+def test_a_failing_directory_check_on_a_dump_warns_instead_of_raising(tmp_path, monkeypatch, capsys):
+    t, home = setup(tmp_path)
+    completer(home, "_dfctl")
+    cache = dump(home)
+
+    def refuse(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "is_dir", refuse)
+    zsh_cache.refresh_zsh_completion_cache(t)
+    assert cache.exists()
+    assert "delete ~/.zcompdump* by hand" in capsys.readouterr().out
+    assert not (home / STORE).exists()
+
+
+def test_the_step_returns_nothing_so_it_can_never_stop_the_install(tmp_path):
+    t, _ = setup(tmp_path)
+    assert zsh_cache.refresh_zsh_completion_cache(t) is None
 
 
 def test_nothing_is_claimed_removed_when_there_was_no_dump(tmp_path, capsys):

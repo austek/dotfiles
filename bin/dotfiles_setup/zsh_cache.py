@@ -36,7 +36,7 @@ def fingerprint(home: Path) -> str:
 def _remembered(store: Path) -> str:
     try:
         return store.read_text().strip()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return ""
 
 
@@ -44,9 +44,9 @@ def _remove_dumps(t: Tooling) -> int | None:
     """Returns how many dump files it removed, or None after a failure."""
     removed = 0
     for path in sorted(t.home.glob(DUMP_GLOB)):
-        if path.is_dir() and not path.is_symlink():
-            continue
         try:
+            if not path.is_symlink() and path.is_dir():
+                continue
             path.unlink()
         except OSError as error:
             t.logger.warn(f"Could not remove {path} ({error}); delete ~/.zcompdump* by hand so new completions load.")
@@ -65,15 +65,12 @@ def _remember(t: Tooling, store: Path, current: str) -> bool:
     return True
 
 
-def refresh_zsh_completion_cache(t: Tooling) -> bool:
+def refresh_zsh_completion_cache(t: Tooling) -> None:
     """Removes ~/.zcompdump* on the first run and once per change to the completers. It never fails the install: a problem only warns."""
     store = t.home / FINGERPRINT_FILE
     current = fingerprint(t.home)
-    if _remembered(store) == current:
-        return True
-    if dry_run_all(t, "Would remove ~/.zcompdump* so zsh rebuilds its completion cache"):
-        return True
+    if _remembered(store) == current or dry_run_all(t, "Would remove ~/.zcompdump* so zsh rebuilds its completion cache"):
+        return
     removed = _remove_dumps(t)
     if removed is not None and _remember(t, store, current) and removed:
         t.logger.info("Removed zsh's completion cache; open a new shell to load the new completions.")
-    return True
