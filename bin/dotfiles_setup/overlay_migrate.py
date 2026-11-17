@@ -3,13 +3,20 @@ from __future__ import annotations
 
 import os
 import re
+from enum import Enum
 from pathlib import Path
 
 from dotfiles_setup import overlay, stow, worktree
 from dotfiles_setup.rollback import RollbackLog
-from dotfiles_setup.tooling import Tooling, dry_run_all
+from dotfiles_setup.tooling import COMMAND_NOT_FOUND, Tooling, dry_run_all
 
 _PACKAGE_FILE = re.compile(r"^\.stow-packages(\.[A-Za-z0-9_-]+)?$")
+
+
+class Relocation(Enum):
+    MOVED = "moved"
+    DEFERRED = "deferred"
+    FAILED = "failed"
 
 
 def _overridden(t: Tooling) -> bool:
@@ -29,9 +36,10 @@ def _stow_packages(root: Path) -> list[str]:
     return sorted(name for name in names if Path(name).name == name and (root / name).is_dir())
 
 
-def _unstow(t: Tooling, root: Path, packages: list[str]) -> bool:
+def _unstow(t: Tooling, root: Path, packages: list[str]) -> int:
+    """Returns stow's exit status, 0 when there is nothing to unstow."""
     argv = ["stow", "--delete", f"--target={t.home}", stow.VERBOSE_FLAG, *packages]
-    return not packages or t.logger.quiet_run(argv, run=t.run, cwd=root).returncode == 0
+    return t.logger.quiet_run(argv, run=t.run, cwd=root).returncode if packages else 0
 
 
 def _restow(t: Tooling, root: Path, packages: list[str]) -> None:
@@ -70,18 +78,25 @@ def _move(t: Tooling, src: Path, dst: Path, packages: list[str]) -> bool:
     return True
 
 
-def relocate(t: Tooling, src: Path, dst: Path) -> bool:
-    """Unstows src, renames it to dst, repairs its linked worktrees, repoints ~/.gitconfig.local and restows from dst."""
+def relocate(t: Tooling, src: Path, dst: Path) -> Relocation:
+    """Unstows src, renames it to dst, repairs its linked worktrees, repoints ~/.gitconfig.local and restows from dst.
+
+    Without stow installed nothing moves (DEFERRED): src keeps working and a later run does the move.
+    """
     packages = _stow_packages(src)
-    if not _unstow(t, src, packages):
+    status = _unstow(t, src, packages)
+    if status == COMMAND_NOT_FOUND:
+        t.logger.warn(f"stow is not installed yet; {src} stays where it is and a later dfctl apply moves it to {dst}.")
+        return Relocation.DEFERRED
+    if status != 0:
         t.logger.error(f"Could not unstow {src}; leaving it in place. Fix the conflict above and re-run.")
-        return False
+        return Relocation.FAILED
     if not _move(t, src, dst, packages):
-        return False
+        return Relocation.FAILED
     _repair_worktrees(t, dst)
     _repoint_gitconfig_local(t, src, dst)
     _restow(t, dst, packages)
-    return True
+    return Relocation.MOVED
 
 
 def _release_leftover(t: Tooling, legacy: Path, new: Path) -> None:
@@ -89,7 +104,7 @@ def _release_leftover(t: Tooling, legacy: Path, new: Path) -> None:
     t.logger.warn(f"Both {legacy} and {new} exist; using {new}. Move what you still need out of {legacy} and remove it.")
     if dry_run_all(t, f"Would unstow the links that still point into {legacy}"):
         return
-    if not _unstow(t, legacy, _stow_packages(legacy)):
+    if _unstow(t, legacy, _stow_packages(legacy)) != 0:
         t.logger.warn(f"Could not unstow {legacy}; apply may report stow conflicts until its links are removed.")
 
 
@@ -112,8 +127,11 @@ def migrate_legacy_overlay(t: Tooling, changes: RollbackLog) -> bool:
         return _refuse_worktree(t, legacy, new)
     if dry_run_all(t, f"Would unstow the packages of {legacy}, move it to {new} and restow them"):
         return True
-    if not relocate(t, legacy, new):
-        return False
+    match relocate(t, legacy, new):
+        case Relocation.FAILED:
+            return False
+        case Relocation.DEFERRED:
+            return True
     changes.track(f"OVERLAY_MOVED:{legacy}|{new}", dry_run=False)
     t.logger.success(f"Moved {legacy} to {new} and relinked its packages.")
     return True

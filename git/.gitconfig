@@ -31,16 +31,16 @@
     gpgSign = true
 
 [includeIf "hasconfig:remote.*.url:https://github.com/collibra/**"]
-    path = ~/.dotfiles-overlay/git/gitconfig-work
     path = ~/.dotfiles-private/git/gitconfig-work
+    path = ~/.dotfiles-overlay/git/gitconfig-work
 
 [includeIf "hasconfig:remote.*.url:git@github.com:collibra/**"]
-    path = ~/.dotfiles-overlay/git/gitconfig-work
     path = ~/.dotfiles-private/git/gitconfig-work
+    path = ~/.dotfiles-overlay/git/gitconfig-work
 
 [includeIf "hasconfig:remote.*.url:ssh://git@github.com/collibra/**"]
-    path = ~/.dotfiles-overlay/git/gitconfig-work
     path = ~/.dotfiles-private/git/gitconfig-work
+    path = ~/.dotfiles-overlay/git/gitconfig-work
 
 [credential "https://github.com"]
 	helper =

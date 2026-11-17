@@ -130,6 +130,30 @@ def test_a_failed_unstow_moves_nothing(env, capsys):
     assert "boom" in capsys.readouterr().err
 
 
+def test_a_missing_stow_defers_the_move_and_lets_the_install_continue(env, capsys):
+    home, legacy, new = env
+    make_overlay(legacy)
+    recorder = Recorder(returncodes=[127])
+    ok, log = run_migration(home, recorder)
+    assert ok
+    assert len(recorder.stow_calls()) == 1
+    assert legacy.is_dir()
+    assert not new.exists()
+    assert log.entries() == []
+    assert "stow is not installed" in capsys.readouterr().out
+
+
+def test_the_deferred_move_happens_on_a_later_run_once_stow_exists(env):
+    home, legacy, new = env
+    make_overlay(legacy)
+    run_migration(home, Recorder(returncodes=[127]))
+    ok, log = run_migration(home, Recorder())
+    assert ok
+    assert new.is_dir()
+    assert not legacy.exists()
+    assert log.entries() == [f"OVERLAY_MOVED:{legacy}|{new}"]
+
+
 def test_a_failed_move_restows_the_overlay_from_where_it_was(env, monkeypatch):
     home, legacy, new = env
     make_overlay(legacy)
@@ -350,6 +374,17 @@ def test_rolling_back_leaves_things_alone_when_the_old_place_is_taken(env, capsy
     rollback._undo(ctx, f"OVERLAY_MOVED:{legacy}|{new}")
     assert legacy.is_dir()
     assert new.is_dir()
+    assert f"Failed to move {new} back to {legacy}" in capsys.readouterr().out
+
+
+def test_a_rollback_without_stow_leaves_the_overlay_where_it_is(env, capsys):
+    home, legacy, new = env
+    make_overlay(new)
+    t = tools.Tooling(Logger(dry_run=False, verbosity=1), home, run=Recorder(returncodes=[127]))
+    ctx = rollback.RollbackContext(t, RollbackLog(home / "rollback.log"), home / "dotfiles", new)
+    rollback._undo(ctx, f"OVERLAY_MOVED:{legacy}|{new}")
+    assert new.is_dir()
+    assert not legacy.exists()
     assert f"Failed to move {new} back to {legacy}" in capsys.readouterr().out
 
 

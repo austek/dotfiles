@@ -134,7 +134,7 @@ def _overlay_moved(ctx: RollbackContext, data: str) -> None:
         ctx.t.logger.warn(f"Failed to move {new} back to {old}")
         return
     ctx.t.logger.info(f"Moving the overlay back: {new} to {old}")
-    if not overlay_migrate.relocate(ctx.t, new, old):
+    if overlay_migrate.relocate(ctx.t, new, old) is not overlay_migrate.Relocation.MOVED:
         ctx.t.logger.warn(f"Failed to move {new} back to {old}")
 
 

@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cli_support import _add_preset, fail_flow
@@ -104,6 +105,21 @@ def test_apply_stops_when_the_legacy_overlay_cannot_be_moved(isolated_dotfiles, 
     assert flow_calls == []
     assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
     assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
+
+
+def test_apply_continues_with_the_legacy_overlay_while_stow_is_not_installed(isolated_dotfiles, flow_calls, monkeypatch):
+    _find_by_constants(monkeypatch)
+    overlay.LEGACY_OVERLAY_ROOT.mkdir()
+    (overlay.LEGACY_OVERLAY_ROOT / ".stow-packages").write_text("zsh\n")
+    (overlay.LEGACY_OVERLAY_ROOT / "zsh").mkdir()
+
+    def run(argv, **kwargs):
+        return SimpleNamespace(returncode=127 if argv[0] == "stow" else 0, stdout="", stderr="")
+
+    assert main(["apply", "--preset", "homelab"], Env(run=run)) == 0
+    assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
+    assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
+    assert flow_calls[0].overlay_root == overlay.LEGACY_OVERLAY_ROOT
 
 
 def test_apply_moves_nothing_when_no_preset_can_be_resolved(isolated_dotfiles, flow_calls, monkeypatch):
