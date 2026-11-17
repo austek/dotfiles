@@ -290,7 +290,7 @@ def test_claude_labels_telemetry_with_the_account(tmp_path, flags, account):
     for extra in {"work2", "burst"} & {account}:
         _account_dir(tmp_path, extra)
     _run(tmp_path, f"claude {flags}")
-    assert f"otel=1 res=account={account},host=homelab,project=" in _log(tmp_path)[1]
+    assert f"otel=1 res=account={account},host=homelab,machine=" in _log(tmp_path)[1]
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")

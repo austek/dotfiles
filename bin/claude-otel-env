@@ -1,0 +1,52 @@
+#!/bin/sh
+# Prints the Claude Code OTel env (one KEY=value per line) for an account; prints nothing on a work machine, for an account with telemetry off, an unreadable manifest, no saved preset or without jq. Always exits 0 so a launcher never fails on telemetry.
+# The account's manifest can rename the account label (otel_account) and add labels.
+# Usage: claude-otel-env [account]   (default: main)
+
+account=${1:-main}
+case $account in */* | .*) exit 0 ;; esac
+command -v jq >/dev/null 2>&1 || exit 0
+
+config=${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles
+state=$config/state.json
+manifest=$config/claude-accounts/$account.json
+[ -r "$state" ] || exit 0
+
+sanitise() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' _; }
+
+preset=$(jq -r '.preset_name // empty' "$state" 2>/dev/null)
+case $preset in '' | work) exit 0 ;; esac
+
+label=
+labels=
+if [ -e "$manifest" ]; then
+    jq -e 'type == "object"' "$manifest" >/dev/null 2>&1 || exit 0
+    [ -z "$(jq -r 'select(.telemetry == false) | "off"' "$manifest" 2>/dev/null)" ] || exit 0
+    label=$(jq -r '.otel_account // empty' "$manifest" 2>/dev/null)
+    labels=$(jq -r 'def clean: tostring | gsub("[^A-Za-z0-9._-]"; "_"); (.labels // {}) | to_entries[] | "\(.key | clean)=\(.value | clean)"' "$manifest" 2>/dev/null)
+fi
+
+root=$(git rev-parse --show-toplevel 2>/dev/null)
+name=$(basename "${root:-$PWD}")
+[ "$name" != / ] || name=
+project=$(sanitise "$name")
+
+attrs="account=$(sanitise "${label:-$account}"),host=$(sanitise "$preset")"
+# shellcheck disable=SC3028
+attrs="$attrs,machine=$(sanitise "${HOSTNAME:-$(uname -n)}"),project=${project:-unknown}"
+while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    attrs="$attrs,$(sanitise "${pair%%=*}")=$(sanitise "${pair#*=}")"
+done <<EOF
+$labels
+EOF
+
+printf '%s\n' \
+    CLAUDE_CODE_ENABLE_TELEMETRY=1 \
+    OTEL_METRICS_EXPORTER=otlp \
+    OTEL_LOGS_EXPORTER=otlp \
+    OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+    OTEL_METRIC_EXPORT_INTERVAL=10000 \
+    "OTEL_EXPORTER_OTLP_ENDPOINT=${CLAUDE_OTEL_ENDPOINT:-http://192.168.50.2:4318}" \
+    "OTEL_RESOURCE_ATTRIBUTES=$attrs"
+exit 0

@@ -23,6 +23,6 @@ fi
 
 if [ "${2:-}" = burst ]; then
     burst_dir=$("$bin_dir/claude-burst-link")
-    exec "$bin_dir/claude-env-load" "$bin_dir/claude-pane-loop" env CLAUDE_CONFIG_DIR="$burst_dir" claude --remote-control "$1"
+    exec env CLAUDE_OTEL_ACCOUNT=burst "$bin_dir/claude-env-load" "$bin_dir/claude-pane-loop" env CLAUDE_CONFIG_DIR="$burst_dir" claude --remote-control "$1"
 fi
-exec "$bin_dir/claude-env-load" "$bin_dir/claude-pane-loop" claude --remote-control "$1"
+exec env CLAUDE_OTEL_ACCOUNT=main "$bin_dir/claude-env-load" "$bin_dir/claude-pane-loop" claude --remote-control "$1"

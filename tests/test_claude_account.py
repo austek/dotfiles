@@ -207,7 +207,7 @@ def test_telemetry_off_sends_nothing_and_labels_are_added(tmp_path):
     quiet, loud = _log(tmp_path)
     assert "res=unset on=unset" in quiet
     assert "on=1" in loud
-    assert "res=account=dash,host=homelab,project=" in loud
+    assert "res=account=dash,host=homelab,machine=" in loud
     assert ",team=data" in loud
 
 
@@ -273,7 +273,7 @@ def test_hand_edited_labels_are_sanitised_in_the_telemetry_env(tmp_path):
     attrs = resources.split("=", 1)[1].split(",")
     assert attrs[0] == "account=a_b_c_d"
     assert attrs[-1] == "k_k=v_v_1"
-    assert len(attrs) == 4
+    assert len(attrs) == 5
 
 
 def test_a_failed_update_leaves_no_temp_files(tmp_path):

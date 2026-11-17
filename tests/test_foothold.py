@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -199,9 +200,16 @@ def test_restart_reports_failure_when_systemctl_fails(tmp_path, capsys):
     assert "no bus" in capsys.readouterr().out
 
 
-def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o600):
+def _jq_dir():
+    found = shutil.which("jq")
+    return str(Path(found).parent) if found else "/usr/bin"
+
+
+def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o600, preset=None):
     home = tmp_path / "home"
     (home / ".config/dotfiles").mkdir(parents=True)
+    if preset is not None:
+        (home / ".config/dotfiles/state.json").write_text(f'{{"preset_name": "{preset}"}}')
     if secrets is not None:
         secrets_file = home / ".config/dotfiles/secrets.env"
         secrets_file.write_text(secrets)
@@ -214,7 +222,7 @@ def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o60
     launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
     result = subprocess.run(
         [str(launcher), *args],
-        env={"HOME": str(home), "PATH": f"{fake_bin}:/usr/bin:/bin"},
+        env={"HOME": str(home), "PATH": f"{fake_bin}:{_jq_dir()}:/usr/bin:/bin"},
         capture_output=True, text=True, check=True, cwd=tmp_path,
     )
     return result.stdout.strip()
@@ -223,6 +231,26 @@ def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o60
 def test_launcher_exports_secrets_to_claude(tmp_path):
     out = _run_launcher(tmp_path, 'echo "$FOO|$1|$2|$3"', ["foothold-x"], secrets="FOO='bar baz'\n")
     assert out == "bar baz|--remote-control|foothold-x|"
+
+
+SHOW_OTEL = 'echo "${CLAUDE_OTEL_ACCOUNT-unset}|$OTEL_RESOURCE_ATTRIBUTES"'
+
+
+needs_jq = pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+
+
+@needs_jq
+def test_launcher_labels_the_otel_account_main(tmp_path):
+    out = _run_launcher(tmp_path, SHOW_OTEL, ["n"], preset="personal")
+    account, attrs = out.splitlines()[-1].split("|")
+    assert account == "unset"
+    assert "account=main" in attrs.split(",")
+
+
+@needs_jq
+def test_launcher_labels_the_otel_account_burst(tmp_path):
+    out = _run_launcher(tmp_path, SHOW_OTEL, ["n", "burst"], preset="personal")
+    assert "account=burst" in out.splitlines()[-1].split("|")[1].split(",")
 
 
 def test_rule029_launcher_ignores_group_readable_secrets(tmp_path):
