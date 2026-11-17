@@ -102,21 +102,24 @@ def test_apply_stops_when_the_legacy_overlay_cannot_be_moved(isolated_dotfiles, 
     (overlay.LEGACY_OVERLAY_ROOT / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
     assert main(["apply", "--preset", "homelab"]) == 1
     assert flow_calls == []
-    assert overlay.LEGACY_OVERLAY_ROOT.is_dir() and not overlay.DEFAULT_OVERLAY_ROOT.exists()
+    assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
+    assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
 
 
 def test_apply_moves_nothing_when_no_preset_can_be_resolved(isolated_dotfiles, flow_calls, monkeypatch):
     _find_by_constants(monkeypatch)
     overlay.LEGACY_OVERLAY_ROOT.mkdir()
     assert main(["apply"]) == 2
-    assert overlay.LEGACY_OVERLAY_ROOT.is_dir() and not overlay.DEFAULT_OVERLAY_ROOT.exists()
+    assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
+    assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
 
 
 def test_a_dry_run_leaves_the_legacy_overlay_where_it_is(isolated_dotfiles, flow_calls, monkeypatch):
     _find_by_constants(monkeypatch)
     overlay.LEGACY_OVERLAY_ROOT.mkdir()
     assert main(["apply", "--preset", "homelab", "--dry-run"]) == 0
-    assert overlay.LEGACY_OVERLAY_ROOT.is_dir() and not overlay.DEFAULT_OVERLAY_ROOT.exists()
+    assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
+    assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
     assert flow_calls[0].overlay_root == overlay.LEGACY_OVERLAY_ROOT
 
 

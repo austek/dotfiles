@@ -124,7 +124,8 @@ def test_a_failed_unstow_moves_nothing(env, capsys):
     make_overlay(legacy)
     ok, log = run_migration(home, Recorder(returncodes=[1]))
     assert not ok
-    assert legacy.is_dir() and not new.exists()
+    assert legacy.is_dir()
+    assert not new.exists()
     assert log.entries() == []
     assert "boom" in capsys.readouterr().err
 
@@ -143,7 +144,8 @@ def test_a_failed_move_restows_the_overlay_from_where_it_was(env, monkeypatch):
     _delete, restow = recorder.stow_calls()
     assert restow[0][:3] == ["stow", "--restow", "--no-folding"]
     assert restow[1] == legacy
-    assert legacy.is_dir() and not new.exists()
+    assert legacy.is_dir()
+    assert not new.exists()
     assert log.entries() == []
 
 
@@ -165,7 +167,8 @@ def test_both_locations_present_unstows_the_old_links_and_keeps_both_directories
     ok, log = run_migration(home, recorder)
     (delete,) = recorder.stow_calls()
     assert (ok, delete[0][:2], delete[1], log.entries()) == (True, ["stow", "--delete"], legacy, [])
-    assert legacy.is_dir() and new.is_dir()
+    assert legacy.is_dir()
+    assert new.is_dir()
     assert "both" in capsys.readouterr().out.lower()
 
 
@@ -194,7 +197,8 @@ def test_the_legacy_variable_is_reported_as_deprecated(env, monkeypatch, capsys)
     monkeypatch.setenv("DOTFILES_PRIVATE_ROOT", str(legacy))
     run_migration(home, Recorder())
     out = capsys.readouterr().out
-    assert "DOTFILES_PRIVATE_ROOT" in out and "DOTFILES_OVERLAY_ROOT" in out
+    assert "DOTFILES_PRIVATE_ROOT" in out
+    assert "DOTFILES_OVERLAY_ROOT" in out
 
 
 def test_the_new_variable_alone_is_not_reported(env, monkeypatch, capsys):
@@ -274,7 +278,8 @@ def test_a_failed_worktree_repair_warns_and_the_move_stands(env, capsys):
     make_overlay(legacy)
     (legacy / ".git").mkdir()
     ok, _ = run_migration(home, Recorder(returncodes=[0, 1]))
-    assert ok and new.is_dir()
+    assert ok
+    assert new.is_dir()
     assert f"git -C {new} worktree repair" in capsys.readouterr().out
 
 
@@ -343,7 +348,8 @@ def test_rolling_back_leaves_things_alone_when_the_old_place_is_taken(env, capsy
     t = tools.Tooling(Logger(dry_run=False, verbosity=1), home, run=Recorder())
     ctx = rollback.RollbackContext(t, RollbackLog(home / "rollback.log"), home / "dotfiles", new)
     rollback._undo(ctx, f"OVERLAY_MOVED:{legacy}|{new}")
-    assert legacy.is_dir() and new.is_dir()
+    assert legacy.is_dir()
+    assert new.is_dir()
     assert f"Failed to move {new} back to {legacy}" in capsys.readouterr().out
 
 
@@ -353,5 +359,6 @@ def test_a_rollback_that_cannot_unstow_leaves_the_overlay_where_it_is(env, capsy
     t = tools.Tooling(Logger(dry_run=False, verbosity=1), home, run=Recorder(returncodes=[1]))
     ctx = rollback.RollbackContext(t, RollbackLog(home / "rollback.log"), home / "dotfiles", new)
     rollback._undo(ctx, f"OVERLAY_MOVED:{legacy}|{new}")
-    assert new.is_dir() and not legacy.exists()
+    assert new.is_dir()
+    assert not legacy.exists()
     assert f"Failed to move {new} back to {legacy}" in capsys.readouterr().out

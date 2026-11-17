@@ -49,13 +49,15 @@ def _migrate(home: Path) -> bool:
 def test_the_migration_leaves_every_link_working_from_the_new_path(stowed_overlay):
     home, legacy, new = stowed_overlay
     link = home / ".config/zsh/claude-with.d/chip.zsh"
-    assert link.is_symlink() and ".dotfiles-private" in os.readlink(link)
+    assert link.is_symlink()
+    assert ".dotfiles-private" in os.readlink(link)
 
     assert _migrate(home)
 
     assert not legacy.exists()
     assert link.read_text() == "chip"
-    assert ".dotfiles-overlay" in os.readlink(link) and ".dotfiles-private" not in os.readlink(link)
+    assert ".dotfiles-overlay" in os.readlink(link)
+    assert ".dotfiles-private" not in os.readlink(link)
     assert (home / ".claude/CLAUDE.md").resolve() == (new / "claude/.claude/CLAUDE.md").resolve()
 
 
