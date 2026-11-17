@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-FUNCTIONS = Path(__file__).resolve().parent.parent / "zsh" / ".config" / "zsh" / "functions"
+ROOT = Path(__file__).resolve().parent.parent
+BIN = ROOT / "bin"
+FUNCTIONS = ROOT / "zsh" / ".config" / "zsh" / "functions"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("zsh") is None or shutil.which("jq") is None, reason="zsh or jq not installed"
-)
+pytestmark = pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
 
 FIXED = {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
@@ -34,11 +34,9 @@ def _home(tmp_path: Path, state: dict | None = None) -> Path:
 def _run(
     home: Path, script: str, cwd: Path, extra: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess:
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), **(extra or {})}
-    quoted = shlex.quote(str(FUNCTIONS))
-    setup = f"fpath=({quoted} $fpath); autoload -Uz {quoted}/*(:t)\n"
+    env = {"PATH": f"{BIN}:{os.environ['PATH']}", "HOME": str(home), **(extra or {})}
     return subprocess.run(
-        ["zsh", "-f", "-c", setup + script],
+        ["sh", "-c", script],
         capture_output=True,
         text=True,
         env=env,
@@ -151,3 +149,51 @@ def test_project_is_unknown_for_empty_name(tmp_path):
         line.split("=", 1) for line in result.stdout.splitlines()
     )
     assert _attrs(attrs)["project"] == "unknown"
+
+
+def test_machine_label_is_the_sanitised_hostname(tmp_path):
+    home = _home(tmp_path, {"preset_name": "homelab"})
+    attrs = _attrs(_otel(home, tmp_path, extra={"HOSTNAME": "my box:1"}))
+    assert attrs["machine"] == "my_box_1"
+
+
+def test_machine_falls_back_to_uname_when_hostname_is_unset(tmp_path):
+    home = _home(tmp_path, {"preset_name": "homelab"})
+    expected = "".join(c if c.isalnum() or c in "._-" else "_" for c in os.uname().nodename)
+    assert _attrs(_otel(home, tmp_path))["machine"] == expected
+
+
+def test_without_jq_prints_nothing(tmp_path):
+    home = _home(tmp_path, {"preset_name": "homelab"})
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    for name in ("sh", "uname", "git", "basename", "tr", "cat", "dirname"):
+        found = shutil.which(name)
+        if found:
+            (tools / name).symlink_to(found)
+    env = {"PATH": str(tools), "HOME": str(home)}
+    result = subprocess.run(
+        ["/bin/sh", str(BIN / "claude-otel-env"), "main"],
+        capture_output=True, text=True, env=env, cwd=tmp_path, check=False,
+    )
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_invalid_manifest_prints_nothing_and_stays_quiet(tmp_path):
+    home = _home(tmp_path, {"preset_name": "homelab"})
+    accounts = home / ".config" / "dotfiles" / "claude-accounts"
+    accounts.mkdir()
+    (accounts / "main.json").write_text("[1]")
+    result = _run(home, "claude-otel-env main", tmp_path)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_manifest_label_and_telemetry_off(tmp_path):
+    home = _home(tmp_path, {"preset_name": "homelab"})
+    accounts = home / ".config" / "dotfiles" / "claude-accounts"
+    accounts.mkdir()
+    (accounts / "a.json").write_text('{"otel_account": "x y", "labels": {"team": "t 1"}}')
+    (accounts / "off.json").write_text('{"telemetry": false}')
+    attrs = _attrs(_otel(home, tmp_path, "a"))
+    assert (attrs["account"], attrs["team"]) == ("x_y", "t_1")
+    assert _run(home, "claude-otel-env off", tmp_path).stdout == ""
