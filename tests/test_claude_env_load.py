@@ -103,6 +103,15 @@ def test_claude_otel_endpoint_in_secrets_env_reaches_the_script(tmp_path):
 
 
 @needs_jq
+def test_exports_otel_env_when_the_loader_is_found_through_path(tmp_path):
+    result = _run(
+        tmp_path, SHOW, preset="personal", loader="claude-env-load",
+        extra={"CLAUDE_OTEL_ACCOUNT": "main", "PATH": f"{LOADER.parent}:/usr/bin:/bin"},
+    )
+    assert result.stdout.strip().split("|")[0] == "1"
+
+
+@needs_jq
 def test_the_otel_account_variable_does_not_reach_the_command(tmp_path):
     result = _run(
         tmp_path, ["sh", "-c", 'echo "[${CLAUDE_OTEL_ACCOUNT-unset}]"'],

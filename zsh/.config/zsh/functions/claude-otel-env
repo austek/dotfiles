@@ -1,5 +1,5 @@
 # Prints the Claude Code OTel env (one KEY=value per line) for an account; the logic lives in bin/claude-otel-env so launchers without zsh share it.
-# Usage: claude-otel-env <account>
+# Needs bin/ on PATH. Usage: claude-otel-env [account]
 claude-otel-env() {
   command claude-otel-env "$@"
 }

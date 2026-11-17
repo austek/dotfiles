@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prints the Claude Code OTel env (one KEY=value per line) for an account; prints nothing on a work machine, for an account with telemetry off, an unreadable manifest, an unknown preset or without jq. Always exits 0 so a launcher never fails on telemetry.
+# Prints the Claude Code OTel env (one KEY=value per line) for an account; prints nothing on a work machine, for an account with telemetry off, an unreadable manifest, no saved preset or without jq. Always exits 0 so a launcher never fails on telemetry.
 # The account's manifest can rename the account label (otel_account) and add labels.
 # Usage: claude-otel-env [account]   (default: main)
 

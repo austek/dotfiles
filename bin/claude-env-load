@@ -57,7 +57,7 @@ if [ -r "$_cel_file" ] && [ -z "$_cel_reason" ]; then
     done < "$_cel_file"
 fi
 
-# Runs after secrets.env so claude-otel-env sees CLAUDE_OTEL_ENDPOINT, and a variable secrets.env already set wins.
+# Runs after secrets.env so claude-otel-env sees CLAUDE_OTEL_ENDPOINT; a variable already set here, by secrets.env or inherited, wins.
 case $0 in */*) _cel_dir=${0%/*} ;; *) _cel_dir=. ;; esac
 if [ -n "${CLAUDE_OTEL_ACCOUNT:-}" ] && [ -x "$_cel_dir/claude-otel-env" ]; then
     _cel_otel=$("$_cel_dir/claude-otel-env" "$CLAUDE_OTEL_ACCOUNT" 2>/dev/null) || _cel_otel=
@@ -71,6 +71,7 @@ if [ -n "${CLAUDE_OTEL_ACCOUNT:-}" ] && [ -x "$_cel_dir/claude-otel-env" ]; then
 $_cel_otel
 EOF
 fi
+# Keeps this launcher's account label from leaking to nested launchers that would then mislabel their own session.
 unset CLAUDE_OTEL_ACCOUNT
 
 # Hooks run `node`, which nvm installs under a versioned directory the unit's PATH cannot name.
