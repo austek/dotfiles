@@ -88,7 +88,27 @@ def test_secrets_env_overrides_the_otel_endpoint(tmp_path):
         tmp_path, SHOW, secrets="OTEL_EXPORTER_OTLP_ENDPOINT=http://x:1\n",
         preset="personal", extra={"CLAUDE_OTEL_ACCOUNT": "main"},
     )
-    assert result.stdout.strip().split("|")[2] == "http://x:1"
+    enabled, _, endpoint = result.stdout.strip().split("|")
+    assert (enabled, endpoint) == ("1", "http://x:1")
+
+
+@needs_jq
+def test_claude_otel_endpoint_in_secrets_env_reaches_the_script(tmp_path):
+    result = _run(
+        tmp_path, SHOW, secrets="CLAUDE_OTEL_ENDPOINT=http://mine:9\n",
+        preset="personal", extra={"CLAUDE_OTEL_ACCOUNT": "main"},
+    )
+    enabled, _, endpoint = result.stdout.strip().split("|")
+    assert (enabled, endpoint) == ("1", "http://mine:9")
+
+
+@needs_jq
+def test_the_otel_account_variable_does_not_reach_the_command(tmp_path):
+    result = _run(
+        tmp_path, ["sh", "-c", 'echo "[${CLAUDE_OTEL_ACCOUNT-unset}]"'],
+        preset="personal", extra={"CLAUDE_OTEL_ACCOUNT": "main"},
+    )
+    assert result.stdout.strip() == "[unset]"
 
 
 def test_missing_otel_script_does_not_block_the_command(tmp_path):
