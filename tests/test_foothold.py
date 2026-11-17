@@ -225,6 +225,16 @@ def test_launcher_exports_secrets_to_claude(tmp_path):
     assert out == "bar baz|--remote-control|foothold-x|"
 
 
+def test_launcher_sets_the_otel_account_to_main(tmp_path):
+    out = _run_launcher(tmp_path, 'echo "$CLAUDE_OTEL_ACCOUNT"', ["n"])
+    assert out == "main"
+
+
+def test_launcher_sets_the_otel_account_to_burst(tmp_path):
+    out = _run_launcher(tmp_path, 'echo "$CLAUDE_OTEL_ACCOUNT"', ["n", "burst"])
+    assert out.splitlines()[-1] == "burst"
+
+
 def test_rule029_launcher_ignores_group_readable_secrets(tmp_path):
     out = _run_launcher(tmp_path, 'echo "[$FOO]"', ["n"], secrets="FOO=leak\n", secrets_mode=0o644)
     assert out == "[]"
