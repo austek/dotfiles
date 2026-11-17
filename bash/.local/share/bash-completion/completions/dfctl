@@ -1,4 +1,4 @@
-_dotfiles_setup_presets() {
+_dfctl_presets() {
     local file names=""
     for file in "$HOME"/.dotfiles/presets/*.json; do
         [[ -e "$file" ]] && names+="$(basename "$file" .json) "
@@ -6,7 +6,7 @@ _dotfiles_setup_presets() {
     echo "${names:-work personal homelab}"
 }
 
-_dotfiles_setup_install_flags() {
+_dfctl_install_flags() {
     local flags="--preset --dry-run -v --verbose -vv -vvv --reconfigure --force --accept-drift --upgrade --prune -h --help"
     local word system=1 no_system=1
     for word in "${COMP_WORDS[@]}"; do
@@ -18,7 +18,7 @@ _dotfiles_setup_install_flags() {
     echo "$flags"
 }
 
-_dotfiles_setup_completions() {
+_dfctl_completions() {
     local cur prev
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -29,11 +29,11 @@ _dotfiles_setup_completions() {
     case "${COMP_WORDS[1]}" in
         apply|install)
             if [[ "$prev" == "--preset" ]]; then
-                COMPREPLY=($(compgen -W "$(_dotfiles_setup_presets)" -- "$cur"))
+                COMPREPLY=($(compgen -W "$(_dfctl_presets)" -- "$cur"))
             elif [[ "$cur" == --preset=* ]]; then
-                COMPREPLY=($(compgen -P "--preset=" -W "$(_dotfiles_setup_presets)" -- "${cur#--preset=}"))
+                COMPREPLY=($(compgen -P "--preset=" -W "$(_dfctl_presets)" -- "${cur#--preset=}"))
             else
-                COMPREPLY=($(compgen -W "$(_dotfiles_setup_install_flags)" -- "$cur"))
+                COMPREPLY=($(compgen -W "$(_dfctl_install_flags)" -- "$cur"))
             fi
             ;;
         propose)
@@ -62,4 +62,4 @@ _dotfiles_setup_completions() {
             ;;
     esac
 }
-complete -F _dotfiles_setup_completions dotfiles-setup
+complete -F _dfctl_completions dfctl

@@ -21,7 +21,7 @@ def test_top_level_help_lists_propose(capsys):
         build_arg_parser().parse_args(["-h"])
     out = capsys.readouterr().out
     assert "propose" in out
-    assert "dotfiles-setup propose" in out
+    assert "dfctl propose" in out
 
 
 def test_apply_refuses_when_the_shared_guard_reports_a_linked_worktree(isolated_dotfiles, monkeypatch, capsys):

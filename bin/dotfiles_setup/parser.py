@@ -1,4 +1,4 @@
-"""The dotfiles-setup argument parser."""
+"""The dfctl argument parser."""
 from __future__ import annotations
 
 import argparse
@@ -29,12 +29,12 @@ class _AddVerbosity(argparse.Action):
 _DRY_RUN_HELP = "Show what would be done without executing commands."
 _EPILOG = (
     "Examples:\n"
-    "  dotfiles-setup apply --preset work\n"
-    "  dotfiles-setup apply  (reuses the preset saved on this machine)\n"
-    "  dotfiles-setup apply --preset personal --dry-run\n"
-    "  dotfiles-setup apply --preset homelab -v\n"
-    "  dotfiles-setup propose  (commit local config changes and open a PR)\n"
-    "  dotfiles-setup private clone --repo git@github.com:you/dotfiles-private.git\n"
+    "  dfctl apply --preset work\n"
+    "  dfctl apply  (reuses the preset saved on this machine)\n"
+    "  dfctl apply --preset personal --dry-run\n"
+    "  dfctl apply --preset homelab -v\n"
+    "  dfctl propose  (commit local config changes and open a PR)\n"
+    "  dfctl private clone --repo git@github.com:you/dotfiles-private.git\n"
 )
 _VERBOSITY_FLAGS = (
     (("-v", "--verbose"), 1, "Show step-by-step progress (INFO/SUCCESS messages)."),
@@ -154,7 +154,7 @@ def _build_propose_parser(sub: Any) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="dotfiles-setup",
+        prog="dfctl",
         description="Bootstrap this machine from the dotfiles repo.",
         epilog=_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,

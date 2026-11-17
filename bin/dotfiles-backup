@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deprecated entry point: `dotfiles-backup save` is now `dotfiles-setup propose`."""
+"""Deprecated entry point: `dotfiles-backup save` is now `dfctl propose`."""
 import sys
 from pathlib import Path
 

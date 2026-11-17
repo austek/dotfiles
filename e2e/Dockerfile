@@ -17,7 +17,7 @@ RUN apt-get update \
 WORKDIR /e2e
 COPY --chmod=0755 run-preset.sh assert-preset.sh /e2e/
 
-# dotfiles-setup refuses to run as root, so the install runs as the image's stock non-root user.
+# dfctl refuses to run as root, so the install runs as the image's stock non-root user.
 USER ubuntu
 ENV USER=ubuntu
 

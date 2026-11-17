@@ -7,7 +7,7 @@ from _completion import complete
 from dotfiles_setup.cli import build_arg_parser
 
 ZSH = (
-    Path(__file__).resolve().parent.parent / "zsh/.config/zsh/completions/_dotfiles-setup"
+    Path(__file__).resolve().parent.parent / "zsh/.config/zsh/completions/_dfctl"
 ).read_text(encoding="utf-8")
 
 
@@ -55,15 +55,15 @@ def _zsh_declares(block: str, option: str) -> bool:
 
 @pytest.mark.parametrize("command", sorted(_leaf_parsers()))
 def test_bash_completes_every_parser_option(command: str):
-    words = ["dotfiles-setup", *command.split(), "-"]
-    offered = set(complete("dotfiles-setup", "_dotfiles_setup_completions", words, len(words) - 1))
+    words = ["dfctl", *command.split(), "-"]
+    offered = set(complete("dfctl", "_dfctl_completions", words, len(words) - 1))
     missing = _options(_leaf_parsers()[command]) - offered
     assert not missing, f"bash completion lacks {sorted(missing)} for '{command}'"
 
 
 def test_bash_still_completes_the_deprecated_install_alias():
-    words = ["dotfiles-setup", "install", "--pre"]
-    offered = complete("dotfiles-setup", "_dotfiles_setup_completions", words, len(words) - 1)
+    words = ["dfctl", "install", "--pre"]
+    offered = complete("dfctl", "_dfctl_completions", words, len(words) - 1)
     assert "--preset" in offered
 
 

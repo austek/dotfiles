@@ -9,7 +9,7 @@ NC='\033[0m'
 
 if ! command -v shellcheck &> /dev/null; then
     echo -e "${YELLOW}Warning: shellcheck is not installed${NC}"
-    echo "shellcheck is a managed package (packages/apt_common.txt); run 'dotfiles-setup apply --preset <preset>' to install it."
+    echo "shellcheck is a managed package (packages/apt_common.txt); run 'dfctl apply --preset <preset>' to install it."
     exit 1
 fi
 

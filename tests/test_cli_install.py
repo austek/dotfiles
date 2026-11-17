@@ -18,7 +18,7 @@ def test_install_alias_warns_on_stderr_and_matches_apply(isolated_dotfiles, caps
     code = main(["install", "--preset", "homelab", "--dry-run"])
     err = capsys.readouterr().err
     assert code == main(["apply", "--preset", "homelab", "--dry-run"])
-    assert "'dotfiles-setup install' is deprecated; use 'dotfiles-setup apply'." in err
+    assert "'dfctl install' is deprecated; use 'dfctl apply'." in err
 
 
 def test_apply_does_not_warn_about_deprecation(isolated_dotfiles, capsys):

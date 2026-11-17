@@ -1,4 +1,4 @@
-"""The collaborators and locations a dotfiles-setup command runs against."""
+"""The collaborators and locations a dfctl command runs against."""
 from __future__ import annotations
 
 import os

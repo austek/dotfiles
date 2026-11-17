@@ -59,7 +59,7 @@ def test_top_level_help_lists_apply_subcommand_and_examples(capsys):
     out = capsys.readouterr().out
     assert "apply" in out
     assert "Examples:" in out
-    assert "dotfiles-setup apply --preset work" in out
+    assert "dfctl apply --preset work" in out
 
 
 def test_help_hides_install_alias(capsys):

@@ -27,18 +27,18 @@ run = "uv run --locked pytest --cov --cov-report=term-missing --cov-report=xml -
 [tasks.smoke]
 description = "Run the CLI entry points"
 run = [
-  "./bin/dotfiles-setup apply --preset work --dry-run",
-  "./bin/dotfiles-setup propose --help",
+  "./bin/dfctl apply --preset work --dry-run",
+  "./bin/dfctl propose --help",
 ]
 
 [tasks.completions]
 description = "Syntax-check the zsh and bash completions"
 run = [
-  "zsh -n zsh/.config/zsh/completions/_dotfiles-setup",
+  "zsh -n zsh/.config/zsh/completions/_dfctl",
   "zsh -n zsh/.config/zsh/completions/_dotfiles-backup",
-  "bash -n bash/.local/share/bash-completion/completions/dotfiles-setup",
+  "bash -n bash/.local/share/bash-completion/completions/dfctl",
   "bash -n bash/.local/share/bash-completion/completions/dotfiles-backup",
-  "shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dotfiles-setup",
+  "shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dfctl",
   "shellcheck -s bash -e SC2207 bash/.local/share/bash-completion/completions/dotfiles-backup",
 ]
 

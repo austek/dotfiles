@@ -14,7 +14,7 @@ _GREEN = "\033[0;32m"
 _YELLOW = "\033[0;33m"
 _CYAN = "\033[0;36m"
 _RED = "\033[0;31m"
-SYSLOG_TAG = "dotfiles-setup"
+SYSLOG_TAG = "dfctl"
 _PRIORITIES = {
     "info": syslog.LOG_INFO,
     "notice": syslog.LOG_NOTICE,
@@ -33,7 +33,7 @@ class Logger:
     """Verbosity/dry-run-aware output, threaded explicitly instead of via
     global bash variables (VERBOSITY/DRY_RUN in the original).
 
-    Every message also goes to syslog (`journalctl -t dotfiles-setup`, `/var/log/syslog` where rsyslog runs),
+    Every message also goes to syslog (`journalctl -t dfctl`, `/var/log/syslog` where rsyslog runs),
     whatever the verbosity, so a run can be reconstructed after the terminal output is gone."""
 
     dry_run: bool
