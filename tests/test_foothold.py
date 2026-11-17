@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -199,6 +200,11 @@ def test_restart_reports_failure_when_systemctl_fails(tmp_path, capsys):
     assert "no bus" in capsys.readouterr().out
 
 
+def _jq_dir():
+    found = shutil.which("jq")
+    return str(Path(found).parent) if found else "/usr/bin"
+
+
 def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o600, preset=None):
     home = tmp_path / "home"
     (home / ".config/dotfiles").mkdir(parents=True)
@@ -216,7 +222,7 @@ def _run_launcher(tmp_path, claude_script, args, secrets=None, secrets_mode=0o60
     launcher = Path(__file__).parent.parent / "bin" / "claude-foothold-launch"
     result = subprocess.run(
         [str(launcher), *args],
-        env={"HOME": str(home), "PATH": f"{fake_bin}:/usr/bin:/bin"},
+        env={"HOME": str(home), "PATH": f"{fake_bin}:{_jq_dir()}:/usr/bin:/bin"},
         capture_output=True, text=True, check=True, cwd=tmp_path,
     )
     return result.stdout.strip()

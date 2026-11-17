@@ -23,7 +23,7 @@ if [ -e "$manifest" ]; then
     jq -e 'type == "object"' "$manifest" >/dev/null 2>&1 || exit 0
     [ -z "$(jq -r 'select(.telemetry == false) | "off"' "$manifest" 2>/dev/null)" ] || exit 0
     label=$(jq -r '.otel_account // empty' "$manifest" 2>/dev/null)
-    labels=$(jq -r '(.labels // {}) | to_entries[] | "\(.key)=\(.value)"' "$manifest" 2>/dev/null)
+    labels=$(jq -r 'def clean: tostring | gsub("[^A-Za-z0-9._-]"; "_"); (.labels // {}) | to_entries[] | "\(.key | clean)=\(.value | clean)"' "$manifest" 2>/dev/null)
 fi
 
 root=$(git rev-parse --show-toplevel 2>/dev/null)

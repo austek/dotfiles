@@ -202,6 +202,16 @@ def test_zsh_wrapper_matches_the_script(tmp_path):
     assert wrapped.stdout == _run(home, "claude-otel-env main", tmp_path).stdout != ""
 
 
+def test_label_keys_and_values_cannot_inject_delimiters(tmp_path):
+    home = _home(tmp_path, {"preset_name": "homelab"})
+    accounts = home / ".config" / "dotfiles" / "claude-accounts"
+    accounts.mkdir()
+    (accounts / "a.json").write_text(json.dumps({"labels": {"team": "a\nb", "k=k": "v", "ok": "data"}}))
+    attrs = _attrs(_otel(home, tmp_path, "a"))
+    assert (attrs["team"], attrs["k_k"], attrs["ok"]) == ("a_b", "v", "data")
+    assert "b" not in attrs
+
+
 def test_manifest_label_and_telemetry_off(tmp_path):
     home = _home(tmp_path, {"preset_name": "homelab"})
     accounts = home / ".config" / "dotfiles" / "claude-accounts"
