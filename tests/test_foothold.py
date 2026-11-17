@@ -236,6 +236,10 @@ def test_launcher_exports_secrets_to_claude(tmp_path):
 SHOW_OTEL = 'echo "${CLAUDE_OTEL_ACCOUNT-unset}|$OTEL_RESOURCE_ATTRIBUTES"'
 
 
+needs_jq = pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+
+
+@needs_jq
 def test_launcher_labels_the_otel_account_main(tmp_path):
     out = _run_launcher(tmp_path, SHOW_OTEL, ["n"], preset="personal")
     account, attrs = out.splitlines()[-1].split("|")
@@ -243,6 +247,7 @@ def test_launcher_labels_the_otel_account_main(tmp_path):
     assert "account=main" in attrs.split(",")
 
 
+@needs_jq
 def test_launcher_labels_the_otel_account_burst(tmp_path):
     out = _run_launcher(tmp_path, SHOW_OTEL, ["n", "burst"], preset="personal")
     assert "account=burst" in out.splitlines()[-1].split("|")[1].split(",")
