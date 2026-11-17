@@ -188,6 +188,20 @@ def test_invalid_manifest_prints_nothing_and_stays_quiet(tmp_path):
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
 
 
+@pytest.mark.skipif(shutil.which("zsh") is None, reason="zsh not installed")
+def test_zsh_wrapper_matches_the_script(tmp_path):
+    home = _home(tmp_path, {"preset_name": "homelab"})
+    quoted = shlex.quote(str(FUNCTIONS))
+    setup = f"fpath=({quoted} $fpath); autoload -Uz {quoted}/*(:t)\n"
+    env = {"PATH": f"{BIN}:{os.environ['PATH']}", "HOME": str(home)}
+    wrapped = subprocess.run(
+        ["zsh", "-f", "-c", setup + "claude-otel-env main"],
+        capture_output=True, text=True, env=env, cwd=tmp_path, check=False,
+    )
+    assert wrapped.returncode == 0
+    assert wrapped.stdout == _run(home, "claude-otel-env main", tmp_path).stdout != ""
+
+
 def test_manifest_label_and_telemetry_off(tmp_path):
     home = _home(tmp_path, {"preset_name": "homelab"})
     accounts = home / ".config" / "dotfiles" / "claude-accounts"
