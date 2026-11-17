@@ -6,5 +6,10 @@
   {"package": "awscli", "name": "AWS CLI", "version": "2.39.6", "url": "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{version}.zip", "cache_key": "awscliv2-{version}.zip", "kind": "zip"},
   {"package": "zizmor", "name": "zizmor", "version": "v1.32.0", "url": "https://github.com/zizmorcore/zizmor/releases/download/{version}/zizmor-x86_64-unknown-linux-gnu.tar.gz", "cache_key": "zizmor-{version}.tar.gz", "kind": "targz", "binary": "zizmor"},
   {"package": "mcp-grafana", "name": "mcp-grafana", "version": "v2.2.0", "url": "https://github.com/grafana/mcp-grafana/releases/download/{version}/mcp-grafana_Linux_x86_64.tar.gz", "cache_key": "mcp-grafana-{version}.tar.gz", "kind": "targz", "binary": "mcp-grafana"},
-  {"package": "chip", "name": "chip", "version": "0.0.67", "url": "https://github.com/collibra/chip/releases/download/v{version}/chip-{version}-linux-amd64", "cache_key": "chip-{version}", "kind": "binary", "binary": "chip"}
+  {"package": "chip", "name": "chip", "version": "0.0.67", "url": "https://github.com/collibra/chip/releases/download/v{version}/chip-{version}-linux-amd64", "cache_key": "chip-{version}", "kind": "binary", "binary": "chip"},
+  {"package": "kubectl", "name": "kubectl", "version": "v1.36.6", "url": "https://dl.k8s.io/release/{version}/bin/linux/amd64/kubectl", "cache_key": "kubectl-{version}", "kind": "binary", "binary": "kubectl"},
+  {"package": "helm", "name": "helm", "version": "v4.3.2", "url": "https://get.helm.sh/helm-{version}-linux-amd64.tar.gz", "cache_key": "helm-{version}.tar.gz", "kind": "targz", "binary": "helm"},
+  {"package": "flux", "name": "flux", "version": "2.10.0", "url": "https://github.com/fluxcd/flux2/releases/download/v{version}/flux_{version}_linux_amd64.tar.gz", "cache_key": "flux-{version}.tar.gz", "kind": "targz", "binary": "flux"},
+  {"package": "kubeconform", "name": "kubeconform", "version": "v0.8.0", "url": "https://github.com/yannh/kubeconform/releases/download/{version}/kubeconform-linux-amd64.tar.gz", "cache_key": "kubeconform-{version}.tar.gz", "kind": "targz", "binary": "kubeconform"},
+  {"package": "sops", "name": "sops", "version": "v3.13.3", "url": "https://github.com/getsops/sops/releases/download/{version}/sops-{version}.linux.amd64", "cache_key": "sops-{version}", "kind": "binary", "binary": "sops"}
 ]

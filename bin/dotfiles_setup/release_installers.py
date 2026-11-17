@@ -217,7 +217,11 @@ def _which_installed(binary: str) -> Callable[[Tooling], bool]:
 
 
 def _binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
-    return lambda t, temp_dir, _artifact, _resolved: _sudo_install(t, temp_dir / binary)
+    def install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
+        found = sorted((p for p in temp_dir.rglob(binary) if p.is_file()), key=lambda p: (len(p.parts), str(p)))
+        return bool(found) and _sudo_install(t, found[0])
+
+    return install
 
 
 def _raw_binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:

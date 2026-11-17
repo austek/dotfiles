@@ -1,0 +1,7 @@
+# Kubernetes and GitOps CLIs, installed by every preset. All but age are release_specs.json pins.
+# kubectl is named in apt_common.txt and pinned the same way.
+age
+flux
+helm
+kubeconform
+sops

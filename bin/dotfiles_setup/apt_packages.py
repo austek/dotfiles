@@ -8,15 +8,14 @@ from pathlib import Path
 
 from dotfiles_setup import checksums, flatpak
 from dotfiles_setup.deb_helpers import _is_older, deb_is_current
-from dotfiles_setup.release_installers import Resolved, download_with_cache
+from dotfiles_setup.release_installers import SPEC_DATA, Resolved, download_with_cache
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import dry_run_all
 
-# Package names installed outside apt; the apt install skips them.
+# Package names installed outside apt; the apt install skips them. Every release_specs.json package is one.
 CUSTOM_INSTALL_PACKAGES = frozenset({
-    "oh-my-zsh", "sdkman", "nvm", "lazydocker", "zoom", "istioctl", "awscli", "jetbrains-toolbox",
-    "antigravity-ide", "zizmor", "mcp-grafana", "ruff", "coderabbit", "auditr", "sonarqube-cli", "uv", "cargo-deny",
-    "cargo-audit", "chip",
+    "oh-my-zsh", "sdkman", "nvm", "antigravity-ide", "ruff", "coderabbit", "auditr", "sonarqube-cli", "uv",
+    "cargo-deny", "cargo-audit", *SPEC_DATA,
 })
 
 # Custom entries whose installer leaves a dpkg package of the same name.

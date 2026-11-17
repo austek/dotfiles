@@ -71,6 +71,15 @@ def test_only_the_work_preset_installs_zoom(preset, has_zoom):
     assert ("zoom" in resolve_packages(REPO / "packages", manifest).value) is has_zoom
 
 
+K8S_TOOLS = {"age", "flux", "helm", "kubeconform", "kubectl", "sops"}
+
+
+@pytest.mark.parametrize("preset", ["work", "personal", "homelab"])
+def test_every_shipped_preset_installs_the_kubernetes_tools(preset):
+    manifest = load_preset(REPO / "presets", preset).value
+    assert K8S_TOOLS <= set(resolve_packages(REPO / "packages", manifest).value)
+
+
 def test_resolve_packages_returns_err_for_missing_files(tmp_path):
     (tmp_path / "common.txt").write_text("zsh\n")
     preset = Preset(
