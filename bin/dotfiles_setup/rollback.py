@@ -42,7 +42,7 @@ class RollbackContext:
     t: Tooling
     log: RollbackLog
     dotfiles_dir: Path
-    private_root: Path | None
+    overlay_root: Path | None
 
 
 def _run_quiet(ctx: RollbackContext, argv: list[str], cwd: Path | None = None) -> bool:
@@ -61,10 +61,10 @@ def _unstow(ctx: RollbackContext, label: str, data: str, root: Path | None, sudo
         ctx.t.logger.warn(f"Failed to unstow {data}")
 
 
-def _restow_private(ctx: RollbackContext, data: str) -> None:
-    ctx.t.logger.info(f"Restoring private-overlay package links to HOME: {data}")
+def _restow_overlay(ctx: RollbackContext, data: str) -> None:
+    ctx.t.logger.info(f"Restoring overlay package links to HOME: {data}")
     argv = ["stow", "--restow", "--no-folding", f"--target={ctx.t.home}", data]
-    if ctx.private_root is None or not _run_quiet(ctx, argv, cwd=ctx.private_root):
+    if ctx.overlay_root is None or not _run_quiet(ctx, argv, cwd=ctx.overlay_root):
         ctx.t.logger.warn(f"Failed to restow {data}")
 
 
@@ -82,8 +82,8 @@ def _stow_home(ctx: RollbackContext, data: str) -> None:
     _unstow(ctx, f"Unstowing package from HOME: {data}", data, ctx.dotfiles_dir)
 
 
-def _stow_private(ctx: RollbackContext, data: str) -> None:
-    _unstow(ctx, f"Unstowing private-overlay package from HOME: {data}", data, ctx.private_root)
+def _stow_overlay(ctx: RollbackContext, data: str) -> None:
+    _unstow(ctx, f"Unstowing overlay package from HOME: {data}", data, ctx.overlay_root)
 
 
 def _stow_root(ctx: RollbackContext, data: str) -> None:
@@ -123,6 +123,21 @@ def _deb_removed(ctx: RollbackContext, data: str) -> None:
     ctx.t.logger.warn(f"Removed {data} is not in apt; reinstall {data} manually.")
 
 
+def _overlay_moved(ctx: RollbackContext, data: str) -> None:
+    """The entry is `old|new`. Moves the overlay back and relinks it from the old path."""
+    # Imported here because overlay_migrate imports this module.
+    from dotfiles_setup import overlay_migrate
+
+    old_text, _, new_text = data.partition("|")
+    old, new = Path(old_text), Path(new_text)
+    if old.exists() or not new.is_dir():
+        ctx.t.logger.warn(f"Failed to move {new} back to {old}")
+        return
+    ctx.t.logger.info(f"Moving the overlay back: {new} to {old}")
+    if overlay_migrate.relocate(ctx.t, new, old) is not overlay_migrate.Relocation.MOVED:
+        ctx.t.logger.warn(f"Failed to move {new} back to {old}")
+
+
 def _flatpak_removed(ctx: RollbackContext, data: str) -> None:
     ctx.t.logger.info(f"Reinstalling removed Flatpak app: {data}")
     argv = ["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", data]
@@ -130,10 +145,12 @@ def _flatpak_removed(ctx: RollbackContext, data: str) -> None:
         ctx.t.logger.warn(f"Failed to reinstall {data}")
 
 
+# The *_PRIVATE names are written to rollback logs on disk, so they keep their spelling after the overlay rename.
 _UNDO_HANDLERS: dict[str, Callable[[RollbackContext, str], None]] = {
     "STOW_HOME": _stow_home,
-    "STOW_PRIVATE": _stow_private,
-    "UNSTOW_PRIVATE": _restow_private,
+    "STOW_PRIVATE": _stow_overlay,
+    "UNSTOW_PRIVATE": _restow_overlay,
+    "OVERLAY_MOVED": _overlay_moved,
     "STOW_ROOT": _stow_root,
     "DOCKER_GROUP": _docker_group,
     "FILE_BACKUP": _restore_backup,

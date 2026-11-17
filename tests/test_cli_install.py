@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cli_support import _add_preset, fail_flow
@@ -68,15 +69,74 @@ def test_install_forwards_verbosity_to_the_flow(isolated_dotfiles, flow_calls):
 
 
 def test_install_passes_the_overlay_root_to_the_flow(isolated_dotfiles, flow_calls, monkeypatch, tmp_path):
-    private_root = tmp_path / "dotfiles-private"
-    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+    overlay_root = tmp_path / "dotfiles-private"
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: overlay_root)
     assert main(["install", "--preset", "homelab"]) == 0
-    assert flow_calls[0].overlay_root == private_root
+    assert flow_calls[0].overlay_root == overlay_root
 
 
 def test_install_passes_no_overlay_root_when_there_is_none(isolated_dotfiles, flow_calls):
     assert main(["install", "--preset", "homelab"]) == 0
     assert flow_calls[0].overlay_root is None
+
+
+def _find_by_constants(monkeypatch):
+    monkeypatch.setattr(
+        overlay, "find_overlay_root",
+        lambda: next((r for r in (overlay.DEFAULT_OVERLAY_ROOT, overlay.LEGACY_OVERLAY_ROOT) if r.exists()), None),
+    )
+
+
+def test_apply_moves_a_legacy_overlay_before_planning_so_the_flow_sees_the_new_path(isolated_dotfiles, flow_calls, monkeypatch):
+    _find_by_constants(monkeypatch)
+    overlay.LEGACY_OVERLAY_ROOT.mkdir()
+    (overlay.LEGACY_OVERLAY_ROOT / "marker").write_text("kept")
+    assert main(["apply", "--preset", "homelab"]) == 0
+    assert not overlay.LEGACY_OVERLAY_ROOT.exists()
+    assert (overlay.DEFAULT_OVERLAY_ROOT / "marker").read_text() == "kept"
+    assert flow_calls[0].overlay_root == overlay.DEFAULT_OVERLAY_ROOT
+
+
+def test_apply_stops_when_the_legacy_overlay_cannot_be_moved(isolated_dotfiles, flow_calls, monkeypatch):
+    _find_by_constants(monkeypatch)
+    overlay.LEGACY_OVERLAY_ROOT.mkdir()
+    (overlay.LEGACY_OVERLAY_ROOT / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    assert main(["apply", "--preset", "homelab"]) == 1
+    assert flow_calls == []
+    assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
+    assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
+
+
+def test_apply_continues_with_the_legacy_overlay_while_stow_is_not_installed(isolated_dotfiles, flow_calls, monkeypatch):
+    _find_by_constants(monkeypatch)
+    overlay.LEGACY_OVERLAY_ROOT.mkdir()
+    (overlay.LEGACY_OVERLAY_ROOT / ".stow-packages").write_text("zsh\n")
+    (overlay.LEGACY_OVERLAY_ROOT / "zsh").mkdir()
+
+    def run(argv, **kwargs):
+        return SimpleNamespace(returncode=127 if argv[0] == "stow" else 0, stdout="", stderr="")
+
+    assert main(["apply", "--preset", "homelab"], Env(run=run)) == 0
+    assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
+    assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
+    assert flow_calls[0].overlay_root == overlay.LEGACY_OVERLAY_ROOT
+
+
+def test_apply_moves_nothing_when_no_preset_can_be_resolved(isolated_dotfiles, flow_calls, monkeypatch):
+    _find_by_constants(monkeypatch)
+    overlay.LEGACY_OVERLAY_ROOT.mkdir()
+    assert main(["apply"]) == 2
+    assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
+    assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
+
+
+def test_a_dry_run_leaves_the_legacy_overlay_where_it_is(isolated_dotfiles, flow_calls, monkeypatch):
+    _find_by_constants(monkeypatch)
+    overlay.LEGACY_OVERLAY_ROOT.mkdir()
+    assert main(["apply", "--preset", "homelab", "--dry-run"]) == 0
+    assert overlay.LEGACY_OVERLAY_ROOT.is_dir()
+    assert not overlay.DEFAULT_OVERLAY_ROOT.exists()
+    assert flow_calls[0].overlay_root == overlay.LEGACY_OVERLAY_ROOT
 
 
 def test_install_hands_the_flow_the_preset_and_packages(isolated_dotfiles, flow_calls):
@@ -189,11 +249,11 @@ def test_install_passes_overlay_root_to_git_identity(isolated_dotfiles, monkeypa
         "dotfiles_setup.identity.ensure_git_identity",
         lambda **kw: calls.append(kw) or tmp_path / "gitconfig.local",
     )
-    private_root = tmp_path / "dotfiles-private"
-    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+    overlay_root = tmp_path / "dotfiles-private"
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: overlay_root)
 
     assert main(["install", "--preset", "homelab"]) == 0
-    assert calls[0]["overlay_root"] == private_root
+    assert calls[0]["overlay_root"] == overlay_root
 
 
 def test_install_uses_injected_clock_and_paths(isolated_dotfiles, tmp_path):
@@ -259,12 +319,12 @@ def test_install_refuses_to_run_from_a_linked_worktree(isolated_dotfiles, flow_c
 
 def test_install_refuses_a_private_overlay_that_is_a_linked_worktree(isolated_dotfiles, flow_calls, monkeypatch, capsys):
     _, tmp_path = isolated_dotfiles
-    private_root = tmp_path / "dotfiles-private"
-    private_root.mkdir()
-    (private_root / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
-    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+    overlay_root = tmp_path / "dotfiles-private"
+    overlay_root.mkdir()
+    (overlay_root / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: overlay_root)
     assert main(["install", "--preset", "homelab"]) == 1
-    assert str(private_root) in capsys.readouterr().err
+    assert str(overlay_root) in capsys.readouterr().err
     assert flow_calls == []
 
 

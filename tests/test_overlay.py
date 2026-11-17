@@ -11,26 +11,73 @@ from dotfiles_setup.overlay import (
 )
 
 
-def test_find_overlay_root_none_when_nothing_present(tmp_path, monkeypatch):
-    monkeypatch.delenv("DOTFILES_PRIVATE_ROOT", raising=False)
-    monkeypatch.setattr("dotfiles_setup.overlay.DEFAULT_OVERLAY_ROOT", tmp_path / "missing")
-    monkeypatch.setattr("dotfiles_setup.overlay.LOCAL_OVERLAY_ROOT", tmp_path / "also-missing")
+@pytest.fixture
+def roots(tmp_path, monkeypatch):
+    """Points every overlay location at a missing path under tmp_path and clears both override variables."""
+    for variable in ("DOTFILES_OVERLAY_ROOT", "DOTFILES_PRIVATE_ROOT"):
+        monkeypatch.delenv(variable, raising=False)
+    found = {name: tmp_path / name for name in ("overlay", "legacy", "local")}
+    monkeypatch.setattr("dotfiles_setup.overlay.DEFAULT_OVERLAY_ROOT", found["overlay"])
+    monkeypatch.setattr("dotfiles_setup.overlay.LEGACY_OVERLAY_ROOT", found["legacy"])
+    monkeypatch.setattr("dotfiles_setup.overlay.LOCAL_OVERLAY_ROOT", found["local"])
+    return found
+
+
+def test_find_overlay_root_none_when_nothing_present(roots):
     assert find_overlay_root() is None
 
 
-def test_find_overlay_root_prefers_env_override(tmp_path, monkeypatch):
+def test_find_overlay_root_prefers_env_override(roots, tmp_path, monkeypatch):
+    override = tmp_path / "custom-overlay"
+    override.mkdir()
+    roots["overlay"].mkdir()
+    monkeypatch.setenv("DOTFILES_OVERLAY_ROOT", str(override))
+    assert find_overlay_root() == override
+
+
+def test_find_overlay_root_still_honours_the_legacy_override_variable(roots, tmp_path, monkeypatch):
     override = tmp_path / "custom-private"
     override.mkdir()
     monkeypatch.setenv("DOTFILES_PRIVATE_ROOT", str(override))
     assert find_overlay_root() == override
 
 
-def test_find_overlay_root_falls_back_to_default_sibling(tmp_path, monkeypatch):
-    monkeypatch.delenv("DOTFILES_PRIVATE_ROOT", raising=False)
-    default_root = tmp_path / "dotfiles-private"
-    default_root.mkdir()
-    monkeypatch.setattr("dotfiles_setup.overlay.DEFAULT_OVERLAY_ROOT", default_root)
-    assert find_overlay_root() == default_root
+def test_the_overlay_variable_wins_over_the_legacy_one(roots, tmp_path, monkeypatch):
+    new, old = tmp_path / "new", tmp_path / "old"
+    new.mkdir()
+    old.mkdir()
+    monkeypatch.setenv("DOTFILES_OVERLAY_ROOT", str(new))
+    monkeypatch.setenv("DOTFILES_PRIVATE_ROOT", str(old))
+    assert find_overlay_root() == new
+
+
+def test_an_override_that_does_not_exist_means_no_overlay_not_a_fallback(roots, tmp_path, monkeypatch):
+    roots["overlay"].mkdir()
+    monkeypatch.setenv("DOTFILES_OVERLAY_ROOT", str(tmp_path / "missing"))
+    assert find_overlay_root() is None
+
+
+def test_find_overlay_root_falls_back_to_default_sibling(roots):
+    roots["overlay"].mkdir()
+    assert find_overlay_root() == roots["overlay"]
+
+
+def test_find_overlay_root_falls_back_to_the_legacy_private_checkout(roots):
+    roots["legacy"].mkdir()
+    assert find_overlay_root() == roots["legacy"]
+
+
+def test_the_overlay_checkout_wins_over_the_legacy_one(roots):
+    roots["overlay"].mkdir()
+    roots["legacy"].mkdir()
+    assert find_overlay_root() == roots["overlay"]
+
+
+def test_the_local_overlay_is_the_last_resort(roots):
+    roots["local"].mkdir()
+    assert find_overlay_root() == roots["local"]
+    roots["legacy"].mkdir()
+    assert find_overlay_root() == roots["legacy"]
 
 
 def test_overlay_package_names_empty_without_overlay_root():

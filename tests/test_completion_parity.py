@@ -19,7 +19,7 @@ def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentP
     return found
 
 
-DEPRECATED_ALIASES = {"install"}
+DEPRECATED_ALIASES = {"install", "private"}
 
 
 def _leaf_parsers() -> dict[str, argparse.ArgumentParser]:

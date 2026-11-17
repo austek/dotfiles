@@ -34,7 +34,7 @@ _EPILOG = (
     "  dfctl apply --preset personal --dry-run\n"
     "  dfctl apply --preset homelab -v\n"
     "  dfctl propose  (commit local config changes and open a PR)\n"
-    "  dfctl private clone --repo git@github.com:you/dotfiles-private.git\n"
+    "  dfctl overlay clone --repo git@github.com:you/dotfiles-overlay.git\n"
 )
 _VERBOSITY_FLAGS = (
     (("-v", "--verbose"), 1, "Show step-by-step progress (INFO/SUCCESS messages)."),
@@ -101,14 +101,14 @@ def _build_install_parser(sub: Any) -> None:
         command_p.set_defaults(verbosity=0)
 
 
-def _build_clone_parser(private_sub: Any) -> None:
-    clone_p = private_sub.add_parser(
-        "clone", help="git-clone your private overlay repo so install can auto-detect and layer it"
+def _build_clone_parser(overlay_sub: Any) -> None:
+    clone_p = overlay_sub.add_parser(
+        "clone", help="git-clone your overlay repo so apply can auto-detect and layer it"
     )
     clone_p.add_argument(
         "--repo",
         required=True,
-        help="Git URL of your private overlay repo, e.g. git@github.com:you/dotfiles-private.git",
+        help="Git URL of your overlay repo, e.g. git@github.com:you/dotfiles-overlay.git",
     )
     clone_p.add_argument(
         "--dest", type=Path, default=None, help=f"Clone destination (default: {overlay.DEFAULT_OVERLAY_ROOT})."
@@ -120,10 +120,17 @@ def _build_clone_parser(private_sub: Any) -> None:
     clone_p.set_defaults(verbosity=0)
 
 
-def _build_private_parser(sub: Any) -> None:
-    private_p = sub.add_parser(
-        "private", help="manage the optional private overlay repo (see AGENTS.md's Presets and Portability)"
+def _build_overlay_parser(sub: Any) -> None:
+    overlay_p = sub.add_parser(
+        "overlay", help="manage the optional overlay repo (see AGENTS.md's Presets and Portability)"
     )
+    overlay_sub = overlay_p.add_subparsers(dest="overlay_command", metavar="overlay-command", required=True)
+    _build_clone_parser(overlay_sub)
+
+
+def _build_private_parser(sub: Any) -> None:
+    """The old name of `overlay`; it parses the same way and the command prints a deprecation notice."""
+    private_p = sub.add_parser("private")
     private_sub = private_p.add_subparsers(dest="private_command", metavar="private-command", required=True)
     _build_clone_parser(private_sub)
 
@@ -162,6 +169,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="command")
     _build_install_parser(sub)
     _build_propose_parser(sub)
+    _build_overlay_parser(sub)
     _build_private_parser(sub)
     _build_foothold_parser(sub)
     return parser

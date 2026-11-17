@@ -4,7 +4,7 @@ local -a commands presets
 commands=(
   'apply:make this machine match the repo'
   'propose:commit local changes to a branch and open a PR'
-  'private:manage the optional private overlay repo'
+  'overlay:manage the optional overlay repo'
   'foothold:manage the Claude remote footholds of this machine'
 )
 presets=( ${${(f)"$(print -l -- $HOME/.dotfiles/presets/*.json(N:t:r))"}:-work personal homelab} )
@@ -39,12 +39,12 @@ case $state in
       propose)
         _arguments '(-h --help)'{-h,--help}'[show help message]'
         ;;
-      private)
+      overlay)
         if (( CURRENT == 2 )); then
-          _values 'private-command' 'clone[clone your private overlay repo]'
+          _values 'overlay-command' 'clone[clone your overlay repo]'
         else
           _arguments \
-            '--repo[git URL of your private overlay repo]:url:' \
+            '--repo[git URL of your overlay repo]:url:' \
             '--dest[clone destination]:path:_files -/' \
             '--dry-run[show what would be done without executing commands]' \
             '(-v --verbose)'{-v,--verbose}'[confirm what was cloned and where]' \

@@ -33,10 +33,10 @@ def test_install_merges_the_preset_profile_into_the_generated_settings(isolated_
 
 
 def test_install_generates_claude_settings_from_base_and_overlay(isolated_dotfiles, monkeypatch, tmp_path):
-    private_root = tmp_path / "private"
-    (private_root / "claude-settings").mkdir(parents=True)
-    (private_root / "claude-settings" / "settings.json").write_text(json.dumps({"extra": True}))
-    monkeypatch.setattr(overlay, "find_overlay_root", lambda: private_root)
+    overlay_root = tmp_path / "private"
+    (overlay_root / "claude-settings").mkdir(parents=True)
+    (overlay_root / "claude-settings" / "settings.json").write_text(json.dumps({"extra": True}))
+    monkeypatch.setattr(overlay, "find_overlay_root", lambda: overlay_root)
     assert main(["install", "--preset", "homelab"]) == 0
     generated = json.loads((tmp_path / "claude-home" / "settings.json").read_text())
     assert generated == {"model": "base", "extra": True}

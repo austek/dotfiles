@@ -15,7 +15,14 @@ from dotfiles_setup.backends import InstallResult
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path_factory, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
+    """Points HOME and every overlay location at a throwaway home, so no test can touch a real overlay checkout."""
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    for variable in (overlay.OVERLAY_ROOT_VARIABLE, overlay.LEGACY_ROOT_VARIABLE):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setattr(overlay, "DEFAULT_OVERLAY_ROOT", home / ".dotfiles-overlay")
+    monkeypatch.setattr(overlay, "LEGACY_OVERLAY_ROOT", home / ".dotfiles-private")
+    monkeypatch.setattr(overlay, "LOCAL_OVERLAY_ROOT", home / ".config" / "dotfiles" / "local-overlay")
 
 
 @pytest.fixture(autouse=True)

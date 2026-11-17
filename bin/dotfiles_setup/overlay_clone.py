@@ -1,4 +1,4 @@
-"""Clones the optional private overlay (see overlay.py)."""
+"""Clones the optional overlay repo (see overlay.py)."""
 from __future__ import annotations
 
 import subprocess
@@ -20,7 +20,7 @@ def clone_overlay(repo: str, dest: Path, *, run=subprocess.run) -> CloneResult:
             returncode=1,
             stdout=(
                 f"{dest} already exists — refusing to overwrite it. "
-                f"If it's already your private overlay clone, update it with "
+                f"If it's already your overlay clone, update it with "
                 f"`git -C {dest} pull` instead."
             ),
         )

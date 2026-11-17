@@ -39,7 +39,7 @@ _dfctl_completions() {
         propose)
             COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
             ;;
-        private)
+        overlay)
             if [[ "${COMP_WORDS[2]}" == "clone" ]]; then
                 if [[ "$prev" == "--dest" ]]; then
                     COMPREPLY=($(compgen -d -- "$cur"))
@@ -58,7 +58,7 @@ _dfctl_completions() {
             fi
             ;;
         *)
-            COMPREPLY=($(compgen -W "apply propose private foothold -h --help" -- "$cur"))
+            COMPREPLY=($(compgen -W "apply propose overlay foothold -h --help" -- "$cur"))
             ;;
     esac
 }

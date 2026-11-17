@@ -180,7 +180,7 @@ def test_private_files_that_override_public_ones_are_ignored_by_the_public_stow(
     (world.repo / "claude/.claude").mkdir(parents=True)
     (world.repo / "claude/.claude/CLAUDE.md").write_text("public")
     plan, _ = plan_for(world, private=private)
-    assert stow.private_override_ignores(plan) == [r"--ignore=\.claude/CLAUDE\.md"]
+    assert stow.overlay_override_ignores(plan) == [r"--ignore=\.claude/CLAUDE\.md"]
 
 
 def test_the_common_stow_splits_folded_and_unfolded_packages_and_tracks_new_ones(world):
@@ -275,7 +275,7 @@ def test_the_private_overlay_replaces_a_public_symlink_and_tracks_its_packages(w
     target.parent.mkdir()
     target.symlink_to(public)
     plan, runner = plan_for(world, private=private, force=False)
-    assert stow.stow_private_to_home(plan)
+    assert stow.stow_overlay_to_home(plan)
     assert target.resolve() == (private / "claude/.claude/CLAUDE.md").resolve()
     assert runner.stow_calls() == [["--restow", "--no-folding", f"--target={world.home}", "--verbose=1", "claude"]]
     assert runner.calls[0][1] == private
@@ -293,7 +293,7 @@ def test_a_non_repo_symlink_at_a_private_path_is_left_alone(world):
     target.parent.mkdir()
     target.symlink_to(elsewhere)
     plan, _ = plan_for(world, private=private, force=False)
-    stow.stow_private_to_home(plan)
+    stow.stow_overlay_to_home(plan)
     assert target.is_symlink()
 
 
@@ -310,7 +310,7 @@ def preset_scoped_overlay(world):
 def test_a_preset_scoped_package_is_stowed_only_for_that_preset(world):
     private = preset_scoped_overlay(world)
     plan, runner = plan_for(world, private=private, force=False, preset="work")
-    assert stow.stow_private_to_home(plan)
+    assert stow.stow_overlay_to_home(plan)
     assert runner.stow_calls() == [
         ["--restow", "--no-folding", f"--target={world.home}", "--verbose=1", "claude", "claude-collibra"]
     ]
@@ -319,7 +319,7 @@ def test_a_preset_scoped_package_is_stowed_only_for_that_preset(world):
 def test_other_presets_skip_the_scoped_package(world):
     private = preset_scoped_overlay(world)
     plan, runner = plan_for(world, private=private, force=False, preset="homelab")
-    assert stow.stow_private_to_home(plan)
+    assert stow.stow_overlay_to_home(plan)
     assert runner.stow_calls() == [
         ["--restow", "--no-folding", f"--target={world.home}", "--verbose=1", "claude"],
     ]
@@ -393,7 +393,7 @@ def test_a_failed_unstow_warns_and_does_not_fail_the_step(world):
 
     plan, _ = plan_for(world, FailsDelete(), private=private, force=False, preset="homelab")
     stow.unstow_other_preset_packages(plan)
-    assert stow.stow_private_to_home(plan)
+    assert stow.stow_overlay_to_home(plan)
 
 
 def test_the_public_stow_ignores_files_a_scoped_package_overrides_only_for_its_preset(world):
@@ -402,13 +402,13 @@ def test_the_public_stow_ignores_files_a_scoped_package_overrides_only_for_its_p
     (world.repo / "claude-collibra/.claude/claude-collibra.md").write_text("public")
     work, _ = plan_for(world, private=private, preset="work")
     other, _ = plan_for(world, private=private, preset="homelab")
-    assert stow.private_override_ignores(work) == [r"--ignore=\.claude/claude-collibra\.md"]
-    assert stow.private_override_ignores(other) == []
+    assert stow.overlay_override_ignores(work) == [r"--ignore=\.claude/claude-collibra\.md"]
+    assert stow.overlay_override_ignores(other) == []
 
 
-def test_no_private_root_means_no_private_stow(world):
+def test_no_overlay_root_means_no_private_stow(world):
     plan, runner = plan_for(world)
-    assert stow.stow_private_to_home(plan)
+    assert stow.stow_overlay_to_home(plan)
     assert runner.calls == []
 
 

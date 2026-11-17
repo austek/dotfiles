@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from dotfiles_setup import foothold, overlay, private, state
+from dotfiles_setup import foothold, overlay, overlay_clone, state
 from dotfiles_setup.env import Env
 from dotfiles_setup.install_cmd import _run_install
 from dotfiles_setup.log import Logger
@@ -14,16 +14,16 @@ from dotfiles_setup.propose import run_propose
 __all__ = ["Env", "build_arg_parser", "main"]
 
 
-def _run_private_clone(args: argparse.Namespace, env: Env) -> int:
+def _run_overlay_clone(args: argparse.Namespace, env: Env) -> int:
     logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
     dest = args.dest if args.dest is not None else overlay.DEFAULT_OVERLAY_ROOT
     if logger.dry_run_notice(f"Would clone {args.repo} to {dest}."):
         return 0
-    result = private.clone_overlay(args.repo, dest, run=env.run)
+    result = overlay_clone.clone_overlay(args.repo, dest, run=env.run)
     if not result.succeeded:
         logger.error(result.stdout or f"git clone exited with code {result.returncode}.")
         return result.returncode
-    logger.success(f"Cloned private overlay to {dest}.")
+    logger.success(f"Cloned overlay to {dest}.")
     logger.success("Re-run 'dfctl apply --preset <name>' to layer it in.")
     return 0
 
@@ -54,8 +54,12 @@ def main(argv: list[str] | None = None, env: Env | None = None) -> int:
     if args.command == "propose":
         return run_propose()
 
+    if args.command == "overlay" and args.overlay_command == "clone":
+        return _run_overlay_clone(args, env)
+
     if args.command == "private" and args.private_command == "clone":
-        return _run_private_clone(args, env)
+        print("'dfctl private' is deprecated; use 'dfctl overlay'.", file=sys.stderr)
+        return _run_overlay_clone(args, env)
 
     if args.command == "foothold" and args.foothold_command == "restart":
         return _run_foothold_restart(args, env)
