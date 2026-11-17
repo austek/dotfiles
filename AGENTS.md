@@ -89,7 +89,7 @@ This document provides guidelines for AI assistants (like Gemini, Claude, or Git
 
 ### Development Checkout
 - `~/.dotfiles` and `~/.dotfiles-overlay` stay on `main`: stow symlinks point into them, so switching branches there changes live config.
-- Develop every change in a git worktree (`git worktree add ~/Workspace/austek/dotfiles-wt/<slug> -b <branch> origin/main`). Never run `dfctl apply` or `stow` from a worktree: `apply` refuses to run when the dotfiles checkout or the overlay is a linked worktree (exit 1, detected by a `.git` file in the checkout) unless it is a `--dry-run`, because stow would link `/etc` and `$HOME` into the worktree and break them once it is removed.
+- Develop every change in a git worktree (`git worktree add ~/Workspace/austek/dotfiles/<slug> -b <branch> origin/main`). Never run `dfctl apply` or `stow` from a worktree: `apply` refuses to run when the dotfiles checkout or the overlay is a linked worktree (exit 1, detected by a `.git` file in the checkout) unless it is a `--dry-run`, because stow would link `/etc` and `$HOME` into the worktree and break them once it is removed.
 
 ### Modifying Configurations
 - Edit configuration files directly inside their respective `stow` packages (e.g., `zsh/.zshrc`, relative to your worktree).
