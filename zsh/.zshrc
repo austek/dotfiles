@@ -110,6 +110,11 @@ if [[ -d $HOME/.local/share/pnpm ]]; then
     path_prepend "$PNPM_HOME"
 fi
 
+if [[ -d $HOME/Android/Sdk ]]; then
+    export ANDROID_HOME="$HOME/Android/Sdk"
+    path_prepend "$ANDROID_HOME/platform-tools"
+fi
+
 #THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
 if [[ -r $HOME/.sdkman ]]; then
     export SDKMAN_DIR="$HOME/.sdkman"
