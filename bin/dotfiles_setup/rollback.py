@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -118,16 +119,33 @@ def _dir_created(ctx: RollbackContext, data: str) -> None:
 def _binary_installed(ctx: RollbackContext, data: str) -> None:
     path, _, digest = data.rpartition("|")
     target = Path(path)
+    held = target.with_name(f".{target.name}.rollback-{os.getpid()}")
     try:
-        if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-            ctx.t.logger.info(f"Kept {target}: it changed since the install.")
-            return
-        ctx.t.logger.info(f"Removing installed binary: {target}")
-        target.unlink()
+        os.replace(target, held)
     except FileNotFoundError:
         return
     except OSError as exc:
         ctx.t.logger.warn(f"Failed to remove {target}: {exc}")
+        return
+    try:
+        if hashlib.sha256(held.read_bytes()).hexdigest() == digest:
+            ctx.t.logger.info(f"Removing installed binary: {target}")
+            held.unlink()
+        else:
+            ctx.t.logger.info(f"Kept {target}: it changed since the install.")
+            _put_back(ctx, held, target)
+    except OSError as exc:
+        ctx.t.logger.warn(f"Failed to remove {target}: {exc}; the file is at {held}")
+
+
+def _put_back(ctx: RollbackContext, held: Path, target: Path) -> None:
+    """Links rather than renames, so a target that appeared meanwhile is never overwritten."""
+    try:
+        os.link(held, target)
+    except FileExistsError:
+        ctx.t.logger.warn(f"A newer {target} exists; the previous file is kept at {held}")
+        return
+    held.unlink()
 
 
 def _link_matches(ctx: RollbackContext, link: Path, root: Path) -> bool:

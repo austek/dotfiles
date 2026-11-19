@@ -152,6 +152,58 @@ def test_a_user_binary_replaced_since_the_install_is_kept(tmp_path, capsys):
     assert f"Kept {target}" in capsys.readouterr().out
 
 
+def replace_then_write(monkeypatch, target, content):
+    import os
+    real = os.replace
+
+    def replace(src, dst):
+        real(src, dst)
+        target.write_bytes(content)
+
+    monkeypatch.setattr(rollback.os, "replace", replace)
+
+
+def test_a_binary_replaced_after_the_move_survives(tmp_path, monkeypatch):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    replace_then_write(monkeypatch, target, b"replacement")
+    rollback.perform_rollback(ctx)
+    assert target.read_bytes() == b"replacement"
+    assert sorted(p.name for p in target.parent.iterdir()) == ["chip"]
+
+
+def test_a_matching_binary_is_removed_and_leaves_no_temporary_file(tmp_path):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert list(target.parent.iterdir()) == []
+
+
+def test_a_mismatching_binary_is_put_back_without_a_temporary_file(tmp_path):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path, content=b"someone elses")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert target.read_bytes() == b"someone elses"
+    assert sorted(p.name for p in target.parent.iterdir()) == ["chip"]
+
+
+def test_a_mismatch_with_a_newer_target_keeps_both_and_logs_the_temporary_path(tmp_path, monkeypatch, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path, content=b"someone elses")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    replace_then_write(monkeypatch, target, b"newer")
+    rollback.perform_rollback(ctx)
+    (held,) = target.parent.glob(".chip.rollback-*")
+    assert held.read_bytes() == b"someone elses"
+    assert target.read_bytes() == b"newer"
+    output = capsys.readouterr().out
+    assert f"Kept {target}: it changed since the install." in output
+    assert str(held) in output
+
+
 def test_an_already_removed_user_binary_is_not_an_error(tmp_path, capsys):
     ctx = context(tmp_path, Machine())
     ctx.log.track(f"BIN_INSTALLED:{tmp_path / 'gone'}|abc", dry_run=False)
