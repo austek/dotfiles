@@ -61,8 +61,6 @@ fpath=( ~/.config/zsh/functions "${fpath[@]}" )
 autoload -Uz $fpath[1]/*(:t)
 # --- END NEW FUNCTION LOADING ---
 
-dfctl-update-check
-
 # Base PATH is defined in .zshenv.
 
 alias claude-chrome='CLAUDE_CONFIG_DIR=~/.claude-chrome claude --chrome'
@@ -88,6 +86,8 @@ if [[ -r ~/.config/dotfiles/secrets.env ]]; then
   fi
 fi
 # --- END SECRET ENV VARS ---
+
+dfctl-update-check
 
 # --- DIRENV ---
 # Must follow the secrets blocks so .envrc values (e.g. SONARQUBE_CLI_ORG) win.

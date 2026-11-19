@@ -439,8 +439,11 @@ def test_zshrc_calls_the_check_after_oh_my_zsh_and_the_function_autoload():
     calls = [i for i, line in enumerate(lines) if line.strip() == "dfctl-update-check"]
     autoload = next(i for i, line in enumerate(lines) if line.startswith("autoload -Uz $fpath[1]/"))
     omz = next(i for i, line in enumerate(lines) if line.strip() == "source $ZSH/oh-my-zsh.sh")
+    secrets = [i for i, line in enumerate(lines) if "~/.zshrc.secret" in line or "~/.config/dotfiles/secrets.env" in line]
     assert len(calls) == 1
     assert calls[0] > autoload > omz
+    assert secrets
+    assert calls[0] > max(secrets)
 
 
 REMINDER_STYLE = "zstyle ':dfctl:update' mode reminder"
