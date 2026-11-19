@@ -302,8 +302,12 @@ def _raw_binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved]
     return lambda t, _dir, artifact, _resolved: _user_bin_install(t, artifact, binary)
 
 
+def is_executable(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
 def _user_bin_installed(binary: str) -> Callable[[Tooling], bool]:
-    return lambda t: (user_bin_dir(t) / binary).is_file()
+    return lambda t: is_executable(user_bin_dir(t) / binary)
 
 
 def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
@@ -312,7 +316,7 @@ def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool
 
 CUSTOM_BEHAVIOR: dict[str, tuple[Callable[[Tooling], bool], Callable[[Tooling, Path, Path, Resolved], bool]]] = {
     "zoom": (_deb_installed("zoom"), _deb_install("zoom")),
-    "jetbrains-toolbox": (lambda t: _jetbrains_binary(t.home).is_file(), _jetbrains_install),
+    "jetbrains-toolbox": (lambda t: is_executable(_jetbrains_binary(t.home)), _jetbrains_install),
     "awscli": (_user_bin_installed("aws"), _awscli_install),
 }
 CUSTOM_BINARY_NAMES = {"awscli": "aws"}
@@ -372,7 +376,7 @@ UPGRADABLE_BINARIES: tuple[tuple[str, ReleaseSpec], ...] = (("chip", CHIP),)
 def _binary_version(t: Tooling, binary: str) -> str | None:
     """Version of `~/.local/bin/<binary>` without a leading `v`. None when the file is absent or the probe exits non-zero or prints nothing."""
     managed = user_bin_dir(t) / binary
-    if not managed.is_file():
+    if not is_executable(managed):
         return None
     try:
         result = t.run([str(managed), "--version"], capture_output=True, text=True, timeout=VERSION_PROBE_TIMEOUT_SECONDS)
@@ -433,10 +437,15 @@ def install_user_binaries(
 
 
 def upgrade_user_binaries(t: Tooling, package_names: Collection[str]) -> None:
-    """Installs the pin of each wanted upgradable binary whose installed version is older, never a downgrade."""
+    """Installs the pin of each wanted upgradable binary whose installed version is older, never a downgrade. A managed file that is not executable cannot report a version, so it is replaced with the pin."""
     for package, spec in UPGRADABLE_BINARIES:
-        if package in package_names:
-            upgrade_release(t, spec, _binary_version(t, SPEC_DATA[package].binary or package))
+        if package not in package_names:
+            continue
+        managed = user_bin_dir(t) / (SPEC_DATA[package].binary or package)
+        if managed.is_file() and not is_executable(managed):
+            install_release(t, spec)
+        else:
+            upgrade_release(t, spec, _binary_version(t, managed.name))
 
 
 def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[str]:

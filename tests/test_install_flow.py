@@ -226,6 +226,7 @@ def test_the_report_stale_copies_step_names_a_copy_that_shadows_a_managed_binary
     for directory in (".local/bin", "bin"):
         (home / directory).mkdir(parents=True)
         (home / directory / "sops").write_text(directory)
+        (home / directory / "sops").chmod(0o755)
     steps = dict(flow.build_steps(inputs(tmp_path), frozenset({"sops"}), RollbackLog(tmp_path / "log")))
     steps["report_stale_copies"]()
     assert f"{home / 'bin/sops'} precedes {home / '.local/bin/sops'} on PATH and shadows it" in capsys.readouterr().out

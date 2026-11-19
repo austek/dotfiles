@@ -18,9 +18,10 @@ def tooling(tmp_path):
     return tools.Tooling(Logger(dry_run=False, verbosity=1), tmp_path)
 
 
-def put(directory, name, content="x"):
+def put(directory, name, content="x", mode=0o755):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / name).write_text(content)
+    (directory / name).chmod(mode)
     return directory / name
 
 
@@ -54,6 +55,13 @@ def test_every_copy_gets_one_line(tmp_path, system_dir, capsys):
         put(directory, "sops", "other")
     stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
     assert len(lines(capsys)) == 3
+
+
+def test_a_non_executable_managed_binary_is_not_a_managed_copy(tmp_path, system_dir, capsys):
+    put(tmp_path / ".local/bin", "sops", mode=0o644)
+    put(system_dir, "sops", "old")
+    stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
+    assert lines(capsys) == []
 
 
 def test_a_missing_managed_binary_reports_nothing(tmp_path, system_dir, capsys):

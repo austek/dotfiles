@@ -104,6 +104,7 @@ def make(tmp_path, machine, fetch=lambda url: "", payload=b"x", dry_run=False, r
 def test_installed_tool_is_skipped(tmp_path):
     (tmp_path / ".local" / "bin").mkdir(parents=True)
     (tmp_path / ".local" / "bin" / "lazydocker").write_text("")
+    (tmp_path / ".local" / "bin" / "lazydocker").chmod(0o755)
     t, downloads = make(tmp_path, Machine())
     ri.install_release(t, ri.LAZYDOCKER)
     assert downloads == []
@@ -336,6 +337,7 @@ def test_jetbrains_with_an_existing_binary_is_skipped(tmp_path):
     binary = ri._jetbrains_binary(tmp_path)
     binary.parent.mkdir(parents=True)
     binary.write_text("")
+    binary.chmod(0o755)
     t, downloads = make(tmp_path, Machine())
     ri.install_release(t, ri.JETBRAINS_TOOLBOX)
     assert downloads == []
@@ -580,6 +582,7 @@ def managed_chip(tmp_path):
     (tmp_path / ".local" / "bin").mkdir(parents=True)
     path = tmp_path / ".local" / "bin" / "chip"
     path.write_text("")
+    path.chmod(0o755)
     return path
 
 
@@ -729,6 +732,7 @@ def test_an_archive_without_the_binary_installs_nothing(tmp_path, capsys):
 def test_a_binary_replaces_an_older_copy_atomically_and_leaves_no_temp_file(tmp_path):
     (user_bin(tmp_path)).mkdir(parents=True)
     (user_bin(tmp_path) / "chip").write_bytes(b"old")
+    (user_bin(tmp_path) / "chip").chmod(0o755)
     t, _ = make(tmp_path, ChipMachine("0.0.1", user_bin(tmp_path) / "chip"), payload=b"new")
     ri.upgrade_user_binaries(t, {"chip"})
     assert (user_bin(tmp_path) / "chip").read_bytes() == b"new"
@@ -769,6 +773,7 @@ def test_a_failed_install_is_not_tracked(tmp_path):
 def test_a_binary_already_in_the_user_bin_dir_is_skipped(tmp_path):
     user_bin(tmp_path).mkdir(parents=True)
     (user_bin(tmp_path) / "chip").write_bytes(b"mine")
+    (user_bin(tmp_path) / "chip").chmod(0o755)
     tracker = Tracker()
     t, downloads = make(tmp_path, Machine())
     ri.install_user_binaries(t, {"chip"}, tracker)
@@ -857,6 +862,7 @@ def test_the_user_bin_dir_has_mode_0755_under_a_restrictive_umask(tmp_path):
 def test_an_upgrade_replacement_is_not_tracked_so_rollback_keeps_the_binary(tmp_path):
     user_bin(tmp_path).mkdir(parents=True)
     (user_bin(tmp_path) / "chip").write_bytes(b"old")
+    (user_bin(tmp_path) / "chip").chmod(0o755)
     tracker = Tracker()
     machine = ChipMachine("0.0.60", user_bin(tmp_path) / "chip")
     t, downloads = make(tmp_path, machine, payload=b"new")
@@ -924,6 +930,7 @@ def test_the_real_user_binaries_step_fails_the_run_when_the_directory_cannot_be_
 def test_upgrade_replaces_an_older_user_level_chip(tmp_path):
     user_bin(tmp_path).mkdir(parents=True)
     (user_bin(tmp_path) / "chip").write_bytes(b"old")
+    (user_bin(tmp_path) / "chip").chmod(0o755)
     machine = ChipMachine("0.0.60", user_bin(tmp_path) / "chip")
     t, downloads = make(tmp_path, machine, payload=b"new")
     ri.upgrade_user_binaries(t, {"chip"})
@@ -932,9 +939,53 @@ def test_upgrade_replaces_an_older_user_level_chip(tmp_path):
     assert not machine.ran("sudo")
 
 
+def plain_chip(tmp_path, mode):
+    user_bin(tmp_path).mkdir(parents=True)
+    path = user_bin(tmp_path) / "chip"
+    path.write_bytes(b"old")
+    path.chmod(mode)
+    return path
+
+
+def test_a_non_executable_managed_binary_is_not_installed_and_is_replaced_with_mode_0755(tmp_path):
+    path = plain_chip(tmp_path, 0o644)
+    t, downloads = make(tmp_path, Machine(), payload=b"new")
+    assert not ri.CHIP.is_installed(t)
+    ri.install_release(t, ri.CHIP)
+    assert len(downloads) == 1
+    assert path.read_bytes() == b"new"
+    assert path.stat().st_mode & 0o777 == 0o755
+
+
+def test_an_executable_managed_binary_counts_as_installed_and_is_skipped(tmp_path):
+    path = plain_chip(tmp_path, 0o755)
+    t, downloads = make(tmp_path, Machine(), payload=b"new")
+    assert ri.CHIP.is_installed(t)
+    ri.install_release(t, ri.CHIP)
+    assert downloads == []
+    assert path.read_bytes() == b"old"
+
+
+def test_upgrade_repairs_a_non_executable_managed_binary(tmp_path):
+    path = plain_chip(tmp_path, 0o644)
+    t, downloads = make(tmp_path, Machine(), payload=b"new")
+    ri.upgrade_user_binaries(t, {"chip"})
+    assert len(downloads) == 1
+    assert path.read_bytes() == b"new"
+    assert path.stat().st_mode & 0o777 == 0o755
+
+
+def test_the_install_step_repairs_a_non_executable_managed_binary(tmp_path):
+    path = plain_chip(tmp_path, 0o600)
+    t, _ = make(tmp_path, Machine(), payload=b"new")
+    assert ri.install_user_binaries(t, {"chip"}, Tracker())
+    assert path.stat().st_mode & 0o777 == 0o755
+
+
 def test_upgrade_never_downgrades_a_user_level_chip(tmp_path):
     user_bin(tmp_path).mkdir(parents=True)
     (user_bin(tmp_path) / "chip").write_bytes(b"newer")
+    (user_bin(tmp_path) / "chip").chmod(0o755)
     machine = ChipMachine("9.9.9", user_bin(tmp_path) / "chip", fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
     ri.upgrade_user_binaries(t, {"chip"})
@@ -945,6 +996,7 @@ def test_upgrade_never_downgrades_a_user_level_chip(tmp_path):
 def test_the_user_bin_install_step_upgrades_only_with_the_flag(tmp_path):
     user_bin(tmp_path).mkdir(parents=True)
     (user_bin(tmp_path) / "chip").write_bytes(b"old")
+    (user_bin(tmp_path) / "chip").chmod(0o755)
     machine = ChipMachine("0.0.60", user_bin(tmp_path) / "chip")
     t, downloads = make(tmp_path, machine, payload=b"new")
     assert tools.install_user_binaries(t, {"chip"}, Tracker())
@@ -982,6 +1034,7 @@ def test_awscli_counts_as_installed_only_inside_the_user_bin_dir(tmp_path, monke
     ri.install_user_binaries(t, {"awscli"}, Tracker())
     assert len(downloads) == 1
     user_bin(tmp_path).joinpath("aws").write_text("")
+    user_bin(tmp_path).joinpath("aws").chmod(0o755)
     ri.install_user_binaries(t, {"awscli"}, Tracker())
     assert len(downloads) == 1
 
@@ -1103,6 +1156,7 @@ def test_upgrade_does_not_touch_istioctl_or_awscli(tmp_path):
     user_bin(tmp_path).mkdir(parents=True)
     for name in ("istioctl", "aws"):
         (user_bin(tmp_path) / name).write_text("old")
+        (user_bin(tmp_path) / name).chmod(0o755)
     t, downloads = make(tmp_path, Machine())
     assert tools.install_user_binaries(t, {"istioctl", "awscli"}, Tracker(), upgrade=True)
     assert downloads == []

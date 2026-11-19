@@ -42,7 +42,7 @@ def report_stale_copies(t: Tooling, names: Iterable[str]) -> None:
     others = [(directory, position < rank) for position, directory in enumerate(dirs) if directory != managed_dir]
     for name in sorted(names):
         managed = managed_dir / name
-        if not managed.is_file():
+        if not release_installers.is_executable(managed):
             continue
         for directory, shadows in others:
             if _is_other_file(directory / name, managed):
