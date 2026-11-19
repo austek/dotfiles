@@ -221,7 +221,7 @@ def _aws_executable(root: Path) -> Path | None:
 
 
 def _ensure_aws_link(t: Tooling) -> bool:
-    """The installer exits 0 without linking when the pinned tree already exists, so a missing link is restored here."""
+    """Restores the `aws` link when the installer exits 0 without creating it, as it has done for an already-present pinned tree."""
     link = user_bin_dir(t) / "aws"
     if link.exists():
         return True
@@ -238,7 +238,7 @@ def _ensure_aws_link(t: Tooling) -> bool:
 
 
 def _awscli_tracking(t: Tooling, _spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
-    """Captured before the install: an existing tree is not ours to remove on rollback, so it is not tracked, and neither is a link that was already there."""
+    """Captured before the install. A new tree is tracked as `TREE_INSTALLED`, which always names the `aws` link; rollback keeps that link unless it still resolves into the tree, and then removes both. Over an existing tree only a link that was absent before and present after is tracked, as `LINK_INSTALLED`."""
     root, bin_dir = aws_cli_root(t), user_bin_dir(t)
     action = "LINK_INSTALLED" if root.exists() else "TREE_INSTALLED"
     existed = {name: (bin_dir / name).exists() for name in ("aws", "aws_completer")}

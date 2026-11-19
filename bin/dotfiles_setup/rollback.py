@@ -199,7 +199,7 @@ def _points_into(held: Path, original: Path, root: Path) -> bool:
 
 
 def _link_installed(ctx: RollbackContext, data: str) -> bool:
-    """True when the link is gone or was ours and is now removed; a replaced object is restored and reported as False."""
+    """True when the link is gone or was ours and is now removed; a replaced object is put back, or kept in its holding directory, and reported as False."""
     root_text, _, link_text = data.partition("|")
     root, link = Path(root_text), Path(link_text)
     try:
