@@ -112,6 +112,53 @@ def test_rollback_removes_a_created_file_then_its_created_directory(tmp_path):
     assert not config.exists()
 
 
+def installed_binary(tmp_path, content=b"bin"):
+    import hashlib
+    target = tmp_path / "bin" / "chip"
+    target.parent.mkdir()
+    target.write_bytes(content)
+    return target, hashlib.sha256(b"bin").hexdigest()
+
+
+def test_an_installed_user_binary_is_removed_without_sudo(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    target, digest = installed_binary(tmp_path)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not target.exists()
+    assert machine.commands == []
+
+
+def test_a_created_user_bin_dir_is_removed_after_the_binary_installed_into_it(tmp_path):
+    import hashlib
+    ctx = context(tmp_path, Machine())
+    created = tmp_path / "local-bin"
+    created.mkdir()
+    target = created / "chip"
+    target.write_bytes(b"bin")
+    ctx.log.track(f"DIR_CREATED:{created}", dry_run=False)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{hashlib.sha256(b'bin').hexdigest()}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not created.exists()
+
+
+def test_a_user_binary_replaced_since_the_install_is_kept(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path, content=b"someone elses")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert target.read_bytes() == b"someone elses"
+    assert f"Kept {target}" in capsys.readouterr().out
+
+
+def test_an_already_removed_user_binary_is_not_an_error(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    ctx.log.track(f"BIN_INSTALLED:{tmp_path / 'gone'}|abc", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert "Unknown rollback action" not in capsys.readouterr().err
+
+
 def test_an_unstowed_private_package_is_restowed(tmp_path):
     machine = Machine()
     ctx = context(tmp_path, machine, private=tmp_path / "private")

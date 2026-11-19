@@ -45,6 +45,22 @@ def commit_staged(staged: Path, target: Path) -> None:
     _sync_directory(target.parent)
 
 
+def install_executable(source: Path, target: Path) -> None:
+    """Atomically replace `target` with a mode 0755 copy of `source`; the target's directory must exist."""
+    descriptor, name = tempfile.mkstemp(dir=target.parent, prefix=f"{target.name}.", suffix=".tmp")
+    staged = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as out, source.open("rb") as incoming:
+            shutil.copyfileobj(incoming, out)
+            out.flush()
+            os.fsync(out.fileno())
+        staged.chmod(0o755)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    commit_staged(staged, target)
+
+
 def atomic_write_text(path: Path, text: str, mode: int) -> None:
     commit_staged(stage_text(path, text, mode), path)
 

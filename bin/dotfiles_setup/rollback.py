@@ -3,6 +3,7 @@ and a failed run can undo them newest first."""
 from __future__ import annotations
 
 import errno
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,6 +114,21 @@ def _dir_created(ctx: RollbackContext, data: str) -> None:
         log(f"Kept {data}: {exc}")
 
 
+def _binary_installed(ctx: RollbackContext, data: str) -> None:
+    path, _, digest = data.rpartition("|")
+    target = Path(path)
+    try:
+        if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+            ctx.t.logger.info(f"Kept {target}: it changed since the install.")
+            return
+        ctx.t.logger.info(f"Removing installed binary: {target}")
+        target.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        ctx.t.logger.warn(f"Failed to remove {target}: {exc}")
+
+
 def _apt_removed(ctx: RollbackContext, data: str) -> None:
     ctx.t.logger.info(f"Reinstalling removed package: {data}")
     if not _run_quiet(ctx, ["sudo", "apt-get", "install", "-y", data]):
@@ -156,6 +172,7 @@ _UNDO_HANDLERS: dict[str, Callable[[RollbackContext, str], None]] = {
     "FILE_BACKUP": _restore_backup,
     "FILE_CREATED": _file_created,
     "DIR_CREATED": _dir_created,
+    "BIN_INSTALLED": _binary_installed,
     "APT_REMOVED": _apt_removed,
     "DEB_REMOVED": _deb_removed,
     "FLATPAK_REMOVED": _flatpak_removed,

@@ -101,8 +101,9 @@ def make(tmp_path, machine, fetch=lambda url: "", payload=b"x", dry_run=False, r
     return t, downloads
 
 
-def test_installed_tool_is_skipped(tmp_path, monkeypatch):
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/lazydocker")
+def test_installed_tool_is_skipped(tmp_path):
+    (tmp_path / ".local" / "bin").mkdir(parents=True)
+    (tmp_path / ".local" / "bin" / "lazydocker").write_text("")
     t, downloads = make(tmp_path, Machine())
     ri.install_release(t, ri.LAZYDOCKER)
     assert downloads == []
@@ -129,6 +130,8 @@ def payload_for(spec):
 def installed(spec, machine, home):
     if spec.kind == "deb":
         return machine.ran("sudo", "dpkg", "-i")
+    if spec.binary:
+        return (home / ".local" / "bin" / spec.binary).exists()
     return machine.ran("sudo") or ri._jetbrains_binary(home).exists()
 
 
@@ -204,23 +207,10 @@ def test_lazydocker_bad_archive_continues_without_installing(tmp_path):
     assert not machine.ran("sudo", "install")
 
 
-def test_lazydocker_installs_the_extracted_binary(tmp_path):
-    machine = Machine()
-    t, downloads = make(tmp_path, machine, payload=tarball("lazydocker"))
+def test_lazydocker_downloads_the_pinned_archive(tmp_path):
+    t, downloads = make(tmp_path, Machine(), payload=tarball("lazydocker"))
     ri.install_release(t, ri.LAZYDOCKER)
     assert downloads == [LAZYDOCKER_URL]
-    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
-    assert install[2].endswith("/lazydocker")
-    assert install[3] == "/usr/local/bin"
-
-
-def test_helm_installs_the_binary_from_the_archives_nested_directory(tmp_path):
-    machine = Machine()
-    t, _ = make(tmp_path, machine, payload=tarball("linux-amd64/helm"))
-    ri.install_release(t, dict(ri.RELEASE_SPECS)["helm"])
-    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
-    assert install[2].endswith("/linux-amd64/helm")
-    assert install[3] == "/usr/local/bin"
 
 
 def test_a_tarball_without_the_binary_installs_nothing_and_says_so(tmp_path, capsys):
@@ -244,24 +234,26 @@ def tarball_of(*members):
 
 
 def test_a_directory_named_like_the_binary_is_never_installed(tmp_path):
-    machine = Machine()
-    t, _ = make(tmp_path, machine, payload=tarball_of(("helm", True), ("linux-amd64/helm", False)))
+    t, _ = make(tmp_path, Machine(), payload=tarball_of(("helm", True), ("linux-amd64/helm", False)))
     ri.install_release(t, dict(ri.RELEASE_SPECS)["helm"])
-    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
-    assert install[2].endswith("/linux-amd64/helm")
+    assert (tmp_path / ".local" / "bin" / "helm").read_bytes() == b"bin"
 
 
 def test_equally_deep_matches_pick_the_first_path_in_sorted_order(tmp_path):
-    machine = Machine()
-    t, _ = make(tmp_path, machine, payload=tarball_of(("b/helm", False), ("a/helm", False)))
+    payload = io.BytesIO()
+    with tarfile.open(fileobj=payload, mode="w:gz") as archive:
+        for name, body in (("b/helm", b"from-b"), ("a/helm", b"from-a")):
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            archive.addfile(info, io.BytesIO(body))
+    t, _ = make(tmp_path, Machine(), payload=payload.getvalue())
     ri.install_release(t, dict(ri.RELEASE_SPECS)["helm"])
-    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
-    assert install[2].endswith("/a/helm")
+    assert (tmp_path / ".local" / "bin" / "helm").read_bytes() == b"from-a"
 
 
 def test_lazydocker_install_failure_continues(tmp_path):
-    machine = Machine(fail=[("sudo", "install")])
-    t, _ = make(tmp_path, machine, payload=tarball("lazydocker"))
+    (tmp_path / ".local").write_text("a file where the directory should be")
+    t, _ = make(tmp_path, Machine(), payload=tarball("lazydocker"))
     ri.install_release(t, ri.LAZYDOCKER)
 
 
@@ -579,10 +571,9 @@ class ChipMachine(Machine):
 
 
 @pytest.fixture
-def managed_chip(tmp_path, monkeypatch):
-    monkeypatch.setattr(ri, "INSTALL_DIR", tmp_path / "bin")
-    (tmp_path / "bin").mkdir()
-    path = tmp_path / "bin" / "chip"
+def managed_chip(tmp_path):
+    (tmp_path / ".local" / "bin").mkdir(parents=True)
+    path = tmp_path / ".local" / "bin" / "chip"
     path.write_text("")
     return path
 
@@ -591,35 +582,34 @@ def chip_url(version):
     return f"https://github.com/collibra/chip/releases/download/v{version}/chip-{version}-linux-amd64"
 
 
-def test_chip_installs_the_raw_pinned_binary_under_its_own_name(tmp_path):
-    machine = Machine()
-    t, downloads = make(tmp_path, machine, payload=b"\x7fELF")
+def test_chip_downloads_the_raw_pinned_binary(tmp_path):
+    t, downloads = make(tmp_path, Machine(), payload=b"\x7fELF")
     ri.install_release(t, ri.CHIP)
     assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
-    install = next(c for c in machine.commands if c[:3] == ["sudo", "install", "-T"])
-    assert install[4] == str(ri.INSTALL_DIR / "chip")
 
 
 def test_chip_install_failure_warns_and_continues(tmp_path, capsys):
-    t, _ = make(tmp_path, Machine(fail=[("sudo", "install")]), payload=b"\x7fELF")
+    (tmp_path / ".local").write_text("a file where the directory should be")
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
     ri.install_release(t, ri.CHIP)
     assert "Failed to install chip." in capsys.readouterr().err
 
 
 def test_upgrade_installs_the_chip_pin_over_an_older_binary(tmp_path, managed_chip):
     machine = ChipMachine("0.0.60\nCollibra MCP Server 0.0.60\n", managed_chip)
-    t, downloads = make(tmp_path, machine)
-    ri.upgrade_vendor_debs(t, {"chip"})
+    t, downloads = make(tmp_path, machine, payload=b"new")
+    ri.upgrade_user_binaries(t, {"chip"})
     assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
     assert machine.ran("dpkg", "--compare-versions", "0.0.60", "lt", ri.SPEC_DATA["chip"].version)
-    assert machine.ran("sudo", "install", "-T")
+    assert managed_chip.read_bytes() == b"new"
+    assert not machine.ran("sudo")
 
 
 @pytest.mark.parametrize("installed", ["0.0.67", "0.1.0"])
 def test_upgrade_leaves_a_chip_at_or_above_the_pin(tmp_path, managed_chip, installed):
     machine = ChipMachine(installed, managed_chip, fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
-    ri.upgrade_vendor_debs(t, {"chip"})
+    ri.upgrade_user_binaries(t, {"chip"})
     assert downloads == []
     assert not machine.ran("sudo")
 
@@ -628,7 +618,7 @@ def test_upgrade_reads_the_managed_chip_not_a_stale_one_on_path(tmp_path, manage
     monkeypatch.setattr("shutil.which", lambda name: str(tmp_path / "local" / "chip"))
     machine = ChipMachine("0.1.0", managed_chip, fail=NOT_OLDER)
     t, downloads = make(tmp_path, machine)
-    ri.upgrade_vendor_debs(t, {"chip"})
+    ri.upgrade_user_binaries(t, {"chip"})
     assert downloads == []
     assert not machine.ran("sudo")
     assert not machine.ran("chip")
@@ -637,9 +627,9 @@ def test_upgrade_reads_the_managed_chip_not_a_stale_one_on_path(tmp_path, manage
 def test_upgrade_skips_chip_when_it_is_not_installed_or_not_wanted(tmp_path, managed_chip):
     machine = ChipMachine("0.0.1", managed_chip)
     t, downloads = make(tmp_path, machine)
-    ri.upgrade_vendor_debs(t, set())
+    ri.upgrade_user_binaries(t, set())
     managed_chip.unlink()
-    ri.upgrade_vendor_debs(t, {"chip"})
+    ri.upgrade_user_binaries(t, {"chip"})
     assert downloads == []
     assert not machine.ran(str(managed_chip))
 
@@ -675,7 +665,352 @@ def test_release_installers_run_after_the_script_installers(tmp_path):
         "oh-my-zsh", "sdkman", "nvm", "jetbrains-toolbox", "coderabbit", "sonarqube-cli", "uv",
         "antigravity-ide",
     ]
-    assert [name for name, _ in tools.SYSTEM_TOOL_INSTALLERS] == [
-        "lazydocker", "zoom", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux",
-        "kubeconform", "sops",
+    assert [name for name, _ in tools.SYSTEM_TOOL_INSTALLERS] == ["zoom", "istioctl", "awscli"]
+
+
+BINARY_PACKAGES = ("lazydocker", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux", "kubeconform", "sops")
+
+
+class Tracker:
+    def __init__(self):
+        self.entries = []
+
+    def track(self, entry, *, dry_run):
+        self.entries.append(entry)
+
+
+def user_bin(tmp_path):
+    return tmp_path / ".local" / "bin"
+
+
+def test_only_the_non_binary_release_specs_are_privileged():
+    assert ri.PRIVILEGED_PACKAGES == {"zoom", "istioctl", "awscli"}
+    assert [p for p, _ in ri.USER_BINARY_SPECS] == list(BINARY_PACKAGES)
+
+
+def test_lazydocker_installs_into_the_user_bin_dir_without_sudo(tmp_path):
+    machine = Machine()
+    t, _ = make(tmp_path, machine, payload=tarball("lazydocker"))
+    ri.install_release(t, ri.LAZYDOCKER)
+    installed_binary = user_bin(tmp_path) / "lazydocker"
+    assert installed_binary.read_bytes() == b"bin"
+    assert installed_binary.stat().st_mode & 0o777 == 0o755
+    assert not machine.ran("sudo")
+
+
+def test_a_nested_archive_member_installs_into_the_user_bin_dir(tmp_path):
+    t, _ = make(tmp_path, Machine(), payload=tarball("linux-amd64/helm"))
+    ri.install_release(t, dict(ri.RELEASE_SPECS)["helm"])
+    assert (user_bin(tmp_path) / "helm").is_file()
+
+
+def test_a_raw_binary_installs_under_its_own_name_in_the_user_bin_dir(tmp_path):
+    machine = Machine()
+    t, _ = make(tmp_path, machine, payload=b"\x7fELF")
+    ri.install_release(t, ri.CHIP)
+    assert (user_bin(tmp_path) / "chip").read_bytes() == b"\x7fELF"
+    assert not machine.ran("sudo")
+
+
+def test_an_archive_without_the_binary_installs_nothing(tmp_path, capsys):
+    t, _ = make(tmp_path, Machine(), payload=tarball("README"))
+    ri.install_release(t, dict(ri.RELEASE_SPECS)["flux"])
+    assert not (user_bin(tmp_path) / "flux").exists()
+    assert "Failed to install flux" in capsys.readouterr().err
+
+
+def test_a_binary_replaces_an_older_copy_atomically_and_leaves_no_temp_file(tmp_path):
+    (user_bin(tmp_path)).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").write_bytes(b"old")
+    t, _ = make(tmp_path, ChipMachine("0.0.1", user_bin(tmp_path) / "chip"), payload=b"new")
+    ri.upgrade_user_binaries(t, {"chip"})
+    assert (user_bin(tmp_path) / "chip").read_bytes() == b"new"
+    assert [p.name for p in user_bin(tmp_path).iterdir()] == ["chip"]
+
+
+def test_the_user_bin_dir_is_created_with_mode_0755(tmp_path):
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    ri.install_user_binaries(t, {"chip"}, Tracker())
+    assert user_bin(tmp_path).stat().st_mode & 0o777 == 0o755
+
+
+def test_each_install_is_tracked_with_the_digest_of_the_installed_file(tmp_path):
+    tracker = Tracker()
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    ri.install_user_binaries(t, {"chip"}, tracker)
+    assert tracker.entries == [
+        f"DIR_CREATED:{user_bin(tmp_path)}",
+        f"BIN_INSTALLED:{user_bin(tmp_path) / 'chip'}|{digest_of(b'\x7fELF')}",
     ]
+
+
+def test_an_existing_user_bin_dir_is_not_tracked_as_created(tmp_path):
+    user_bin(tmp_path).mkdir(parents=True)
+    tracker = Tracker()
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    ri.install_user_binaries(t, {"chip"}, tracker)
+    assert [e.split(":")[0] for e in tracker.entries] == ["BIN_INSTALLED"]
+
+
+def test_a_failed_install_is_not_tracked(tmp_path):
+    tracker = Tracker()
+    t, _ = make(tmp_path, Machine(), payload=tarball("README"))
+    ri.install_user_binaries(t, {"flux"}, tracker)
+    assert [e.split(":")[0] for e in tracker.entries] == ["DIR_CREATED"]
+
+
+def test_a_binary_already_in_the_user_bin_dir_is_skipped(tmp_path):
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").write_bytes(b"mine")
+    tracker = Tracker()
+    t, downloads = make(tmp_path, Machine())
+    ri.install_user_binaries(t, {"chip"}, tracker)
+    assert downloads == []
+    assert tracker.entries == []
+
+
+def test_a_copy_elsewhere_on_path_does_not_count_as_installed(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name, path=None: f"/usr/local/bin/{name}")
+    t, downloads = make(tmp_path, Machine(), payload=b"\x7fELF")
+    ri.install_user_binaries(t, {"chip"}, Tracker())
+    assert len(downloads) == 1
+
+
+def test_unwanted_binaries_are_not_installed(tmp_path):
+    t, downloads = make(tmp_path, Machine(), payload=b"\x7fELF")
+    ri.install_user_binaries(t, {"vim"}, Tracker())
+    assert downloads == []
+    assert not user_bin(tmp_path).exists()
+
+
+def test_dry_run_creates_nothing_and_tracks_nothing(tmp_path, capsys):
+    tracker = Tracker()
+    t, downloads = make(tmp_path, Machine(), dry_run=True)
+    ri.install_user_binaries(t, {"chip"}, tracker)
+    assert downloads == []
+    assert tracker.entries == []
+    assert not user_bin(tmp_path).exists()
+    assert "Would download and install chip" in capsys.readouterr().out
+
+
+def test_a_legacy_copy_in_the_system_dir_is_named_for_manual_removal(tmp_path, monkeypatch, capsys):
+    legacy = tmp_path / "usr-local-bin"
+    legacy.mkdir()
+    (legacy / "chip").write_text("")
+    monkeypatch.setattr(ri, "SYSTEM_BIN_DIR", legacy)
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    ri.install_user_binaries(t, {"chip", "sops"}, Tracker())
+    out = capsys.readouterr().out
+    assert f"{legacy / 'chip'} is now shadowed by {user_bin(tmp_path) / 'chip'}; remove it with sudo when convenient" in out
+    assert str(legacy / "sops") not in out
+
+
+def test_a_home_bin_copy_that_precedes_the_user_bin_dir_is_reported_and_kept(tmp_path, capsys):
+    (tmp_path / "bin").mkdir()
+    stale = tmp_path / "bin" / "chip"
+    stale.write_text("stale")
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    ri.install_user_binaries(t, {"chip", "sops"}, Tracker())
+    out = capsys.readouterr().out
+    assert f"{stale} precedes {user_bin(tmp_path) / 'chip'} on PATH and shadows it; remove it manually" in out
+    assert str(tmp_path / "bin" / "sops") not in out
+    assert stale.read_text() == "stale"
+
+
+def test_a_file_where_the_user_bin_parent_should_be_fails_the_step_cleanly(tmp_path, capsys):
+    (tmp_path / ".local").write_text("a file")
+    t, downloads = make(tmp_path, Machine(), payload=b"\x7fELF")
+    assert ri.install_user_binaries(t, {"chip"}, Tracker()) is False
+    assert downloads == []
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_a_broken_symlink_as_the_user_bin_dir_fails_the_step_cleanly(tmp_path, capsys):
+    (tmp_path / ".local").mkdir()
+    user_bin(tmp_path).symlink_to(tmp_path / "nowhere")
+    tracker = Tracker()
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    assert tools.install_user_binaries(t, {"chip"}, tracker) is False
+    assert tracker.entries == []
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_a_failed_directory_step_warns_through_the_logger(tmp_path, capsys):
+    (tmp_path / ".local").write_text("a file")
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    ri.install_user_binaries(t, {"chip"}, Tracker())
+    captured = capsys.readouterr()
+    assert f"Could not create {user_bin(tmp_path)}" in captured.out + captured.err
+
+
+def test_a_successful_run_reports_success(tmp_path):
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    assert ri.install_user_binaries(t, {"chip"}, Tracker()) is True
+    assert ri.install_user_binaries(t, {"vim"}, Tracker()) is True
+
+
+def test_a_non_x86_64_machine_creates_no_user_bin_dir_and_tracks_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr("platform.machine", lambda: "aarch64")
+    tracker = Tracker()
+    t, downloads = make(tmp_path, Machine(), payload=b"\x7fELF")
+    assert ri.install_user_binaries(t, {"chip"}, tracker) is True
+    assert not user_bin(tmp_path).exists()
+    assert tracker.entries == [] and downloads == []
+
+
+def test_the_user_bin_dir_has_mode_0755_under_a_restrictive_umask(tmp_path):
+    import os
+    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
+    previous = os.umask(0o077)
+    try:
+        ri.install_user_binaries(t, {"chip"}, Tracker())
+    finally:
+        os.umask(previous)
+    assert user_bin(tmp_path).stat().st_mode & 0o777 == 0o755
+    assert (user_bin(tmp_path) / "chip").stat().st_mode & 0o777 == 0o755
+
+
+def test_an_upgrade_replacement_is_not_tracked_so_rollback_keeps_the_binary(tmp_path):
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").write_bytes(b"old")
+    tracker = Tracker()
+    machine = ChipMachine("0.0.60", user_bin(tmp_path) / "chip")
+    t, downloads = make(tmp_path, machine, payload=b"new")
+    assert tools.install_user_binaries(t, {"chip"}, tracker, upgrade=True)
+    assert len(downloads) == 1
+    assert (user_bin(tmp_path) / "chip").read_bytes() == b"new"
+    assert tracker.entries == []
+
+
+def test_the_upgrade_ignores_a_legacy_copy_when_there_is_no_user_level_binary(tmp_path, monkeypatch):
+    legacy = tmp_path / "usr-local-bin"
+    legacy.mkdir()
+    (legacy / "chip").write_text("")
+    monkeypatch.setattr("shutil.which", lambda name, path=None: str(legacy / "chip"))
+    machine = ChipMachine("0.0.1", legacy / "chip")
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_user_binaries(t, {"chip"})
+    assert downloads == []
+    assert not machine.ran(str(legacy / "chip"))
+
+
+def test_a_home_bin_symlink_to_the_user_copy_is_not_reported(tmp_path, capsys):
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").write_bytes(b"x")
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "chip").symlink_to(user_bin(tmp_path) / "chip")
+    t, _ = make(tmp_path, Machine())
+    ri.install_user_binaries(t, {"chip"}, Tracker())
+    assert "shadows it" not in capsys.readouterr().out
+
+
+def test_a_legacy_symlink_to_the_user_copy_is_not_reported(tmp_path, monkeypatch, capsys):
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").write_bytes(b"x")
+    legacy = tmp_path / "usr-local-bin"
+    legacy.mkdir()
+    (legacy / "chip").symlink_to(user_bin(tmp_path) / "chip")
+    monkeypatch.setattr(ri, "SYSTEM_BIN_DIR", legacy)
+    t, _ = make(tmp_path, Machine())
+    ri.install_user_binaries(t, {"chip"}, Tracker())
+    assert "shadowed" not in capsys.readouterr().out
+
+
+def test_a_user_symlink_to_a_home_bin_copy_is_not_reported(tmp_path, capsys):
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "chip").write_bytes(b"x")
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").symlink_to(tmp_path / "bin" / "chip")
+    t, _ = make(tmp_path, Machine())
+    ri.install_user_binaries(t, {"chip"}, Tracker())
+    assert "shadows it" not in capsys.readouterr().out
+
+
+def test_a_run_with_nothing_to_install_prints_one_shadowed_line_per_binary(tmp_path, monkeypatch, capsys):
+    legacy = tmp_path / "usr-local-bin"
+    legacy.mkdir()
+    user_bin(tmp_path).mkdir(parents=True)
+    for name in ("chip", "sops"):
+        (legacy / name).write_text("")
+        (user_bin(tmp_path) / name).write_text("")
+    monkeypatch.setattr(ri, "SYSTEM_BIN_DIR", legacy)
+    t, downloads = make(tmp_path, Machine())
+    ri.install_user_binaries(t, {"chip", "sops"}, Tracker())
+    out = capsys.readouterr().out
+    assert downloads == []
+    assert out.count("is now shadowed by") == 2
+
+
+def test_the_real_user_binaries_step_installs_under_no_system(tmp_path, monkeypatch):
+    import dataclasses
+
+    from dotfiles_setup import install_flow as flow
+
+    def download(url, dest):
+        dest.write_bytes(b"\x7fELF")
+
+    base = flow.FlowInputs(
+        t=None, dotfiles_dir=tmp_path / "repo", preset_name="work", packages=frozenset({"chip"}), overlay_root=None,
+        force=False, stamp="T1", euid=1000, system="never",
+    )
+    home = tmp_path / "home"
+    home.mkdir()
+    t = tools.Tooling(Logger(dry_run=False, verbosity=1), home, run=Machine(), download=download)
+    real = flow.build_steps
+    monkeypatch.setattr(flow, "build_steps", lambda *a: [s for s in real(*a) if s[0] == "install_user_binaries"])
+    monkeypatch.setattr(flow.SudoSession, "start", lambda self: pytest.fail("sudo must not be requested"))
+    result = flow.run_install(dataclasses.replace(base, t=t))
+    assert result.succeeded
+    assert (home / ".local" / "bin" / "chip").is_file()
+
+
+def test_the_real_user_binaries_step_fails_the_run_when_the_directory_cannot_be_made(tmp_path, monkeypatch):
+    import dataclasses
+
+    from dotfiles_setup import install_flow as flow
+
+    base = flow.FlowInputs(
+        t=None, dotfiles_dir=tmp_path / "repo", preset_name="work", packages=frozenset({"chip"}), overlay_root=None,
+        force=False, stamp="T1", euid=1000, system="never",
+    )
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".local").write_text("a file")
+    t = tools.Tooling(Logger(dry_run=False, verbosity=1), home, run=Machine())
+    real = flow.build_steps
+    monkeypatch.setattr(flow, "build_steps", lambda *a: [s for s in real(*a) if s[0] == "install_user_binaries"])
+    result = flow.run_install(dataclasses.replace(base, t=t))
+    assert not result.succeeded
+    assert result.rollback_pending
+
+
+def test_upgrade_replaces_an_older_user_level_chip(tmp_path):
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").write_bytes(b"old")
+    machine = ChipMachine("0.0.60", user_bin(tmp_path) / "chip")
+    t, downloads = make(tmp_path, machine, payload=b"new")
+    ri.upgrade_user_binaries(t, {"chip"})
+    assert downloads == [chip_url(ri.SPEC_DATA["chip"].version)]
+    assert machine.ran("dpkg", "--compare-versions", "0.0.60", "lt", ri.SPEC_DATA["chip"].version)
+    assert not machine.ran("sudo")
+
+
+def test_upgrade_never_downgrades_a_user_level_chip(tmp_path):
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").write_bytes(b"newer")
+    machine = ChipMachine("9.9.9", user_bin(tmp_path) / "chip", fail=NOT_OLDER)
+    t, downloads = make(tmp_path, machine)
+    ri.upgrade_user_binaries(t, {"chip"})
+    assert downloads == []
+    assert (user_bin(tmp_path) / "chip").read_bytes() == b"newer"
+
+
+def test_the_user_bin_install_step_upgrades_only_with_the_flag(tmp_path):
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "chip").write_bytes(b"old")
+    machine = ChipMachine("0.0.60", user_bin(tmp_path) / "chip")
+    t, downloads = make(tmp_path, machine, payload=b"new")
+    assert tools.install_user_binaries(t, {"chip"}, Tracker())
+    assert downloads == []
+    assert tools.install_user_binaries(t, {"chip"}, Tracker(), upgrade=True)
+    assert len(downloads) == 1

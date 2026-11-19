@@ -67,14 +67,21 @@ def test_packages_installed_outside_apt_are_not_checked_against_dpkg(tmp_path, n
 
 def test_a_missing_sudo_release_tool_is_a_reason(tmp_path, nosnap, monkeypatch):
     monkeypatch.setattr("platform.machine", lambda: "x86_64")
-    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "chip", "uv"))
-    assert sc.system_stage_reasons(ctx, nosnap) == ["1 release tool(s) not installed (chip)"]
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "istioctl", "uv"))
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 release tool(s) not installed (istioctl)"]
 
 
 def test_an_installed_sudo_release_tool_is_not_a_reason(tmp_path, nosnap, monkeypatch):
     monkeypatch.setattr("platform.machine", lambda: "x86_64")
-    monkeypatch.setattr("shutil.which", lambda name, path=None: "/usr/local/bin/chip" if name == "chip" else None)
-    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "chip"))
+    monkeypatch.setattr("shutil.which", lambda name, path=None: "/usr/local/bin/istioctl" if name == "istioctl" else None)
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "istioctl"))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
+
+
+@pytest.mark.parametrize("package", ["lazydocker", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux", "kubeconform", "sops"])
+def test_a_missing_pinned_binary_alone_is_not_a_reason(tmp_path, nosnap, monkeypatch, package):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", package))
     assert sc.system_stage_reasons(ctx, nosnap) == []
 
 

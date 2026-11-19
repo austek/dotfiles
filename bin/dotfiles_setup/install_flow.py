@@ -129,6 +129,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("strip_snap_from_system_path", lambda: system_steps.strip_snap_from_system_path(ctx)),
         ("configure_apt_sources", lambda: apt_sources.configure_apt_sources(ctx)),
         ("install_tools", lambda: tools.install_tools(t, packages)),
+        ("install_user_binaries", lambda: tools.install_user_binaries(t, packages, changes, inputs.upgrade)),
         ("install_system_tools", lambda: tools.install_system_tools(t, packages, inputs.upgrade)),
         ("install_packages", lambda: apt_packages.install_packages(ctx)),
         *_upgrade_steps(inputs, ctx),

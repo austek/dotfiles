@@ -66,7 +66,7 @@ def test_steps_run_in_the_order_the_shell_installer_used(tmp_path):
     steps = flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))
     assert [name for name, _ in steps] == [
         "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
-        "install_tools", "install_system_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
+        "install_tools", "install_user_binaries", "install_system_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
         "report_unremoved", "report_skipped_sources", "install_post_apt_tools",
         "enable_gpaste_extension",
         "install_github_bins", "configure_docker_group", "configure_dotfiles", "refresh_zsh_completion_cache", "ensure_secrets_env", "retire_claude_profile",
@@ -207,6 +207,26 @@ def test_rule014_auto_skips_the_system_steps_and_the_sudo_prompt_when_nothing_is
     monkeypatch.setattr(flow, "system_stage_reasons", lambda ctx: [])
     assert flow.run_install(inputs(tmp_path, system="auto")).succeeded
     assert ran == ["configure_dotfiles"]
+
+
+def test_install_user_binaries_is_a_user_stage_step():
+    assert "install_user_binaries" not in flow.SYSTEM_STEPS
+    assert "install_tools" not in flow.SYSTEM_STEPS
+
+
+def test_a_missing_pinned_binary_alone_skips_the_sudo_prompt_but_still_installs_it(
+    tmp_path, monkeypatch, settled_machine,
+):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    monkeypatch.setattr("shutil.which", lambda name, path=None: None)
+    _no_sudo_prompt(monkeypatch)
+    ran = []
+    steps = [("install_user_binaries", lambda: ran.append("install_user_binaries")),
+             ("install_system_tools", lambda: ran.append("install_system_tools"))]
+    monkeypatch.setattr(flow, "build_steps", lambda *a: steps)
+    flow_inputs = inputs(tmp_path, system="auto", run=settled_machine, packages="vim htop chip kubectl")
+    assert flow.run_install(flow_inputs).succeeded
+    assert ran == ["install_user_binaries"]
 
 
 def test_auto_runs_the_system_steps_when_the_check_finds_work(tmp_path, no_sudo, monkeypatch):

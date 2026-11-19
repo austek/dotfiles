@@ -1,6 +1,7 @@
 """Installs tools shipped as release artifacts; a failure at any stage warns and continues."""
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import re
@@ -22,13 +23,15 @@ from dotfiles_setup.deb_helpers import (
     _install_deb_or_fix_broken,
     _is_older,
 )
+from dotfiles_setup.fsutil import install_executable
 from dotfiles_setup.release_specs import SpecData, load_specs
 from dotfiles_setup.result import Err, Ok
+from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
 MSG_CONTINUING_SETUP = "Continuing with setup..."
 SUPPORTED_ARCH = "x86_64"
-INSTALL_DIR = Path("/usr/local/bin")
+SYSTEM_BIN_DIR = Path("/usr/local/bin")
 VERSION_PROBE_TIMEOUT_SECONDS = 10
 SPECS_FILE = Path(__file__).resolve().parent.parent.parent / "packages" / "release_specs.json"
 EXTRACT_ERRORS = (
@@ -50,6 +53,11 @@ class ReleaseSpec:
     resolve: Callable[[Tooling], Resolved]
     kind: Literal["targz", "zip", "deb", "binary"]
     install: Callable[[Tooling, Path, Path, Resolved], bool]
+    binary: str | None = None
+
+
+def user_bin_dir(t: Tooling) -> Path:
+    return t.home / ".local" / "bin"
 
 
 def _cache_dir(t: Tooling, tool: str) -> Path:
@@ -132,7 +140,17 @@ def _unpack(t: Tooling, spec: ReleaseSpec, artifact: Path, temp_dir: Path) -> bo
     return True
 
 
-def _fetch_and_install(t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_dir: Path) -> None:
+def _track_binary(t: Tooling, spec: ReleaseSpec, changes: RollbackLog | None) -> None:
+    if changes is None or spec.binary is None:
+        return
+    target = user_bin_dir(t) / spec.binary
+    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    changes.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=t.logger.dry_run)
+
+
+def _fetch_and_install(
+    t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_dir: Path, changes: RollbackLog | None = None,
+) -> None:
     artifact = temp_dir / "artifact"
     suffix = f" v{resolved.version}" if resolved.version else ""
     t.logger.info(f"Fetching {spec.name}{suffix}...")
@@ -153,6 +171,7 @@ def _fetch_and_install(t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_d
     if not spec.install(t, temp_dir, artifact, resolved):
         skip(t, f"Failed to install {spec.name}.")
         return
+    _track_binary(t, spec, changes)
     t.logger.success(f"{spec.name} installed successfully{suffix}.")
 
 
@@ -163,7 +182,7 @@ def _supported_arch(t: Tooling, spec: ReleaseSpec) -> bool:
     return False
 
 
-def install_release(t: Tooling, spec: ReleaseSpec) -> None:
+def install_release(t: Tooling, spec: ReleaseSpec, changes: RollbackLog | None = None) -> None:
     t.logger.info(f"Installing {spec.name}...")
     if spec.is_installed(t):
         t.logger.info(f"{spec.name} is already installed. Skipping.")
@@ -174,11 +193,11 @@ def install_release(t: Tooling, spec: ReleaseSpec) -> None:
     if dry_run_all(t, f"Would download and install {spec.name} v{resolved.version}"):
         return
     with tempfile.TemporaryDirectory() as temp_dir:
-        _fetch_and_install(t, spec, resolved, Path(temp_dir))
+        _fetch_and_install(t, spec, resolved, Path(temp_dir), changes)
 
 
 def _sudo_install(t: Tooling, binary: Path) -> bool:
-    return t.run(["sudo", "install", str(binary), "/usr/local/bin"]).returncode == 0
+    return t.run(["sudo", "install", str(binary), str(SYSTEM_BIN_DIR)]).returncode == 0
 
 
 def _istioctl_install(t: Tooling, temp_dir: Path, _artifact: Path, resolved: Resolved) -> bool:
@@ -216,18 +235,31 @@ def _which_installed(binary: str) -> Callable[[Tooling], bool]:
     return lambda t: shutil.which(binary) is not None
 
 
+def _user_bin_install(t: Tooling, source: Path, binary: str) -> bool:
+    target = user_bin_dir(t) / binary
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        install_executable(source, target)
+    except OSError as error:
+        t.logger.error(f"Could not write {target}: {error}")
+        return False
+    return True
+
+
 def _binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
     def install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
         found = sorted((p for p in temp_dir.rglob(binary) if p.is_file()), key=lambda p: (len(p.parts), str(p)))
-        return bool(found) and _sudo_install(t, found[0])
+        return bool(found) and _user_bin_install(t, found[0], binary)
 
     return install
 
 
 def _raw_binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
-    return lambda t, _dir, artifact, _resolved: t.run(
-        ["sudo", "install", "-T", str(artifact), str(INSTALL_DIR / binary)],
-    ).returncode == 0
+    return lambda t, _dir, artifact, _resolved: _user_bin_install(t, artifact, binary)
+
+
+def _user_bin_installed(binary: str) -> Callable[[Tooling], bool]:
+    return lambda t: (user_bin_dir(t) / binary).is_file()
 
 
 def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
@@ -246,10 +278,10 @@ def _release_spec(data: SpecData) -> ReleaseSpec:
     resolved = Resolved(data.version, data.download_url, data.artifact_name)
     if data.binary:
         place = _raw_binary_install if data.kind == "binary" else _binary_install
-        is_installed, install = _which_installed(data.binary), place(data.binary)
+        is_installed, install = _user_bin_installed(data.binary), place(data.binary)
     else:
         is_installed, install = CUSTOM_BEHAVIOR[data.package]
-    return ReleaseSpec(data.name, is_installed, lambda _t: resolved, data.kind, install)
+    return ReleaseSpec(data.name, is_installed, lambda _t: resolved, data.kind, install, data.binary)
 
 
 def _load_spec_data() -> tuple[SpecData, ...]:
@@ -265,8 +297,9 @@ def _load_spec_data() -> tuple[SpecData, ...]:
 
 SPEC_DATA: dict[str, SpecData] = {d.package: d for d in _load_spec_data()}
 RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = tuple((p, _release_spec(d)) for p, d in SPEC_DATA.items())
-PRIVILEGED_PACKAGES = frozenset({"zoom", "istioctl", "awscli", *(p for p, d in SPEC_DATA.items() if d.binary)})
-USER_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p not in PRIVILEGED_PACKAGES)
+PRIVILEGED_PACKAGES = frozenset({"zoom", "istioctl", "awscli"})
+USER_BINARY_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if s.binary)
+USER_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p not in PRIVILEGED_PACKAGES and not s.binary)
 SYSTEM_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p in PRIVILEGED_PACKAGES)
 
 
@@ -285,13 +318,12 @@ UPGRADABLE_BINARIES: tuple[tuple[str, ReleaseSpec], ...] = (("chip", CHIP),)
 
 
 def _binary_version(t: Tooling, binary: str) -> str | None:
-    """Returns the version on the first line of `--version` of `<INSTALL_DIR>/<binary>`, else of the PATH match the install check accepts, without a leading `v`; None when neither exists, it exits non-zero or prints nothing."""
-    managed = INSTALL_DIR / binary
-    path = str(managed) if managed.is_file() else shutil.which(binary)
-    if path is None:
+    """Version of `~/.local/bin/<binary>` without a leading `v`. None when the file is absent or the probe exits non-zero or prints nothing."""
+    managed = user_bin_dir(t) / binary
+    if not managed.is_file():
         return None
     try:
-        result = t.run([path, "--version"], capture_output=True, text=True, timeout=VERSION_PROBE_TIMEOUT_SECONDS)
+        result = t.run([str(managed), "--version"], capture_output=True, text=True, timeout=VERSION_PROBE_TIMEOUT_SECONDS)
     except (subprocess.TimeoutExpired, OSError):
         return None
     lines = (result.stdout or "").strip().splitlines() if result.returncode == 0 else []
@@ -315,6 +347,62 @@ def upgrade_release(t: Tooling, spec: ReleaseSpec, installed: str | None) -> Non
         _fetch_and_install(t, spec, resolved, Path(temp_dir))
 
 
+def _ensure_user_bin_dir(t: Tooling, changes: RollbackLog | None) -> bool:
+    target = user_bin_dir(t)
+    if target.is_dir() or t.logger.dry_run:
+        return True
+    try:
+        target.mkdir(parents=True)
+        target.chmod(0o755)
+    except OSError as error:
+        t.logger.warn(f"Could not create {target}: {error}")
+        return False
+    if changes is not None:
+        changes.track(f"DIR_CREATED:{target}", dry_run=False)
+    return True
+
+
+def _same_file(first: Path, second: Path) -> bool:
+    return first.resolve() == second.resolve()
+
+
+def _note_system_copy(t: Tooling, spec: ReleaseSpec) -> None:
+    assert spec.binary is not None
+    current = user_bin_dir(t) / spec.binary
+    if not current.is_file():
+        return
+    legacy, home_copy = SYSTEM_BIN_DIR / spec.binary, t.home / "bin" / spec.binary
+    if legacy.is_file() and not _same_file(legacy, current):
+        t.logger.info(f"{legacy} is now shadowed by {current}; remove it with sudo when convenient.")
+    if home_copy.is_file() and not _same_file(home_copy, current):
+        t.logger.info(f"{home_copy} precedes {current} on PATH and shadows it; remove it manually.")
+
+
+def _user_bin_dir_ready(t: Tooling, wanted: list[ReleaseSpec], changes: RollbackLog | None) -> bool:
+    missing = platform.machine() == SUPPORTED_ARCH and any(not spec.is_installed(t) for spec in wanted)
+    return _ensure_user_bin_dir(t, changes) if missing else True
+
+
+def install_user_binaries(
+    t: Tooling, package_names: Collection[str], changes: RollbackLog | None = None,
+) -> bool:
+    """Installs each wanted pinned binary that is missing from `~/.local/bin`, with no sudo, and reports older copies it shadows. False when the directory cannot be created."""
+    wanted = [spec for package, spec in USER_BINARY_SPECS if package in package_names]
+    if not _user_bin_dir_ready(t, wanted, changes):
+        return False
+    for spec in wanted:
+        install_release(t, spec, changes)
+        _note_system_copy(t, spec)
+    return True
+
+
+def upgrade_user_binaries(t: Tooling, package_names: Collection[str]) -> None:
+    """Installs the pin of each wanted upgradable binary whose installed version is older, never a downgrade."""
+    for package, spec in UPGRADABLE_BINARIES:
+        if package in package_names:
+            upgrade_release(t, spec, _binary_version(t, SPEC_DATA[package].binary or package))
+
+
 def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[str]:
     """Names of wanted sudo-installed releases that are absent; empty on an unsupported architecture."""
     if platform.machine() != SUPPORTED_ARCH:
@@ -323,10 +411,7 @@ def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[
 
 
 def upgrade_vendor_debs(t: Tooling, package_names: Collection[str]) -> None:
-    """Installs the pinned version of each wanted vendor .deb or release binary whose installed version is older than the pin."""
+    """Installs the pinned version of each wanted vendor .deb whose installed version is older than the pin."""
     for package, spec in UPGRADABLE_DEBS:
         if package in package_names:
             upgrade_release(t, spec, _dpkg_version(t, package))
-    for package, spec in UPGRADABLE_BINARIES:
-        if package in package_names:
-            upgrade_release(t, spec, _binary_version(t, SPEC_DATA[package].binary or package))
