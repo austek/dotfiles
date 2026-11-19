@@ -123,6 +123,15 @@ def test_a_new_link_and_directory_are_tracked_for_rollback(tmp_path):
     ]
 
 
+def test_a_failing_success_log_still_leaves_the_link_tracked(tmp_path, monkeypatch):
+    real = real_tool(tmp_path, SONAR)
+    monkeypatch.setattr(Logger, "info", lambda self, message: (_ for _ in ()).throw(BrokenPipeError()))
+    tracker = Tracker()
+    with pytest.raises(BrokenPipeError):
+        user_links.link_user_tools(tooling(tmp_path), {"sonarqube-cli"}, tracker)
+    assert f"LINK_INSTALLED:{real.parent}|{user_bin(tmp_path) / 'sonar'}" in tracker.entries
+
+
 def test_an_existing_directory_is_not_tracked_as_created(tmp_path):
     real_tool(tmp_path, SONAR)
     user_bin(tmp_path).mkdir(parents=True)

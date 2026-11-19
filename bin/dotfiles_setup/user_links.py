@@ -44,9 +44,9 @@ def _link_one(t: Tooling, name: str, real: Path, changes: RollbackLog | None) ->
         case Err(error=message):
             _warn_unlinked(t, name, message)
         case _:
-            t.logger.info(f"Linked {link} to {real}.")
             if fresh and changes is not None:
                 changes.track(f"LINK_INSTALLED:{real.parent}|{link}", dry_run=False)
+            t.logger.info(f"Linked {link} to {real}.")
 
 
 def link_user_tools(t: Tooling, package_names: Collection[str], changes: RollbackLog | None = None) -> bool:
