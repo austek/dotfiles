@@ -421,7 +421,9 @@ def test_no_module_outside_the_declared_privileged_set_uses_sudo():
 
 ENV_ASSIGNMENT = re.compile(r"^\w+=")
 SHELL_SUDO = re.compile(
-    r"(?:^|[;&|(`]|\$\(|\b(?:if|then|do|else|exec|xargs|env|time|nohup))\s*sudo\s+((?:-\S+\s+|\w+=\S*\s+)*)([\w./+-]+)"
+    r"(?:^|[\n\r;&|(`]|\$\(|\b(?:if|then|do|else|exec|xargs|env|time|nohup|eval))\s*(?:/[\w./-]*/)?sudo\s+"
+    r"((?:-[ughpCrtTUDR]\s+\S+\s+|-\S+\s+|\w+=\S*\s+)*)([\w./+-]+)",
+    re.MULTILINE,
 )
 PATH_LITERAL = re.compile(r"^\S*\.local/bin(/\S*)?$")
 
@@ -473,6 +475,14 @@ def unapproved_sudo(module: str, source: str) -> list[str]:
     ('t.run(["dpkg", "-i", deb])', set()),
     ('t.run(["sh", "-c", "sudo chmod 777 target"])', {"chmod"}),
     ('t.warn("this needs sudo access")', set()),
+    ('t.run(["sh", "-c", "set -e\\nsudo rm -f x"])', {"rm"}),
+    ('t.run(["sh", "-c", "set -e\\r\\nsudo -n tee y"])', {"tee"}),
+    ('t.run(["sh", "-c", "sudo -u root chmod 777 x"])', {"chmod"}),
+    ('t.run(["sh", "-c", "sudo -n -g adm -u root chown a b"])', {"chown"}),
+    ('t.run(["sh", "-c", "eval sudo rm x"])', {"rm"}),
+    ('t.run(["sh", "-c", "/usr/bin/sudo rm x"])', {"rm"}),
+    ('t.run(["sh", "-c", "cd /tmp && /usr/local/bin/sudo -n mv a b"])', {"mv"}),
+    ('t.warn("see /usr/bin/sudo for details")', set()),
     ('t.run(["bash", "-c", "cd /tmp && sudo -n DEBIAN_FRONTEND=x apt-get install y; sudo rm -f z"])', {"apt-get", "rm"}),
 ])
 def test_the_verb_extraction_reads_what_sudo_runs(source, expected):
