@@ -118,15 +118,7 @@ Open a new terminal or run `zsh` to load your new environment.
 === Updating Applications
 
 To add or remove applications, *do not* use `apt-get install` directly.
-Instead, edit the package lists in the `~/.dotfiles/packages/` directory:
-
-* `apt_common.txt` — all presets
-* `apt_desktop.txt` — GUI packages, only pulled in by `work`/`personal`
-* `apt_rust.txt` — Rust tooling, only pulled in by `personal`/`homelab`
-* `apt_work.txt`
-* `apt_personal.txt`
-* `apt_homelab.txt`
-* `github_bins.txt`
+Instead, edit the package lists in the `packages/` directory. `CONTRIBUTING.md` ("Adding a package") says which mechanism to use, which list maps to which preset, and how versions are tracked.
 
 Re-run `dfctl apply` to pick up the change: it installs what a list gained and, after a confirmation prompt, uninstalls what a list dropped. To skip a package on one machine only, add it to that machine's opt-out file instead — see "Presets and the Overlay" below.
 
