@@ -135,11 +135,11 @@ def _binary_installed(ctx: RollbackContext, data: str) -> None:
             ctx.t.logger.info(f"Kept {target}: it changed since the install.")
             _put_back(ctx, held, target)
     except OSError as exc:
-        ctx.t.logger.warn(f"Failed to remove {target}: {exc}; the file is at {held}")
+        ctx.t.logger.warn(f"Could not finish rolling back {target}: {exc}; the file is at {held}")
 
 
 def _put_back(ctx: RollbackContext, held: Path, target: Path) -> None:
-    """Links rather than renames, so a target that appeared meanwhile is never overwritten."""
+    """Restores `held` to `target` as a hard link and never overwrites an existing target: on `FileExistsError` it warns and leaves `held` in place. Other `OSError`s propagate."""
     try:
         os.link(held, target)
     except FileExistsError:

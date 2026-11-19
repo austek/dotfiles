@@ -1,5 +1,5 @@
 # With the mode $1, frequency $2 and stamp file $3: writes the stamp when none is readable (missing, unreadable, malformed or future-dated), and once it is $2 days
-# old asks (mode ask) or goes ahead (mode auto), then writes the stamp.
+# old asks (mode ask), goes ahead (mode auto) or prints the reminder (mode reminder), then writes the stamp.
 _dfctl_update_run() {
   emulate -L zsh
   local -i days

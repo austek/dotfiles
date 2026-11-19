@@ -434,7 +434,7 @@ def test_the_lock_is_removed_after_an_interrupt_at_the_prompt(due):
     assert not due.lock.exists()
 
 
-def test_zshrc_calls_the_check_after_oh_my_zsh_and_the_function_autoload():
+def test_zshrc_calls_the_check_after_the_autoload_and_the_local_overrides():
     lines = (ROOT / "zsh" / ".zshrc").read_text().splitlines()
     calls = [i for i, line in enumerate(lines) if line.strip() == "dfctl-update-check"]
     autoload = next(i for i, line in enumerate(lines) if line.startswith("autoload -Uz $fpath[1]/"))
