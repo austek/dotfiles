@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from dotfiles_setup import stale_copies, tools
+from dotfiles_setup import path_dirs, stale_copies, tools
 from dotfiles_setup.log import Logger
 from dotfiles_setup.release_installers import SYSTEM_BIN_DIR
 
@@ -94,6 +94,17 @@ def test_an_inherited_sdkman_java_version_beats_the_files_current_entry(tmp_path
     assert "~/.sdkman/candidates/java/17/bin" in path
     assert "~/.sdkman/candidates/java/current/bin" not in path
     assert "~/.sdkman/candidates/gradle/current/bin" in path
+
+
+def test_the_shell_claude_and_foothold_paths_agree_on_the_real_list(tmp_path):
+    entries = path_dirs.load(REPO, None).value
+    home_dirs = [entry[2:] for entry in entries if entry.startswith("~/")]
+    shell = resolved_path(tmp_path, home_dirs)
+    expanded = path_dirs.for_env(entries, tmp_path).split(":")
+    systemd = [entry.replace("%h", str(tmp_path)) for entry in path_dirs.for_systemd(entries)]
+    assert expanded == systemd
+    existing = [entry.replace(str(tmp_path), "~") for entry in expanded if Path(entry).is_dir()]
+    assert shell == existing
 
 
 def test_zshenv_falls_back_to_the_base_dirs_when_the_file_is_unreadable(tmp_path):
