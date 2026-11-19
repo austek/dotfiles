@@ -241,6 +241,19 @@ def test_a_binary_that_cannot_be_put_back_keeps_its_directory_and_says_where(tmp
     assert str(held) in capsys.readouterr().out
 
 
+def test_a_failed_move_whose_directory_cannot_be_removed_warns_and_does_not_escape(tmp_path, monkeypatch, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    monkeypatch.setattr(rollback.os, "replace", lambda src, dst: (_ for _ in ()).throw(PermissionError("denied")))
+    monkeypatch.setattr(rollback.Path, "rmdir", lambda self: (_ for _ in ()).throw(OSError("busy")))
+    rollback.perform_rollback(ctx)
+    assert target.exists()
+    output = capsys.readouterr().out
+    assert "denied" in output
+    assert "busy" in output
+
+
 def swap_before_replace(monkeypatch, path, make):
     real = os.replace
 

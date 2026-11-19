@@ -1092,6 +1092,30 @@ def test_an_aws_link_that_cannot_be_restored_fails_the_step(tmp_path, capsys):
     assert [e.split(":")[0] for e in tracker.entries] == ["DIR_CREATED"]
 
 
+def test_the_aws_fallback_picks_the_highest_version_by_number_not_by_text(tmp_path):
+    for version in ("2.9.0", "2.10.1", "2.2.7"):
+        executable = aws_root(tmp_path) / "v2" / version / "bin" / "aws"
+        executable.parent.mkdir(parents=True)
+        executable.write_text("#!/bin/sh\n")
+    t, _ = make(tmp_path, AwsMachine(links=(), tree=()), payload=zipball("aws/install", 0o755))
+    ri.install_user_binaries(t, {"awscli"}, Tracker())
+    link = user_bin(tmp_path) / "aws"
+    assert link.resolve() == (aws_root(tmp_path) / "v2" / "2.10.1" / "bin" / "aws").resolve()
+
+
+def test_a_dangling_aws_link_is_relinked_and_tracked_as_created(tmp_path):
+    executable = aws_root(tmp_path) / "v2" / "current" / "bin" / "aws"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("#!/bin/sh\n")
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "aws").symlink_to(tmp_path / "gone")
+    tracker = Tracker()
+    t, _ = make(tmp_path, AwsMachine(links=(), tree=()), payload=zipball("aws/install", 0o755))
+    ri.install_user_binaries(t, {"awscli"}, tracker)
+    assert (user_bin(tmp_path) / "aws").resolve() == executable.resolve()
+    assert f"LINK_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws'}" in tracker.entries
+
+
 def test_an_aws_link_the_installer_made_is_left_alone(tmp_path):
     t, _ = make(tmp_path, AwsMachine(), payload=zipball("aws/install", 0o755))
     ri.install_user_binaries(t, {"awscli"}, Tracker())

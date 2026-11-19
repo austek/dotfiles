@@ -210,9 +210,14 @@ def _awscli_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Reso
     return t.run(argv).returncode == 0 and _ensure_aws_link(t)
 
 
+def _version_key(executable: Path) -> tuple[tuple[int, ...], str]:
+    name = executable.parent.parent.name
+    return tuple(int(digits) for digits in re.findall(r"\d+", name)), name
+
+
 def _aws_executable(root: Path) -> Path | None:
-    candidates = [root / "v2" / "current" / "bin" / "aws", *sorted(root.glob("v2/*/bin/aws"), reverse=True)]
-    return next((path for path in candidates if path.is_file()), None)
+    versioned = sorted(root.glob("v2/*/bin/aws"), key=_version_key, reverse=True)
+    return next((path for path in [root / "v2" / "current" / "bin" / "aws", *versioned] if path.is_file()), None)
 
 
 def _ensure_aws_link(t: Tooling) -> bool:
@@ -232,18 +237,14 @@ def _ensure_aws_link(t: Tooling) -> bool:
             return True
 
 
-def _link_exists(link: Path) -> bool:
-    return link.is_symlink() or link.exists()
-
-
 def _awscli_tracking(t: Tooling, _spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
     """Captured before the install: an existing tree is not ours to remove on rollback, so it is not tracked, and neither is a link that was already there."""
     root, bin_dir = aws_cli_root(t), user_bin_dir(t)
     action = "LINK_INSTALLED" if root.exists() else "TREE_INSTALLED"
-    existed = {name: _link_exists(bin_dir / name) for name in ("aws", "aws_completer")}
+    existed = {name: (bin_dir / name).exists() for name in ("aws", "aws_completer")}
 
     def created(name: str) -> bool:
-        return not existed[name] and _link_exists(bin_dir / name)
+        return not existed[name] and (bin_dir / name).exists()
 
     def record() -> None:
         if changes is None:

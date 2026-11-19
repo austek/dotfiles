@@ -157,7 +157,10 @@ def _hold(ctx: RollbackContext, path: Path) -> Path | None:
     try:
         os.replace(path, held)
     except OSError as exc:
-        held_dir.rmdir()
+        try:
+            held_dir.rmdir()
+        except OSError as cleanup:
+            ctx.t.logger.warn(f"Could not remove the empty directory {held_dir}: {cleanup}")
         if isinstance(exc, FileNotFoundError):
             return None
         ctx.t.logger.warn(f"Failed to remove {path}: {exc}")
