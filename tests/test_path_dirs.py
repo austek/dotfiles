@@ -60,6 +60,20 @@ def test_load_with_a_missing_base_file_is_an_error(tmp_path):
     assert isinstance(path_dirs.load(tmp_path, None), Err)
 
 
+def test_load_rejects_a_base_file_with_no_directories(tmp_path):
+    _write_base(tmp_path, "# only comments\n\n")
+    result = path_dirs.load(tmp_path, None)
+    assert isinstance(result, Err)
+    assert "no directories" in result.error
+
+
+def test_load_accepts_an_empty_extras_file(tmp_path):
+    dotfiles, overlay_root = tmp_path / "dotfiles", tmp_path / "overlay"
+    _write_base(dotfiles, "~/a\n")
+    _write_extras(overlay_root, "# nothing yet\n")
+    assert _unwrap(path_dirs.load(dotfiles, overlay_root)) == ("~/a",)
+
+
 def test_load_names_the_file_of_a_malformed_extras_entry(tmp_path):
     dotfiles, overlay_root = tmp_path / "dotfiles", tmp_path / "overlay"
     _write_base(dotfiles, "~/a\n")

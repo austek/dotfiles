@@ -49,9 +49,14 @@ def _extras(overlay_root: Path | None) -> Result[tuple[str, ...]]:
     return _read(overlay_root / EXTRAS_FILE)
 
 
+def _non_empty(base: tuple[str, ...], source: Path) -> Result[tuple[str, ...]]:
+    return Ok(base) if base else Err(f"{source}: no directories listed; Claude and the foothold unit would get an empty PATH.")
+
+
 def load(dotfiles_dir: Path, overlay_root: Path | None) -> Result[tuple[str, ...]]:
-    """The base list followed by the overlay's extras, first duplicate kept. A missing base file is an error."""
-    return _read(dotfiles_dir / BASE_FILE).and_then(
+    """The base list followed by the overlay's extras, first duplicate kept. A missing or empty base file is an error."""
+    source = dotfiles_dir / BASE_FILE
+    return _read(source).and_then(lambda base: _non_empty(base, source)).and_then(
         lambda base: _extras(overlay_root).map(lambda extras: _dedupe([*base, *extras]))
     )
 
