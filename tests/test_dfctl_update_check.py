@@ -58,7 +58,7 @@ class Env:
         for path in (self.home, self.bin, self.tools):
             path.mkdir()
         (tmp / "gitconfig").write_text(GITCONFIG)
-        for name in ("git", "sh", "mkdir", "rmdir"):
+        for name in ("git", "sh", "mkdir", "rmdir", "stty"):
             (self.tools / name).symlink_to(shutil.which(name))
         self.add_stub("dfctl", DFCTL_STUB)
         self.env = {
@@ -125,12 +125,17 @@ class Env:
     def called(self, prefix: str) -> bool:
         return any(line.startswith(prefix) for line in self.calls())
 
-    def run(self, key: bytes | int | None = None, stdin_tty: bool = True, stdout_tty: bool = True, zstyles: str = "") -> Result:
+    def run(
+        self, key: bytes | int | None = None, stdin_tty: bool = True, stdout_tty: bool = True, zstyles: str = "",
+        typed: bytes | None = None, tail: str = "",
+    ) -> Result:
         script = (
             f'fpath=("{FUNCTIONS}" $fpath)\nautoload -Uz {FUNCTIONS}/*(:t)\n{zstyles}\n'
-            'dfctl-update-check\nprint -r -- "rc=$?"\n'
+            f'dfctl-update-check\nprint -r -- "rc=$?"\n{tail}\n'
         )
         master, slave = pty.openpty()
+        if typed is not None:
+            os.write(master, typed)
         proc = subprocess.Popen(
             [self.zsh, "-f", "-c", script], env=self.env, cwd=self.tmp, stderr=subprocess.STDOUT,
             stdin=slave if stdin_tty else subprocess.DEVNULL, stdout=slave if stdout_tty else subprocess.PIPE,
@@ -429,3 +434,113 @@ def test_zshrc_calls_the_check_after_oh_my_zsh_and_the_function_autoload():
     omz = next(i for i, line in enumerate(lines) if line.strip() == "source $ZSH/oh-my-zsh.sh")
     assert len(calls) == 1
     assert calls[0] > autoload > omz
+
+
+REMINDER_STYLE = "zstyle ':dfctl:update' mode reminder"
+REMINDER = "[dfctl] It has been {days} days since dfctl apply last ran. Run dfctl apply --upgrade when you are ready."
+LEFT = "left=q"
+READ_BACK = 'read -r -k 1 -t 2 left; print -r -- "left=$left"'
+
+
+def test_reminder_mode_prints_one_line_and_does_nothing_else(due):
+    result = due.run(zstyles=REMINDER_STYLE, typed=b"q", tail=READ_BACK)
+    assert REMINDER.format(days=AGE) in result.output
+    assert result.output.count("[dfctl]") == 1
+    assert PROMPT not in result.output and HINT not in result.output
+    assert due.calls() == []
+    assert LEFT in result.output
+
+
+def test_reminder_mode_snoozes_by_writing_the_stamp(due):
+    due.run(zstyles=REMINDER_STYLE)
+    assert due.stamp_days() == today()
+    assert "[dfctl]" not in due.run(zstyles=REMINDER_STYLE).output
+
+
+@pytest.mark.parametrize(("stamp_age", "reminds"), [(6, False), (7, True), (AGE, True)])
+def test_reminder_mode_honours_the_frequency(env, stamp_age, reminds):
+    env.set_stamp(today() - stamp_age)
+    result = env.run(zstyles=REMINDER_STYLE)
+    assert (REMINDER.format(days=stamp_age) in result.output) is reminds
+    assert env.stamp_days() == (today() if reminds else today() - stamp_age)
+
+
+def test_reminder_mode_first_run_and_garbled_stamp_stay_silent(env):
+    assert "[dfctl]" not in env.run(zstyles=REMINDER_STYLE).output
+    assert env.stamp_days() == today()
+    env.stamp.write_text("nonsense")
+    assert "[dfctl]" not in env.run(zstyles=REMINDER_STYLE).output
+    assert env.stamp_days() == today()
+
+
+def test_reminder_mode_future_stamp_is_rewritten_silently(env):
+    env.set_stamp(today() + 3)
+    assert "[dfctl]" not in env.run(zstyles=REMINDER_STYLE).output
+    assert env.stamp_days() == today()
+
+
+@pytest.mark.parametrize(("stdin_tty", "stdout_tty"), [(False, False), (True, False), (False, True)])
+def test_reminder_mode_is_silent_without_ttys(due, stdin_tty, stdout_tty):
+    result = due.run(zstyles=REMINDER_STYLE, stdin_tty=stdin_tty, stdout_tty=stdout_tty)
+    assert "[dfctl]" not in result.output
+    assert due.stamp_days() == today() - AGE
+
+
+def test_reminder_mode_is_silent_when_the_lock_is_held(due):
+    due.lock.mkdir(parents=True)
+    assert "[dfctl]" not in due.run(zstyles=REMINDER_STYLE).output
+    assert due.stamp_days() == today() - AGE
+
+
+def test_reminder_mode_releases_the_lock(due):
+    due.run(zstyles=REMINDER_STYLE)
+    assert not due.lock.exists()
+
+
+def test_ask_mode_reminds_instead_of_prompting_when_input_is_pending(due):
+    result = due.run(typed=b"q", tail=READ_BACK)
+    assert REMINDER.format(days=AGE) in result.output
+    assert PROMPT not in result.output
+    assert due.calls() == []
+    assert due.stamp_days() == today()
+    assert LEFT in result.output
+
+
+def test_ask_mode_still_prompts_when_nothing_is_typed(due):
+    assert PROMPT in due.run(key=b"\n").output
+
+
+STTY_BEFORE = 'print -r -- "before=$(stty -g)"'
+STTY_AFTER = 'print -r -- "after=$(stty -g)"'
+
+
+@pytest.mark.parametrize("typed", [b"q", None])
+def test_the_terminal_settings_are_restored_after_the_pending_input_check(due, typed):
+    result = due.run(key=b"\n", typed=typed, zstyles=STTY_BEFORE, tail=STTY_AFTER)
+    before = re.search(r"before=(\S+)", result.output)
+    after = re.search(r"after=(\S+)", result.output)
+    assert before and after and before.group(1) == after.group(1)
+
+
+def test_a_missing_zselect_module_falls_back_to_the_prompt_quietly(due):
+    stub = 'zmodload() { [[ $1 == zsh/zselect ]] && return 1; builtin zmodload "$@" }'
+    result = due.run(key=b"\n", typed=b"q", zstyles=stub)
+    assert PROMPT in result.output
+    assert "zselect" not in result.output and "zmodload" not in result.output
+    assert due.stamp_days() == today()
+
+
+def test_ask_mode_without_stty_still_prompts(due):
+    due.remove_tool("stty")
+    assert PROMPT in due.run(key=b"\n").output
+
+
+def test_a_pending_input_reminder_snoozes_the_next_shell(due):
+    assert REMINDER.format(days=AGE) in due.run(typed=b"q").output
+    assert "[dfctl]" not in due.run(typed=b"q").output
+
+
+def test_auto_mode_ignores_pending_input(due):
+    result = due.run(zstyles="zstyle ':dfctl:update' mode auto", typed=b"q")
+    assert "running dfctl apply --upgrade" in result.output
+    assert due.called("dfctl apply --upgrade")
