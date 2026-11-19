@@ -127,6 +127,5 @@ def install_cargo_crate(t: Tooling, crate: str) -> None:
 POST_APT_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("ruff", install_ruff),
     ("auditr", install_auditr),
-    ("cargo-deny", lambda t: install_cargo_crate(t, "cargo-deny")),
     ("cargo-audit", lambda t: install_cargo_crate(t, "cargo-audit")),
 )

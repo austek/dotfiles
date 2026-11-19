@@ -103,6 +103,18 @@
     },
     {
       "customType": "regex",
+      "description": "cargo-deny release (tags have no v prefix): version constant and the checksums.txt URL; the digest stays stale until re-recorded",
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "\"package\": \"cargo-deny\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
+        "EmbarkStudios/cargo-deny/releases/download/(?<currentValue>\\d[^/\\s\"]*)/",
+        "cargo-deny-(?<currentValue>\\d[\\d.]*)-x86_64"
+      ],
+      "depNameTemplate": "EmbarkStudios/cargo-deny",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
       "description": "collibra/chip release: version constant and the checksums.txt URL; the digest stays stale until re-recorded",
       "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
       "matchStrings": [

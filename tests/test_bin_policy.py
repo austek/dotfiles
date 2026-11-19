@@ -194,7 +194,6 @@ INSTALLERS: dict[str, tuple[Callable[[tools.Tooling], object], Callable[[Machine
     "uv": (dict(tools.TOOL_INSTALLERS)["uv"], ran_script_with("sh")),
     "ruff": (dict(post_apt_installers.POST_APT_INSTALLERS)["ruff"], user_bin_has("ruff")),
     "auditr": (dict(post_apt_installers.POST_APT_INSTALLERS)["auditr"], user_bin_has("auditr")),
-    "cargo-deny": (dict(post_apt_installers.POST_APT_INSTALLERS)["cargo-deny"], user_bin_has("cargo-deny")),
     "cargo-audit": (dict(post_apt_installers.POST_APT_INSTALLERS)["cargo-audit"], user_bin_has("cargo-audit")),
 }
 

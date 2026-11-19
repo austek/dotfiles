@@ -52,6 +52,11 @@ LEGACY = {
         "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz",
         "kubeconform-v0.8.0.tar.gz", "targz",
     ),
+    "cargo-deny": (
+        "cargo-deny", "0.22.0",
+        "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.22.0/cargo-deny-0.22.0-x86_64-unknown-linux-musl.tar.gz",
+        "cargo-deny-0.22.0.tar.gz", "targz",
+    ),
     "sops": (
         "sops", "v3.13.3", "https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64",
         "sops-v3.13.3", "binary",

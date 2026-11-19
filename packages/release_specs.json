@@ -11,5 +11,6 @@
   {"package": "helm", "name": "helm", "version": "v4.3.2", "url": "https://get.helm.sh/helm-{version}-linux-amd64.tar.gz", "cache_key": "helm-{version}.tar.gz", "kind": "targz", "binary": "helm"},
   {"package": "flux", "name": "flux", "version": "2.10.0", "url": "https://github.com/fluxcd/flux2/releases/download/v{version}/flux_{version}_linux_amd64.tar.gz", "cache_key": "flux-{version}.tar.gz", "kind": "targz", "binary": "flux"},
   {"package": "kubeconform", "name": "kubeconform", "version": "v0.8.0", "url": "https://github.com/yannh/kubeconform/releases/download/{version}/kubeconform-linux-amd64.tar.gz", "cache_key": "kubeconform-{version}.tar.gz", "kind": "targz", "binary": "kubeconform"},
+  {"package": "cargo-deny", "name": "cargo-deny", "version": "0.22.0", "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/{version}/cargo-deny-{version}-x86_64-unknown-linux-musl.tar.gz", "cache_key": "cargo-deny-{version}.tar.gz", "kind": "targz", "binary": "cargo-deny"},
   {"package": "sops", "name": "sops", "version": "v3.13.3", "url": "https://github.com/getsops/sops/releases/download/{version}/sops-{version}.linux.amd64", "cache_key": "sops-{version}", "kind": "binary", "binary": "sops"}
 ]

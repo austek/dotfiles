@@ -379,6 +379,25 @@ def test_every_pinned_url_has_a_shipped_digest(spec):
     assert spec.resolve(None).url in table
 
 
+def test_cargo_deny_is_a_pinned_musl_release_binary():
+    data = ri.SPEC_DATA["cargo-deny"]
+    assert (data.kind, data.binary) == ("targz", "cargo-deny")
+    assert data.url.endswith("/{version}/cargo-deny-{version}-x86_64-unknown-linux-musl.tar.gz")
+    assert "cargo-deny" in dict(ri.USER_BINARY_SPECS)
+    assert "cargo-deny" not in dict(ri.SYSTEM_SPECS)
+
+
+def test_cargo_deny_installs_the_binary_from_its_versioned_directory(tmp_path):
+    machine = Machine()
+    version = ri.SPEC_DATA["cargo-deny"].version
+    t, downloads = make(tmp_path, machine, payload=tarball(f"cargo-deny-{version}-x86_64-unknown-linux-musl/cargo-deny"))
+    ri.install_release(t, dict(ri.RELEASE_SPECS)["cargo-deny"])
+    assert not machine.ran("sudo")
+    assert ri.is_executable(user_bin(tmp_path) / "cargo-deny")
+    base = f"https://github.com/EmbarkStudios/cargo-deny/releases/download/{version}"
+    assert downloads == [f"{base}/cargo-deny-{version}-x86_64-unknown-linux-musl.tar.gz"]
+
+
 def test_awscli_runs_the_extracted_installer(tmp_path):
     machine = Machine()
     t, downloads = make(tmp_path, machine, payload=zipball("aws/install", 0o755))
@@ -661,7 +680,7 @@ def test_user_stage_tools_never_run_the_sudo_release_installers(tmp_path):
     t, downloads = make(tmp_path, machine, payload=b"\x7fELF")
     assert tools.install_tools(
         t, {"chip", "zoom", "istioctl", "awscli", "lazydocker", "zizmor", "mcp-grafana", "kubectl", "helm", "flux",
-            "kubeconform", "sops"},
+            "kubeconform", "cargo-deny", "sops"},
     )
     assert downloads == []
     assert not machine.ran("sudo")
@@ -676,7 +695,8 @@ def test_release_installers_run_after_the_script_installers(tmp_path):
 
 
 BINARY_PACKAGES = (
-    "lazydocker", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux", "kubeconform", "sops",
+    "lazydocker", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux", "kubeconform",
+    "cargo-deny", "sops",
 )
 
 
