@@ -38,16 +38,16 @@ _dotfiles_path_file() {
     done
 }
 
-# A candidate the inherited PATH already selects (sdk use, a venv, a parent shell) keeps its place: the list's
-# user directories come first, inherited entries the list does not name follow them, and the list's system
-# directories and everything after come last. A listed sdkman `current` entry is dropped when the inherited
-# PATH already has a version of that tool.
+# Order: listed `~/` dirs, then inherited entries the list does not name (sdk use, a venv), then the listed
+# system dirs and the rest. A listed sdkman `current` entry is dropped when the inherited PATH already
+# selects a version of that tool, so the inherited one keeps its place.
 _dotfiles_path_list() {
     emulate -L zsh
     local entry tool root
     local -a listed=() base_entries=() extras=()
     _dotfiles_path_file "$HOME/.dotfiles/packages/path_dirs.txt"
     base_entries=( $reply )
+    # Shell-only fallback: dfctl rejects a missing or empty list, but a broken file must not leave the shell without user dirs.
     (( $#base_entries )) || base_entries=( "$HOME/.dotfiles/bin" "$HOME/bin" "$HOME/.local/bin" )
     _dotfiles_overlay_root
     root=$REPLY

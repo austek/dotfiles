@@ -1,5 +1,6 @@
 # The one PATH list. Shell, Claude's env.PATH and the foothold unit all read it.
-# One directory per line, `~/...` or absolute. Order is precedence. Edit here only.
+# One directory per line, `~/...` or absolute. Order is precedence for listed entries; the shell also places
+# inherited entries between the `~/` and `/` blocks (see zsh/.zshenv). Edit here only.
 # An org-specific addition goes in the overlay's packages/path_dirs_extra.txt.
 ~/.nvm/current/bin
 ~/.sdkman/candidates/sbt/current/bin
