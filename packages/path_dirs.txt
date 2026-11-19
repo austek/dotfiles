@@ -1,0 +1,23 @@
+# The one PATH list. Shell, Claude's env.PATH and the foothold unit all read it.
+# One directory per line, `~/...` or absolute. Order is precedence. Edit here only.
+# An org-specific addition goes in the overlay's packages/path_dirs_extra.txt.
+~/.nvm/current/bin
+~/.sdkman/candidates/sbt/current/bin
+~/.sdkman/candidates/kotlin/current/bin
+~/.sdkman/candidates/gradle/current/bin
+~/.sdkman/candidates/java/current/bin
+~/.dotfiles/bin
+~/bin
+~/.local/bin
+~/.cargo/bin
+/usr/local/sbin
+/usr/local/bin
+/usr/sbin
+/usr/bin
+/sbin
+/bin
+/usr/games
+/usr/local/games
+~/.local/share/JetBrains/Toolbox/scripts
+~/.krew/bin
+/usr/local/go/bin
