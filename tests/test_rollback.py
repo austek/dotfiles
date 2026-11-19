@@ -188,7 +188,9 @@ def test_the_aws_completer_link_is_removed_with_aws_and_the_tree(tmp_path):
     ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
     ctx.log.track(f"LINK_INSTALLED:{root}|{completer}", dry_run=False)
     rollback.perform_rollback(ctx)
-    assert not completer.is_symlink() and not link.is_symlink() and not root.exists()
+    assert not completer.is_symlink()
+    assert not link.is_symlink()
+    assert not root.exists()
 
 
 def test_a_retargeted_aws_completer_is_kept_and_does_not_stop_the_rest(tmp_path):
@@ -202,7 +204,8 @@ def test_a_retargeted_aws_completer_is_kept_and_does_not_stop_the_rest(tmp_path)
     ctx.log.track(f"LINK_INSTALLED:{root}|{completer}", dry_run=False)
     rollback.perform_rollback(ctx)
     assert completer.resolve() == other.resolve()
-    assert not link.is_symlink() and not root.exists()
+    assert not link.is_symlink()
+    assert not root.exists()
 
 
 def test_a_retargeted_link_keeps_both_the_link_and_the_tree(tmp_path, capsys):

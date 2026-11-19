@@ -838,7 +838,8 @@ def test_a_non_x86_64_machine_creates_no_user_bin_dir_and_tracks_nothing(tmp_pat
     t, downloads = make(tmp_path, Machine(), payload=b"\x7fELF")
     assert ri.install_user_binaries(t, {"chip"}, tracker) is True
     assert not user_bin(tmp_path).exists()
-    assert tracker.entries == [] and downloads == []
+    assert tracker.entries == []
+    assert downloads == []
 
 
 def test_the_user_bin_dir_has_mode_0755_under_a_restrictive_umask(tmp_path):
