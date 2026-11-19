@@ -23,7 +23,7 @@ from dotfiles_setup.deb_helpers import (
     _install_deb_or_fix_broken,
     _is_older,
 )
-from dotfiles_setup.fsutil import install_executable
+from dotfiles_setup.fsutil import install_executable, link_executable
 from dotfiles_setup.release_specs import SpecData, load_specs
 from dotfiles_setup.result import Err, Ok
 from dotfiles_setup.rollback import RollbackLog
@@ -207,17 +207,50 @@ def aws_cli_root(t: Tooling) -> Path:
 
 def _awscli_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
     argv = [str(temp_dir / "aws" / "install"), "-i", str(aws_cli_root(t)), "-b", str(user_bin_dir(t)), "--update"]
-    return t.run(argv).returncode == 0
+    return t.run(argv).returncode == 0 and _ensure_aws_link(t)
+
+
+def _aws_executable(root: Path) -> Path | None:
+    candidates = [root / "v2" / "current" / "bin" / "aws", *sorted(root.glob("v2/*/bin/aws"), reverse=True)]
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def _ensure_aws_link(t: Tooling) -> bool:
+    """The installer exits 0 without linking when the pinned tree already exists, so a missing link is restored here."""
+    link = user_bin_dir(t) / "aws"
+    if link.exists():
+        return True
+    executable = _aws_executable(aws_cli_root(t))
+    if executable is None:
+        t.logger.error(f"The AWS CLI installer left no aws executable under {aws_cli_root(t)}; {link} was not linked.")
+        return False
+    match link_executable(executable, "aws", link.parent):
+        case Err(error=message):
+            t.logger.error(message)
+            return False
+        case _:
+            return True
+
+
+def _link_exists(link: Path) -> bool:
+    return link.is_symlink() or link.exists()
 
 
 def _awscli_tracking(t: Tooling, _spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
-    """Captured before the install: an existing tree is not ours to remove on rollback, so only the link is tracked."""
+    """Captured before the install: an existing tree is not ours to remove on rollback, so it is not tracked, and neither is a link that was already there."""
     root, bin_dir = aws_cli_root(t), user_bin_dir(t)
     action = "LINK_INSTALLED" if root.exists() else "TREE_INSTALLED"
+    existed = {name: _link_exists(bin_dir / name) for name in ("aws", "aws_completer")}
+
+    def created(name: str) -> bool:
+        return not existed[name] and _link_exists(bin_dir / name)
 
     def record() -> None:
-        if changes is not None:
+        if changes is None:
+            return
+        if action == "TREE_INSTALLED" or created("aws"):
             changes.track(f"{action}:{root}|{bin_dir / 'aws'}", dry_run=t.logger.dry_run)
+        if created("aws_completer"):
             changes.track(f"LINK_INSTALLED:{root}|{bin_dir / 'aws_completer'}", dry_run=t.logger.dry_run)
 
     return record
