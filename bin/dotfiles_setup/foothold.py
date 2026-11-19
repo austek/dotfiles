@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from dotfiles_setup import path_dirs
 from dotfiles_setup.log import Logger
 
 UNIT_DIR = Path.home() / ".config" / "systemd" / "user"
@@ -17,14 +18,6 @@ ACCOUNTS = ("main", "burst")
 REQUIRED_TOOLS = ("systemctl", "tmux", "curl")
 NETWORK_PROBE_URL = "https://api.anthropic.com"
 LAUNCHER = "%h/.dotfiles/bin/claude-foothold-launch"
-PATH_DIRS = (
-    "%h/.local/bin",
-    "%h/.dotfiles/bin",
-    "%h/.sdkman/candidates/java/current/bin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-)
 
 
 def session_name(account: str) -> str:
@@ -51,7 +44,7 @@ def _launch_command(account: str) -> str:
     return command if account == "main" else f"{command} {account}"
 
 
-def _service_section(account: str) -> tuple[str, ...]:
+def _service_section(account: str, path_entries: tuple[str, ...]) -> tuple[str, ...]:
     return (
         "[Service]",
         "Type=oneshot",
@@ -60,7 +53,7 @@ def _service_section(account: str) -> tuple[str, ...]:
         "TimeoutStartSec=300",
         "Restart=on-failure",
         "RestartSec=30",
-        f'Environment="PATH={":".join(PATH_DIRS)}"',
+        f'Environment="PATH={":".join(path_dirs.for_systemd(path_entries))}"',
         # The link gains carrier before DNS and routes work; Remote Control fails session creation if it starts earlier.
         f"ExecStartPre=/usr/bin/env curl -s --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 -o /dev/null {NETWORK_PROBE_URL}",
         f"ExecStart={_launch_command(account)}",
@@ -70,7 +63,7 @@ def _service_section(account: str) -> tuple[str, ...]:
     )
 
 
-def render_unit(account: str) -> str:
+def render_unit(account: str, path_entries: tuple[str, ...]) -> str:
     unit_section = (
         "[Unit]",
         f"Description=Claude remote-control session {remote_control_name(account)}",
@@ -78,7 +71,7 @@ def render_unit(account: str) -> str:
         "Wants=network-online.target",
     )
     install_section = ("[Install]", "WantedBy=default.target")
-    sections = (unit_section, _service_section(account), install_section)
+    sections = (unit_section, _service_section(account, path_entries), install_section)
     return "\n\n".join("\n".join(section) for section in sections) + "\n"
 
 
@@ -132,8 +125,8 @@ def retire_legacy_footholds(logger: Logger, unit_dir: Path = UNIT_DIR, run=subpr
         _retire_unit(logger, unit, unit.name.removesuffix(".service"), run)
 
 
-def _rewrite_if_stale(unit: Path, account: str, logger: Logger) -> None:
-    rendered = render_unit(account)
+def _rewrite_if_stale(unit: Path, account: str, logger: Logger, path_entries: tuple[str, ...]) -> None:
+    rendered = render_unit(account, path_entries)
     if unit.read_text(encoding="utf-8") != rendered:
         _write_unit(unit, rendered)
         logger.info(f"Rewrote stale {unit.name}.")
@@ -144,9 +137,9 @@ def _network_up(logger: Logger, run) -> bool:
     return _run_command(probe, logger, run)
 
 
-def _reload_and_restart(units: list[tuple[Path, str]], logger: Logger, run) -> bool:
+def _reload_and_restart(units: list[tuple[Path, str]], logger: Logger, run, path_entries: tuple[str, ...]) -> bool:
     for unit, account in units:
-        _rewrite_if_stale(unit, account, logger)
+        _rewrite_if_stale(unit, account, logger, path_entries)
     # systemctl asks for each unit's restart in turn, and ending a foothold session kills a caller running in it
     # before it asks for the next. A transient unit outside every session issues them all; --wait keeps the result.
     restart = (
@@ -157,13 +150,13 @@ def _reload_and_restart(units: list[tuple[Path, str]], logger: Logger, run) -> b
     return all(_run_command(argv, logger, run) for argv in commands)
 
 
-def _restart_units(logger: Logger, accounts: list[str], unit_dir: Path, run) -> bool:
+def _restart_units(logger: Logger, accounts: list[str], unit_dir: Path, run, path_entries: tuple[str, ...]) -> bool:
     units = [(unit_dir / unit_name(account), account) for account in accounts]
     names = ", ".join(unit.name for unit, _ in units)
     if logger.dry_run_notice(f"Would rewrite {names} if stale, then restart them."):
         return True
     try:
-        restarted = _network_up(logger, run) and _reload_and_restart(units, logger, run)
+        restarted = _network_up(logger, run) and _reload_and_restart(units, logger, run, path_entries)
     except OSError as exc:
         logger.warn(f"Could not restart {names}: {exc}")
         return False
@@ -173,7 +166,9 @@ def _restart_units(logger: Logger, accounts: list[str], unit_dir: Path, run) -> 
     return restarted
 
 
-def restart_foothold(logger: Logger, account: str, unit_dir: Path = UNIT_DIR, run=subprocess.run) -> bool:
+def restart_foothold(
+    logger: Logger, account: str, unit_dir: Path = UNIT_DIR, run=subprocess.run, *, path_entries: tuple[str, ...],
+) -> bool:
     """Restarts an account's unit in a fresh tmux session. Safe to call from inside the foothold session.
 
     Returns False when the unit is missing or the restart fails; warns instead of raising.
@@ -182,20 +177,23 @@ def restart_foothold(logger: Logger, account: str, unit_dir: Path = UNIT_DIR, ru
     if not unit.is_file():
         logger.warn(f"{unit.name} is not installed; run `dfctl apply` first.")
         return False
-    return _restart_units(logger, [account], unit_dir, run)
+    return _restart_units(logger, [account], unit_dir, run, path_entries)
 
 
-def restart_footholds(logger: Logger, unit_dir: Path = UNIT_DIR, run=subprocess.run) -> bool:
+def restart_footholds(
+    logger: Logger, unit_dir: Path = UNIT_DIR, run=subprocess.run, *, path_entries: tuple[str, ...],
+) -> bool:
     """Restarts every installed account unit together. Returns False when none is installed or the restart fails."""
     installed = [account for account in ACCOUNTS if (unit_dir / unit_name(account)).is_file()]
     if not installed:
         logger.warn("No foothold is installed; run `dfctl apply` on a preset that enables one.")
         return False
-    return _restart_units(logger, installed, unit_dir, run)
+    return _restart_units(logger, installed, unit_dir, run, path_entries)
 
 
 def install_foothold(
     logger: Logger, account: str, unit_dir: Path = UNIT_DIR, run=subprocess.run, burst_dir: Path = BURST_DIR,
+    *, path_entries: tuple[str, ...],
 ) -> bool:
     """Installs and enables an account's unit and lingering. Returns whether it succeeded; warns instead of raising.
 
@@ -211,7 +209,7 @@ def install_foothold(
         logger.warn(f"{', '.join(missing)} not found; skipping {unit.name}.")
         return False
     try:
-        _write_unit(unit, render_unit(account))
+        _write_unit(unit, render_unit(account, path_entries))
         results = [_run_command(argv, logger, run) for argv in _commands(unit.name)]
     except OSError as exc:
         logger.warn(f"Could not set up {unit.name}: {exc}")
@@ -222,7 +220,8 @@ def install_foothold(
 
 
 def sync_footholds(
-    logger: Logger, wanted: tuple[str, ...], unit_dir: Path = UNIT_DIR, run=subprocess.run, burst_dir: Path = BURST_DIR,
+    logger: Logger, wanted: tuple[str, ...], path_entries: tuple[str, ...],
+    unit_dir: Path = UNIT_DIR, run=subprocess.run, burst_dir: Path = BURST_DIR,
 ) -> None:
     """Installs the wanted accounts' units and retires the rest, plus any preset-named unit an older install wrote.
 
@@ -235,7 +234,7 @@ def sync_footholds(
     installed: dict[str, bool] = {}
     for account in ACCOUNTS:
         if account in wanted:
-            installed[account] = install_foothold(logger, account, unit_dir, run, burst_dir)
+            installed[account] = install_foothold(logger, account, unit_dir, run, burst_dir, path_entries=path_entries)
         else:
             retire_foothold(logger, account, unit_dir, run)
     if installed["main"] if "main" in installed else all(installed.values()):

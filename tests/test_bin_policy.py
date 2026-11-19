@@ -359,7 +359,6 @@ def user_bin_spellings(source: str) -> list[int]:
 # Modules that may spell the path, with the reason. Everything else resolves it through user_bin_dir.
 SPELLING_ALLOWLIST = {
     "release_installers.py": "defines user_bin_dir",
-    "foothold.py": "systemd expands the %h specifier in the unit's PATH; there is no Tooling to resolve it",
 }
 
 

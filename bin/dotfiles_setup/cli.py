@@ -4,12 +4,13 @@ from __future__ import annotations
 import argparse
 import sys
 
-from dotfiles_setup import foothold, overlay, overlay_clone, state
+from dotfiles_setup import foothold, overlay, overlay_clone, path_dirs, state
 from dotfiles_setup.env import Env
 from dotfiles_setup.install_cmd import _run_install
 from dotfiles_setup.log import Logger
 from dotfiles_setup.parser import build_arg_parser
 from dotfiles_setup.propose import run_propose
+from dotfiles_setup.result import Err, Ok
 
 __all__ = ["Env", "build_arg_parser", "main"]
 
@@ -34,7 +35,12 @@ def _run_foothold_restart(args: argparse.Namespace, env: Env) -> int:
     if saved is None:
         logger.error("No preset saved on this machine; run 'dfctl apply --preset <name>' first.")
         return 2
-    return 0 if foothold.restart_footholds(logger, run=env.run) else 1
+    match path_dirs.load(env.dotfiles_dir, overlay.find_overlay_root()):
+        case Err(error=message):
+            logger.error(message)
+            return 2
+        case Ok(value=path_entries):
+            return 0 if foothold.restart_footholds(logger, run=env.run, path_entries=path_entries) else 1
 
 
 def main(argv: list[str] | None = None, env: Env | None = None) -> int:

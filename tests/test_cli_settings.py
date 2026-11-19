@@ -9,6 +9,11 @@ from dotfiles_setup.claude_settings import _replace_settings_target
 from dotfiles_setup.cli import main
 
 
+def _without_env(settings: dict) -> dict:
+    """The generated env.PATH has its own tests; these compare everything else."""
+    return {key: value for key, value in settings.items() if key != "env"}
+
+
 def test_the_claude_settings_exist_before_the_install_steps_run(isolated_dotfiles, tmp_path, monkeypatch):
     seen = {}
 
@@ -28,7 +33,7 @@ def test_install_merges_the_preset_profile_into_the_generated_settings(isolated_
     )
     assert main(["install", "--preset", "homelab"]) == 0
     generated = json.loads((tmp_path / "claude-home" / "settings.json").read_text())
-    assert generated == {"model": "base", "enabledPlugins": {"sonarqube@official": True}}
+    assert _without_env(generated) == {"model": "base", "enabledPlugins": {"sonarqube@official": True}}
     assert not (tmp_path / "state" / "claude-profiles").exists()
 
 
@@ -39,7 +44,7 @@ def test_install_generates_claude_settings_from_base_and_overlay(isolated_dotfil
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: overlay_root)
     assert main(["install", "--preset", "homelab"]) == 0
     generated = json.loads((tmp_path / "claude-home" / "settings.json").read_text())
-    assert generated == {"model": "base", "extra": True}
+    assert _without_env(generated) == {"model": "base", "extra": True}
 
 
 def test_install_backs_up_a_differing_settings_file(isolated_dotfiles, tmp_path):
@@ -109,7 +114,7 @@ def test_install_expands_home_in_the_generated_env_and_its_drift_baseline(
     isolated_dotfiles, monkeypatch, tmp_path,
 ):
     dotfiles_dir, _ = isolated_dotfiles
-    base = {"env": {"PATH": "$HOME/.local/bin:/usr/bin"}, "hooks": {"command": "$HOME/x"}}
+    base = {"env": {"PATH": "$HOME/stale"}, "hooks": {"command": "$HOME/x"}}
     (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps(base))
     monkeypatch.setattr("dotfiles_setup.env._home", lambda: tmp_path / "me")
     assert main(["install", "--preset", "homelab"]) == 0
@@ -118,6 +123,28 @@ def test_install_expands_home_in_the_generated_env_and_its_drift_baseline(
     assert json.loads(generated)["hooks"] == {"command": "$HOME/x"}
     assert (tmp_path / "state" / "settings.last-generated.json").read_text() == generated
     assert main(["install", "--preset", "homelab"]) == 0
+
+
+def test_install_appends_the_overlay_extras_to_the_generated_path(
+    isolated_dotfiles, monkeypatch, tmp_path,
+):
+    overlay_root = tmp_path / "org-overlay"
+    (overlay_root / "packages").mkdir(parents=True)
+    (overlay_root / "packages" / "path_dirs_extra.txt").write_text("~/org/bin\n")
+    monkeypatch.setattr("dotfiles_setup.overlay.find_overlay_root", lambda: overlay_root)
+    monkeypatch.setattr("dotfiles_setup.env._home", lambda: tmp_path / "me")
+    assert main(["install", "--preset", "homelab"]) == 0
+    generated = json.loads((tmp_path / "claude-home" / "settings.json").read_text())
+    assert generated["env"]["PATH"] == f"{tmp_path / 'me'}/.local/bin:/usr/bin:{tmp_path / 'me'}/org/bin"
+
+
+def test_install_stops_on_a_malformed_path_list_naming_the_line(isolated_dotfiles, flow_calls, tmp_path, capsys):
+    dotfiles_dir, _ = isolated_dotfiles
+    (dotfiles_dir / "packages" / "path_dirs.txt").write_text("~/ok\nrelative\n")
+    assert main(["install", "--preset", "homelab"]) != 0
+    assert "line 2" in capsys.readouterr().err
+    assert flow_calls == []
+    assert not (tmp_path / "claude-home" / "settings.json").exists()
 
 
 def test_rule016_install_stops_when_settings_were_edited_since_the_last_install(
@@ -139,7 +166,7 @@ def test_install_accepts_a_base_change_when_settings_were_not_edited(isolated_do
     (dotfiles_dir / "claude" / ".claude" / "settings.json").write_text(json.dumps({"model": "changed"}))
     assert main(["install", "--preset", "homelab"]) == 0
     settings = tmp_path / "claude-home" / "settings.json"
-    assert json.loads(settings.read_text()) == {"model": "changed"}
+    assert _without_env(json.loads(settings.read_text())) == {"model": "changed"}
 
 
 def test_accept_drift_overwrites_edited_settings_and_keeps_a_backup(isolated_dotfiles, tmp_path):
@@ -148,7 +175,7 @@ def test_accept_drift_overwrites_edited_settings_and_keeps_a_backup(isolated_dot
     assert main(["install", "--preset", "homelab", "--accept-drift"]) == 0
     (backup,) = settings.parent.glob("settings.json.bak-*")
     assert backup.read_text() == edited
-    assert json.loads(settings.read_text()) == {"model": "base"}
+    assert _without_env(json.loads(settings.read_text())) == {"model": "base"}
 
 
 def test_rule016_dry_run_reports_settings_drift_and_continues(isolated_dotfiles, tmp_path, capsys):
