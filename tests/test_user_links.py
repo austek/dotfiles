@@ -83,6 +83,36 @@ def test_a_regular_file_is_kept_and_reported_without_failing_the_step(tmp_path, 
     assert f"{user_bin(tmp_path) / 'sonar'} exists and is not a symlink" in captured.out + captured.err
 
 
+def test_a_blocked_sonar_link_warns_what_sonar_on_path_is(tmp_path, capsys):
+    real_tool(tmp_path, SONAR)
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "sonar").write_bytes(b"mine")
+    user_links.link_user_tools(tooling(tmp_path), {"sonarqube-cli"})
+    captured = capsys.readouterr()
+    assert "`sonar` on PATH is not the SonarQube CLI" in captured.out + captured.err
+
+
+def test_a_missing_bin_dir_warns_that_the_plugin_will_not_find_sonar(tmp_path, capsys):
+    real_tool(tmp_path, SONAR)
+    user_bin(tmp_path).symlink_to(tmp_path / "nowhere")
+    user_links.link_user_tools(tooling(tmp_path), {"sonarqube-cli"})
+    captured = capsys.readouterr()
+    assert "`sonar` on PATH is not the SonarQube CLI" in captured.out + captured.err
+
+
+def test_a_blocked_toolbox_link_names_its_own_consequence(tmp_path, capsys):
+    real_tool(tmp_path, JETBRAINS)
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "jetbrains-toolbox").write_bytes(b"mine")
+    user_links.link_user_tools(tooling(tmp_path), {"jetbrains-toolbox"})
+    captured = capsys.readouterr()
+    assert "`jetbrains-toolbox` on PATH is not the Toolbox launcher" in captured.out + captured.err
+
+
+def test_every_linked_tool_has_a_consequence_sentence():
+    assert {name for _, name, _ in user_links.USER_LINKS} == set(user_links.CONSEQUENCES)
+
+
 def test_a_new_link_and_directory_are_tracked_for_rollback(tmp_path):
     real = real_tool(tmp_path, SONAR)
     tracker = Tracker()

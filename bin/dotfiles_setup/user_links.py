@@ -16,6 +16,16 @@ USER_LINKS: tuple[tuple[str, str, Callable[[Path], Path]], ...] = (
 )
 
 
+CONSEQUENCES = {
+    "sonar": "`sonar` on PATH is not the SonarQube CLI",
+    "jetbrains-toolbox": "`jetbrains-toolbox` on PATH is not the Toolbox launcher",
+}
+
+
+def _warn_unlinked(t: Tooling, name: str, reason: str) -> None:
+    t.logger.warn(f"{reason} Until it is fixed, {CONSEQUENCES[name]}.")
+
+
 def _already_linked(real: Path, link: Path) -> bool:
     return link.is_symlink() and link.resolve() == real.resolve()
 
@@ -27,11 +37,12 @@ def _link_one(t: Tooling, name: str, real: Path, changes: RollbackLog | None) ->
     if dry_run_all(t, f"Would link {link} to {real}"):
         return
     if not ensure_user_bin_dir(t, changes):
+        _warn_unlinked(t, name, f"Could not link {link}.")
         return
     fresh = not link.is_symlink() and not link.exists()
     match link_executable(real, name, link.parent):
         case Err(error=message):
-            t.logger.warn(message)
+            _warn_unlinked(t, name, message)
         case _:
             t.logger.info(f"Linked {link} to {real}.")
             if fresh and changes is not None:

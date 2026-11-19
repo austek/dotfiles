@@ -1,6 +1,7 @@
 """Policy: a user-level installer puts each new executable under ~/.local/bin or in an allowlisted self-managing tree, never elsewhere under $HOME."""
 import ast
 import io
+import itertools
 import os
 import re
 import tarfile
@@ -267,15 +268,32 @@ def test_an_awscli_installer_that_forgets_the_bin_dir_flag_is_caught(home):
 SUDO_COMMAND = re.compile(r"^\s*sudo(\s|$)")
 SUDO_WRITE = re.compile(r"\bsudo\s+(-\S+\s+)*(install|cp|mv|ln|tee|rsync)\b")
 # Modules whose sudo calls belong to the system stage, a root-owned GUI app, or the rollback of one.
-PRIVILEGED_MODULES = {
-    "antigravity.py": "system stage: root-owned /opt install with a setuid sandbox",
-    "apt_packages.py": "system stage: apt and dpkg",
-    "apt_sources.py": "system stage: apt source and key files under /etc",
-    "deb_helpers.py": "system stage: dpkg-owned vendor debs",
-    "desktop_defaults.py": "system stage: login shell and default terminal",
-    "removals.py": "system stage: apt removals",
-    "rollback.py": "undoes system-stage changes",
-    "system_steps.py": "system stage: system config, backed up before editing",
+DYNAMIC = "*"  # a verb the scan cannot read: a splatted argv, or a bare ["sudo"] prefix.
+# Each exempt module may run sudo only with the verbs declared here.
+PRIVILEGED_MODULES: dict[str, tuple[str, frozenset[str]]] = {
+    "antigravity.py": (
+        "system stage: root-owned /opt install with a setuid sandbox; `_sudo(t, *link)` carries ln",
+        frozenset({"rm", "mkdir", "cp", "chown", "chmod", "mv", "gtk-update-icon-cache", "tee",
+                   "update-desktop-database", DYNAMIC}),
+    ),
+    "apt_packages.py": ("system stage: apt and dpkg", frozenset({"rm", "apt-get", "dpkg"})),
+    "apt_sources.py": (
+        "system stage: apt source and key files under /etc",
+        frozenset({"tee", "gpg", "timeout", "stow", "mv", "mkdir", "rm"}),
+    ),
+    "deb_helpers.py": ("system stage: dpkg-owned vendor debs", frozenset({"dpkg", "apt-get"})),
+    "desktop_defaults.py": (
+        "system stage: login shell and default terminal", frozenset({"usermod", "update-alternatives"}),
+    ),
+    "removals.py": ("system stage: apt removals", frozenset({"apt-get"})),
+    "rollback.py": (
+        "undoes system-stage changes; `_unstow` adds the sudo prefix conditionally",
+        frozenset({"mv", "gpasswd", "rm", "apt-get", DYNAMIC}),
+    ),
+    "system_steps.py": (
+        "system stage: system config, backed up before editing",
+        frozenset({"apt-get", "snap", "stow", "cp", "sed", "groupadd", "usermod", "true", "-v"}),
+    ),
 }
 
 
@@ -323,17 +341,27 @@ def test_the_scanner_ignores_mentions_of_sudo(source):
 
 
 def user_bin_spellings(source: str) -> list[int]:
-    """Lines that spell the user bin dir as a path literal, as `".local/bin"` or `".local" / "bin"`."""
+    """Lines that spell the user bin dir as a path: a whitespace-free literal that ends in or runs through `.local/bin`, or `.local` then `bin` as consecutive path parts."""
     hits = set()
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.match(r"\.local/bin(/|$)", node.value):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and PATH_LITERAL.match(node.value):
             hits.add(node.lineno)
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
             inner = node.left.right if isinstance(node.left, ast.BinOp) else node.left
-            names = [n.value for n in (inner, node.right) if isinstance(n, ast.Constant)]
-            if names == [".local", "bin"]:
+            if [getattr(n, "value", None) for n in (inner, node.right)] == [".local", "bin"]:
+                hits.add(node.lineno)
+        if isinstance(node, ast.Call):
+            parts = [getattr(a, "value", None) for a in node.args]
+            if any(pair == (".local", "bin") for pair in itertools.pairwise(parts)):
                 hits.add(node.lineno)
     return sorted(hits)
+
+
+# Modules that may spell the path, with the reason. Everything else resolves it through user_bin_dir.
+SPELLING_ALLOWLIST = {
+    "release_installers.py": "defines user_bin_dir",
+    "foothold.py": "systemd expands the %h specifier in the unit's PATH; there is no Tooling to resolve it",
+}
 
 
 @pytest.mark.parametrize("source", [
@@ -341,17 +369,42 @@ def user_bin_spellings(source: str) -> list[int]:
     'home / ".local" / "bin"',
     'f"{home / \'.local/bin\'}:{path}"',
     'Path(".local/bin/uv")',
+    'Path("~/.local/bin")',
+    'run("$HOME/.local/bin/uv")',
+    'f"{home}/.local/bin"',
+    'os.path.join(home, ".local", "bin")',
+    'home.joinpath(".local", "bin")',
+    'Path(".local", "bin")',
+    'PATH_DIRS = ("%h/.local/bin",)',
+], ids=[
+    "div literal", "div parts", "f-string expression", "relative literal", "tilde", "$HOME", "f-string suffix",
+    "os.path.join", "joinpath", "Path parts", "systemd specifier",
 ])
 def test_the_spelling_scanner_catches_a_hand_built_user_bin_path(source):
     assert user_bin_spellings(source) != []
 
 
-def test_only_the_resolver_spells_the_user_bin_dir():
+@pytest.mark.parametrize("source", [
+    't.logger.warn("it will resolve once ~/.local/bin is sourced")',
+    '"""Creates `~/.local/bin` (mode 0755)."""',
+    'home / ".local" / "share" / "tool"',
+    'Path(".local", "share")',
+])
+def test_the_spelling_scanner_ignores_prose_and_other_local_paths(source):
+    assert user_bin_spellings(source) == []
+
+
+def test_only_the_resolver_and_the_declared_specifier_spell_the_user_bin_dir():
     offenders = {
         name: user_bin_spellings(path.read_text(encoding="utf-8")) for name, path in _modules().items()
-        if name != "release_installers.py"
+        if name not in SPELLING_ALLOWLIST
     }
     assert {name: lines for name, lines in offenders.items() if lines} == {}
+
+
+def test_every_allowlisted_spelling_is_still_needed():
+    modules = _modules()
+    assert [n for n in SPELLING_ALLOWLIST if not user_bin_spellings(modules[n].read_text(encoding="utf-8"))] == []
 
 
 def _modules() -> dict[str, Path]:
@@ -364,6 +417,90 @@ def test_no_module_outside_the_declared_privileged_set_uses_sudo():
         if name not in PRIVILEGED_MODULES
     }
     assert {name: lines for name, lines in offenders.items() if lines} == {}
+
+
+ENV_ASSIGNMENT = re.compile(r"^\w+=")
+PATH_LITERAL = re.compile(r"^\S*\.local/bin(/\S*)?$")
+
+
+def _verb(rest: list[ast.expr]) -> str:
+    options = []
+    for item in rest:
+        if not isinstance(item, ast.Constant) or not isinstance(item.value, str):
+            return DYNAMIC
+        if item.value.startswith("-"):
+            options.append(item.value)
+        elif not ENV_ASSIGNMENT.match(item.value):
+            return item.value
+    return options[-1] if options else DYNAMIC
+
+
+def sudo_verbs(source: str) -> set[str]:
+    """The verbs of every list, tuple or call whose argv starts with `sudo`, and of `_sudo(t, verb, ...)` calls."""
+    verbs = set()
+    for node in ast.walk(ast.parse(source)):
+        items = node.elts if isinstance(node, ast.List | ast.Tuple) else node.args if isinstance(node, ast.Call) else []
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "_sudo":
+            verbs.add(_verb(node.args[1:]))
+        elif items and isinstance(items[0], ast.Constant) and items[0].value == "sudo":
+            verbs.add(_verb(items[1:]))
+    return verbs
+
+
+def unapproved_sudo(module: str, source: str) -> list[str]:
+    """Sudo uses a module may not make: any use outside the exempt set, or an undeclared verb or `sudo <write verb>` string inside it."""
+    if module not in PRIVILEGED_MODULES:
+        return [f"line {line}" for line in sudo_uses(source)]
+    allowed = PRIVILEGED_MODULES[module][1]
+    strings = [n.value for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    written = [s for s in strings if SUDO_WRITE.search(s)]
+    return sorted(sudo_verbs(source) - allowed) + written
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ('t.run(["sudo", "dpkg", "-i", deb])', {"dpkg"}),
+    ('t.run(["sudo", "-n", "install", a, b])', {"install"}),
+    ('ctx.quiet("sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install")', {"apt-get"}),
+    ('_sudo(t, "cp", "-r", a, b)', {"cp"}),
+    ('_sudo(t, *link)', {"*"}),
+    ('t.run(["sudo", "-v"])', {"-v"}),
+    ('x = ("sudo", "timeout", "45", "add-apt-repository")', {"timeout"}),
+    ('t.run(["dpkg", "-i", deb])', set()),
+])
+def test_the_verb_extraction_reads_what_sudo_runs(source, expected):
+    assert sudo_verbs(source) == expected
+
+
+@pytest.mark.parametrize(("module", "source"), [
+    ("apt_packages.py", 't.run(["sudo", "install", a, "/usr/local/bin"])'),
+    ("apt_packages.py", 't.run(["sudo", "-n", "cp", a, b])'),
+    ("deb_helpers.py", 't.run(["sudo", "tee", path])'),
+    ("removals.py", 'ctx.quiet("sudo", "apt-get", "remove", name); ctx.quiet("sudo", "mv", a, b)'),
+    ("desktop_defaults.py", 't.run(["bash", "-c", "sudo install a /usr/local/bin"])'),
+    ("antigravity.py", '_sudo(t, "rsync", a, b)'),
+])
+def test_an_exempt_module_is_still_caught_on_a_verb_it_did_not_declare(module, source):
+    assert unapproved_sudo(module, source) != []
+
+
+@pytest.mark.parametrize(("module", "source"), [
+    ("apt_packages.py", 't.run(["sudo", "dpkg", "-i", deb]); t.run(["sudo", "rm", "-f", p])'),
+    ("antigravity.py", '_sudo(t, "cp", "--", a, b); _sudo(t, *link)'),
+])
+def test_an_exempt_module_may_use_its_declared_verbs(module, source):
+    assert unapproved_sudo(module, source) == []
+
+
+def test_every_exempt_module_uses_only_its_declared_verbs():
+    modules = _modules()
+    offenders = {n: unapproved_sudo(n, modules[n].read_text(encoding="utf-8")) for n in PRIVILEGED_MODULES}
+    assert {n: bad for n, bad in offenders.items() if bad} == {}
+
+
+def test_every_declared_verb_is_still_used():
+    modules = _modules()
+    stale = {n: sorted(v - sudo_verbs(modules[n].read_text(encoding="utf-8"))) for n, (_, v) in PRIVILEGED_MODULES.items()}
+    assert {n: verbs for n, verbs in stale.items() if verbs} == {}
 
 
 def test_every_declared_privileged_module_still_uses_sudo():

@@ -280,6 +280,26 @@ def test_the_legacy_install_is_kept_when_the_new_one_fails(tmp_path):
     assert not machine.ran("sudo", "rm", "-rf", "--", str(layout.legacy_dir))
 
 
+def test_pending_and_the_installer_both_ask_the_shared_comparison(tmp_path, monkeypatch):
+    asked = []
+    monkeypatch.setattr(ag, "is_current", lambda layout, resolved: asked.append("asked") or True)
+    machine = Machine()
+    t, downloads, layout = make(tmp_path, machine)
+    assert ag.pending(layout, machine="x86_64") is False
+    ag.install_antigravity_ide(t, layout, machine="x86_64")
+    assert asked == ["asked", "asked"]
+    assert downloads == []
+
+
+def test_the_shared_comparison_is_true_only_for_the_pinned_build(tmp_path):
+    layout = ag.Layout(root=tmp_path / "root")
+    resolved = ag.resolve_build("linux-x64")
+    assert ag.is_current(layout, resolved) is False
+    layout.build_file.parent.mkdir(parents=True)
+    layout.build_file.write_text(f"{BUILD}\n")
+    assert ag.is_current(layout, resolved) is True
+
+
 def test_a_missing_install_is_pending(tmp_path):
     assert ag.pending(ag.Layout(root=tmp_path / "root"), machine="x86_64") is True
 

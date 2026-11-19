@@ -118,7 +118,7 @@ def install_cargo_crate(t: Tooling, crate: str) -> None:
         t.logger.error(f"cargo not found; can't install {crate}. Add 'cargo' to the preset's package list and re-run, or install manually: {manual}")
     elif (cargo := _cargo_for_crates(t)) is None:
         t.logger.error(f"No cargo >= 1.{CARGO_MIN_MINOR} available for {crate}. Install rustup (https://rustup.rs) and re-run, or run: {manual}")
-    elif _run_cargo(t, cargo, "install", "--locked", "--quiet", "--root", str(t.home / ".local"), crate):
+    elif _run_cargo(t, cargo, "install", "--locked", "--quiet", "--root", str(user_bin_dir(t).parent), crate):
         t.logger.success(f"{crate} installed successfully.")
     else:
         t.logger.error(f"Failed to install {crate}. Install it manually: {manual}")

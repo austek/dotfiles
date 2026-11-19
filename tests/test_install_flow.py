@@ -295,6 +295,40 @@ def settled_machine(tmp_path, monkeypatch):
     return Machine(installed="htop vim")
 
 
+@pytest.fixture
+def antigravity_layout(tmp_path, monkeypatch):
+    from dotfiles_setup import antigravity
+
+    real, root = antigravity.Layout, tmp_path / "ag-root"
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    monkeypatch.setattr(antigravity, "Layout", lambda: real(root=root))
+    return real(root=root)
+
+
+def test_auto_starts_the_system_stage_when_only_antigravity_is_pending(
+    tmp_path, no_sudo, monkeypatch, settled_machine, antigravity_layout, capsys,
+):
+    ran = _recorded_steps(monkeypatch)
+    flow_inputs = inputs(tmp_path, system="auto", run=settled_machine, packages="vim htop antigravity-ide")
+    assert flow.run_install(flow_inputs).succeeded
+    assert ran == ["install_packages", "configure_dotfiles"]
+    assert "System stage needed: 1 release tool(s) not installed (antigravity-ide)" in capsys.readouterr().out
+
+
+def test_auto_skips_the_system_stage_when_antigravity_is_current(
+    tmp_path, monkeypatch, settled_machine, antigravity_layout,
+):
+    from dotfiles_setup import antigravity
+
+    antigravity_layout.build_file.parent.mkdir(parents=True)
+    antigravity_layout.build_file.write_text(f"{antigravity.PINNED_BUILD}\n")
+    ran = _recorded_steps(monkeypatch)
+    _no_sudo_prompt(monkeypatch)
+    flow_inputs = inputs(tmp_path, system="auto", run=settled_machine, packages="vim htop antigravity-ide")
+    assert flow.run_install(flow_inputs).succeeded
+    assert ran == ["configure_dotfiles"]
+
+
 def test_auto_starts_the_system_stage_for_an_approved_installed_apt_removal(
     tmp_path, no_sudo, monkeypatch, settled_machine,
 ):
