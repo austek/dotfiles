@@ -1,4 +1,5 @@
-# Takes the mkdir lock $1 for the owner token $2; a lock older than an hour belongs to a killed shell and is replaced.
+# Takes the mkdir lock $1 for the owner token $2 and fails when another shell holds a fresh lock.
+# A lock older than an hour is reclaimed even if its holder is still running, so the owner token stops that holder from removing the new lock.
 _dfctl_update_lock() {
   emulate -L zsh
   mkdir -p ${1:h} 2>/dev/null

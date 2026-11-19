@@ -1,5 +1,6 @@
-# Clears the stale lock $1 and succeeds only for the one shell whose rename took it; fails when the lock is fresh, gone or won by another shell.
+# Clears the stale lock $1 and succeeds only for the shell whose rename moved a directory that is still old; fails when the lock is fresh, gone or won by another shell.
 # The age is read again on the renamed directory, because a rival may have replaced the lock between the first check and the rename.
+# Also removes `$1.stale.*` directories older than an hour, whether or not the lock is stale.
 _dfctl_update_reclaim() {
   emulate -L zsh
   zmodload -F zsh/datetime p:EPOCHREALTIME
