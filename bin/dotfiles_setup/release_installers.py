@@ -221,7 +221,7 @@ def _aws_executable(root: Path) -> Path | None:
 
 
 def _ensure_aws_link(t: Tooling) -> bool:
-    """Restores the `aws` link when the installer exits 0 without creating it, as it has done for an already-present pinned tree."""
+    """Links `aws` to the newest installed executable when the installer left no link. False, with an error, when there is none."""
     link = user_bin_dir(t) / "aws"
     if link.exists():
         return True
@@ -238,7 +238,7 @@ def _ensure_aws_link(t: Tooling) -> bool:
 
 
 def _awscli_tracking(t: Tooling, _spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
-    """Captured before the install. A new tree is tracked as `TREE_INSTALLED`, which always names the `aws` link; rollback keeps that link unless it still resolves into the tree, and then removes both. Over an existing tree only a link that was absent before and present after is tracked, as `LINK_INSTALLED`."""
+    """Captured before the install. Tracks a new tree as `TREE_INSTALLED`, which always names the `aws` link; over an existing tree, tracks each link the install created as `LINK_INSTALLED`."""
     root, bin_dir = aws_cli_root(t), user_bin_dir(t)
     action = "LINK_INSTALLED" if root.exists() else "TREE_INSTALLED"
     existed = {name: (bin_dir / name).exists() for name in ("aws", "aws_completer")}
@@ -375,7 +375,7 @@ UPGRADABLE_BINARIES: tuple[tuple[str, ReleaseSpec], ...] = (("chip", CHIP),)
 
 
 def _binary_version(t: Tooling, binary: str) -> str | None:
-    """Version of `~/.local/bin/<binary>` without a leading `v`. None when the file is absent or the probe exits non-zero or prints nothing."""
+    """Version of `~/.local/bin/<binary>` without a leading `v`. None when the file is not an executable file, or the probe times out, cannot start, exits non-zero or prints nothing."""
     managed = user_bin_dir(t) / binary
     if not is_executable(managed):
         return None
@@ -428,7 +428,7 @@ def _user_bin_dir_ready(t: Tooling, wanted: list[ReleaseSpec], changes: Rollback
 def install_user_binaries(
     t: Tooling, package_names: Collection[str], changes: RollbackLog | None = None,
 ) -> bool:
-    """Installs each wanted pinned binary that is missing from `~/.local/bin`, with no sudo. False when the directory cannot be created."""
+    """Installs each wanted pinned binary that is not an executable file in `~/.local/bin`, with no sudo. False when the directory cannot be created."""
     wanted = [spec for package, spec in USER_BINARY_SPECS if package in package_names]
     if not _user_bin_dir_ready(t, wanted, changes):
         return False

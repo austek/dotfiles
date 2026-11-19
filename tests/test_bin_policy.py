@@ -267,9 +267,9 @@ def test_an_awscli_installer_that_forgets_the_bin_dir_flag_is_caught(home):
 
 SUDO_COMMAND = re.compile(r"^\s*sudo(\s|$)")
 SUDO_WRITE = re.compile(r"\bsudo\s+(-\S+\s+)*(install|cp|mv|ln|tee|rsync)\b")
-# Modules whose sudo calls belong to the system stage, a root-owned GUI app, or the rollback of one.
 DYNAMIC = "*"  # a verb the scan cannot read: a splatted argv, or a bare ["sudo"] prefix.
-# Each exempt module may run sudo only with the verbs declared here.
+# Modules whose sudo calls belong to the system stage, a root-owned GUI app, or the rollback of one.
+# Each may run sudo only with the verbs declared here.
 PRIVILEGED_MODULES: dict[str, tuple[str, frozenset[str]]] = {
     "antigravity.py": (
         "system stage: root-owned /opt install with a setuid sandbox; `_sudo(t, *link)` carries ln",

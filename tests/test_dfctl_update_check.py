@@ -563,7 +563,7 @@ def test_a_lock_without_an_owner_file_younger_than_an_hour_is_kept(env):
     assert env.lock.is_dir()
 
 
-STTY_BEFORE ='print -r -- "before=$(stty -g)"'
+STTY_BEFORE = 'print -r -- "before=$(stty -g)"'
 STTY_AFTER = 'print -r -- "after=$(stty -g)"'
 
 
