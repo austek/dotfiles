@@ -420,6 +420,9 @@ def test_no_module_outside_the_declared_privileged_set_uses_sudo():
 
 
 ENV_ASSIGNMENT = re.compile(r"^\w+=")
+SHELL_SUDO = re.compile(
+    r"(?:^|[;&|(`]|\$\(|\b(?:if|then|do|else|exec|xargs|env|time|nohup))\s*sudo\s+((?:-\S+\s+|\w+=\S*\s+)*)([\w./+-]+)"
+)
 PATH_LITERAL = re.compile(r"^\S*\.local/bin(/\S*)?$")
 
 
@@ -436,9 +439,11 @@ def _verb(rest: list[ast.expr]) -> str:
 
 
 def sudo_verbs(source: str) -> set[str]:
-    """The verbs of every list, tuple or call whose argv starts with `sudo`, and of `_sudo(t, verb, ...)` calls."""
+    """The verbs of every list, tuple or call whose argv starts with `sudo`, of `_sudo(t, verb, ...)` calls, and of `sudo <verb>` inside any string literal such as a `sh -c` script."""
     verbs = set()
     for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            verbs.update(match[1] for match in SHELL_SUDO.findall(node.value))
         items = node.elts if isinstance(node, ast.List | ast.Tuple) else node.args if isinstance(node, ast.Call) else []
         if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "_sudo":
             verbs.add(_verb(node.args[1:]))
@@ -466,6 +471,9 @@ def unapproved_sudo(module: str, source: str) -> list[str]:
     ('t.run(["sudo", "-v"])', {"-v"}),
     ('x = ("sudo", "timeout", "45", "add-apt-repository")', {"timeout"}),
     ('t.run(["dpkg", "-i", deb])', set()),
+    ('t.run(["sh", "-c", "sudo chmod 777 target"])', {"chmod"}),
+    ('t.warn("this needs sudo access")', set()),
+    ('t.run(["bash", "-c", "cd /tmp && sudo -n DEBIAN_FRONTEND=x apt-get install y; sudo rm -f z"])', {"apt-get", "rm"}),
 ])
 def test_the_verb_extraction_reads_what_sudo_runs(source, expected):
     assert sudo_verbs(source) == expected
@@ -478,6 +486,8 @@ def test_the_verb_extraction_reads_what_sudo_runs(source, expected):
     ("removals.py", 'ctx.quiet("sudo", "apt-get", "remove", name); ctx.quiet("sudo", "mv", a, b)'),
     ("desktop_defaults.py", 't.run(["bash", "-c", "sudo install a /usr/local/bin"])'),
     ("antigravity.py", '_sudo(t, "rsync", a, b)'),
+    ("apt_packages.py", 't.run(["sh", "-c", "sudo chmod 777 target"])'),
+    ("apt_packages.py", 't.run(["bash", "-c", "sudo dpkg -i x && sudo chmod 777 target"])'),
 ])
 def test_an_exempt_module_is_still_caught_on_a_verb_it_did_not_declare(module, source):
     assert unapproved_sudo(module, source) != []
@@ -486,6 +496,7 @@ def test_an_exempt_module_is_still_caught_on_a_verb_it_did_not_declare(module, s
 @pytest.mark.parametrize(("module", "source"), [
     ("apt_packages.py", 't.run(["sudo", "dpkg", "-i", deb]); t.run(["sudo", "rm", "-f", p])'),
     ("antigravity.py", '_sudo(t, "cp", "--", a, b); _sudo(t, *link)'),
+    ("apt_packages.py", 't.run(["sh", "-c", "sudo dpkg -i x && sudo -n rm -f y"])'),
 ])
 def test_an_exempt_module_may_use_its_declared_verbs(module, source):
     assert unapproved_sudo(module, source) == []
