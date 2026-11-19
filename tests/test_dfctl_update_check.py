@@ -526,9 +526,13 @@ def lock_call(env: Env, *calls: str) -> subprocess.CompletedProcess:
     return subprocess.run([env.zsh, "-f", "-c", script], env=env.env, capture_output=True, text=True, timeout=30, check=False)
 
 
-def age_lock(env: Env, seconds: int) -> None:
+def age_lock_path(path: Path, seconds: int) -> None:
     old = time.time() - seconds
-    os.utime(env.lock, (old, old))
+    os.utime(path, (old, old))
+
+
+def age_lock(env: Env, seconds: int) -> None:
+    age_lock_path(env.lock, seconds)
 
 
 def test_a_stale_lock_reclaimed_by_another_shell_survives_the_first_shells_cleanup(env):
@@ -541,6 +545,51 @@ def test_a_stale_lock_reclaimed_by_another_shell_survives_the_first_shells_clean
     assert lock_call(env, take.format("tokC")).returncode != 0
     lock_call(env, release.format("tokB"))
     assert not env.lock.exists()
+
+
+def stale_leftovers(env: Env) -> list[Path]:
+    return sorted(env.lock.parent.glob("update-check.lock.stale.*"))
+
+
+def test_two_shells_racing_for_one_stale_lock_leave_exactly_one_holder(env):
+    env.lock.mkdir(parents=True)
+    age_lock(env, 2 * 3600)
+    stub = (
+        'zf_mv() { if [[ -z $paused ]]; then paused=1; '
+        f'_dfctl_update_lock "{env.lock}" tokA; print -r -- "a=$?"; fi; builtin zf_mv "$@" }}'
+    )
+    result = lock_call(env, stub, f'_dfctl_update_lock "{env.lock}" tokB; print -r -- "b=$?"')
+    assert "a=0" in result.stdout
+    assert "b=1" in result.stdout
+    assert (env.lock / "owner").read_text().strip() == "tokA"
+    assert stale_leftovers(env) == []
+
+
+def test_the_shell_that_lost_the_race_cannot_release_the_winners_lock(env):
+    env.lock.mkdir(parents=True)
+    age_lock(env, 2 * 3600)
+    stub = f'zf_mv() {{ if [[ -z $paused ]]; then paused=1; _dfctl_update_lock "{env.lock}" tokA; fi; builtin zf_mv "$@" }}'
+    lock_call(env, stub, f'_dfctl_update_lock "{env.lock}" tokB; _dfctl_update_unlock "{env.lock}" tokB')
+    assert (env.lock / "owner").read_text().strip() == "tokA"
+
+
+def test_a_reclaim_leaves_no_stale_directory_behind(env):
+    assert lock_call(env, f'_dfctl_update_lock "{env.lock}" tokA').returncode == 0
+    age_lock(env, 2 * 3600)
+    assert lock_call(env, f'_dfctl_update_lock "{env.lock}" tokB').returncode == 0
+    assert stale_leftovers(env) == []
+
+
+def test_an_old_leftover_from_a_killed_reclaim_is_cleared_and_a_young_one_is_kept(env):
+    old, young = env.lock.parent / "update-check.lock.stale.1.1", env.lock.parent / "update-check.lock.stale.2.2"
+    for leftover in (old, young):
+        leftover.mkdir(parents=True)
+        (leftover / "owner").write_text("x")
+    age_lock_path(old, 2 * 3600)
+    env.lock.mkdir()
+    age_lock(env, 2 * 3600)
+    assert lock_call(env, f'_dfctl_update_lock "{env.lock}" tokB').returncode == 0
+    assert stale_leftovers(env) == [young]
 
 
 def test_a_lock_is_removed_by_its_owner(env):

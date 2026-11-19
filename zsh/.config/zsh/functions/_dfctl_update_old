@@ -1,0 +1,8 @@
+# Succeeds when the directory $1 exists and was last modified more than an hour ago.
+_dfctl_update_old() {
+  emulate -L zsh
+  zmodload -F zsh/datetime p:EPOCHSECONDS
+  zmodload -F zsh/stat b:zstat
+  local -a mtime
+  zstat -A mtime +mtime $1 2>/dev/null && (( EPOCHSECONDS - mtime[1] > 3600 ))
+}
