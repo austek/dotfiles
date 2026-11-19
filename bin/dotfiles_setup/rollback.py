@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,6 +130,46 @@ def _binary_installed(ctx: RollbackContext, data: str) -> None:
         ctx.t.logger.warn(f"Failed to remove {target}: {exc}")
 
 
+def _link_matches(ctx: RollbackContext, link: Path, root: Path) -> bool:
+    """True when `link` is gone or still a symlink into `root`; anything else is the user's and is kept."""
+    if link.is_symlink():
+        if link.resolve().is_relative_to(root.resolve()):
+            return True
+    elif not link.exists():
+        return True
+    ctx.t.logger.info(f"Kept {link}: it is not a symlink into {root}.")
+    return False
+
+
+def _link_installed(ctx: RollbackContext, data: str) -> bool:
+    root_text, _, link_text = data.partition("|")
+    root, link = Path(root_text), Path(link_text)
+    if not _link_matches(ctx, link, root):
+        return False
+    try:
+        link.unlink(missing_ok=True)
+    except OSError as exc:
+        ctx.t.logger.warn(f"Failed to remove {link}: {exc}")
+        return False
+    return True
+
+
+def _tree_installed(ctx: RollbackContext, data: str) -> None:
+    """The entry is `root|link`. The tree we created is removed when the link is gone or still resolves into it; both stay when the link was retargeted or is a regular file."""
+    root = Path(data.partition("|")[0])
+    if not _link_installed(ctx, data) or root.is_symlink() or not root.is_dir():
+        return
+    ctx.t.logger.info(f"Removing installed tree: {root}")
+    try:
+        shutil.rmtree(root)
+    except OSError as exc:
+        ctx.t.logger.warn(f"Failed to remove {root}: {exc}")
+
+
+def _link_only_installed(ctx: RollbackContext, data: str) -> None:
+    _link_installed(ctx, data)
+
+
 def _apt_removed(ctx: RollbackContext, data: str) -> None:
     ctx.t.logger.info(f"Reinstalling removed package: {data}")
     if not _run_quiet(ctx, ["sudo", "apt-get", "install", "-y", data]):
@@ -173,6 +214,8 @@ _UNDO_HANDLERS: dict[str, Callable[[RollbackContext, str], None]] = {
     "FILE_CREATED": _file_created,
     "DIR_CREATED": _dir_created,
     "BIN_INSTALLED": _binary_installed,
+    "TREE_INSTALLED": _tree_installed,
+    "LINK_INSTALLED": _link_only_installed,
     "APT_REMOVED": _apt_removed,
     "DEB_REMOVED": _deb_removed,
     "FLATPAK_REMOVED": _flatpak_removed,

@@ -159,6 +159,117 @@ def test_an_already_removed_user_binary_is_not_an_error(tmp_path, capsys):
     assert "Unknown rollback action" not in capsys.readouterr().err
 
 
+def aws_install(tmp_path):
+    root, link = tmp_path / "aws-cli", tmp_path / "bin" / "aws"
+    real = root / "v2" / "2.39.6" / "bin" / "aws"
+    real.parent.mkdir(parents=True)
+    real.write_bytes(b"aws")
+    link.parent.mkdir()
+    link.symlink_to(real)
+    return root, link
+
+
+def test_a_fresh_awscli_tree_and_its_link_are_removed(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    root, link = aws_install(tmp_path)
+    ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not root.exists()
+    assert not link.is_symlink()
+    assert machine.commands == []
+
+
+def test_the_aws_completer_link_is_removed_with_aws_and_the_tree(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    completer = link.with_name("aws_completer")
+    completer.symlink_to(root / "v2" / "2.39.6" / "bin" / "aws")
+    ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{completer}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not completer.is_symlink() and not link.is_symlink() and not root.exists()
+
+
+def test_a_retargeted_aws_completer_is_kept_and_does_not_stop_the_rest(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    completer = link.with_name("aws_completer")
+    other = tmp_path / "mine"
+    other.write_bytes(b"x")
+    completer.symlink_to(other)
+    ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{completer}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert completer.resolve() == other.resolve()
+    assert not link.is_symlink() and not root.exists()
+
+
+def test_a_retargeted_link_keeps_both_the_link_and_the_tree(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    other = tmp_path / "other-aws"
+    other.write_bytes(b"mine")
+    link.unlink()
+    link.symlink_to(other)
+    ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert link.resolve() == other.resolve()
+    assert (root / "v2" / "2.39.6" / "bin" / "aws").is_file()
+    assert f"Kept {link}" in capsys.readouterr().out
+
+
+def test_a_regular_file_where_the_link_was_keeps_both(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    link.unlink()
+    link.write_bytes(b"mine")
+    ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert link.read_bytes() == b"mine"
+    assert root.is_dir()
+
+
+def test_a_tree_whose_link_is_already_gone_is_still_removed(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    link.unlink()
+    ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not root.exists()
+
+
+def test_a_link_only_entry_leaves_the_tree(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not link.is_symlink()
+    assert root.is_dir()
+
+
+def test_a_tree_that_was_replaced_by_a_symlink_is_not_followed(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    precious = tmp_path / "precious"
+    precious.mkdir()
+    (precious / "keep").write_bytes(b"x")
+    link.unlink()
+    import shutil
+    shutil.rmtree(root)
+    root.symlink_to(precious)
+    ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert (precious / "keep").is_file()
+
+
+def test_an_already_removed_awscli_tree_is_not_an_error(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    ctx.log.track(f"TREE_INSTALLED:{tmp_path / 'gone'}|{tmp_path / 'gone-link'}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert "Unknown rollback action" not in capsys.readouterr().err
+
+
 def test_an_unstowed_private_package_is_restowed(tmp_path):
     machine = Machine()
     ctx = context(tmp_path, machine, private=tmp_path / "private")

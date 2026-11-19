@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 
+from dotfiles_setup.release_installers import user_bin_dir
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all
 from dotfiles_setup.vendor_installers import install_ruff, run_vendor_script
 
@@ -102,7 +103,7 @@ def _run_cargo(t: Tooling, cargo: str, *args: str) -> bool:
 
 
 def _crate_present(t: Tooling, crate: str) -> bool:
-    local_bin = t.home / ".local/bin" / crate
+    local_bin = user_bin_dir(t) / crate
     return shutil.which(crate) is not None or (local_bin.is_file() and os.access(local_bin, os.X_OK))
 
 

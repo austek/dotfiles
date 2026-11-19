@@ -7,6 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from dotfiles_setup.release_installers import user_bin_dir
 from dotfiles_setup.tooling import Tooling, dry_run_all
 from dotfiles_setup.vendor_installers import run_vendor_script
 
@@ -78,7 +79,7 @@ def configure_cozempic_cli(t: Tooling) -> None:
 
 
 def _report_cozempic(t: Tooling) -> None:
-    local_bin = t.home / ".local/bin"
+    local_bin = user_bin_dir(t)
     found = shutil.which("cozempic", path=f"{local_bin}:{os.environ.get('PATH', '')}")
     if found is None:
         t.logger.warn("cozempic installed but not found on PATH yet; it will resolve once ~/.local/bin is sourced (log out/in or restart your shell).")

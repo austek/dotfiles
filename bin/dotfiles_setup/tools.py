@@ -117,9 +117,11 @@ TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("nvm", install_nvm),
     *release_installers.USER_RELEASE_INSTALLERS,
     *vendor_installers.VENDOR_INSTALLERS,
+)
+SYSTEM_TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
+    *release_installers.SYSTEM_RELEASE_INSTALLERS,
     ("antigravity-ide", antigravity.install_antigravity_ide),
 )
-SYSTEM_TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = release_installers.SYSTEM_RELEASE_INSTALLERS
 
 
 def _run_installers(t: Tooling, table: tuple[tuple[str, Installer], ...], package_names: Collection[str]) -> bool:

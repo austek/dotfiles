@@ -99,8 +99,10 @@ def test_rendered_unit_retries_after_a_failed_connectivity_probe():
     assert "RestartSec=30" in unit
 
 
-def test_rendered_unit_puts_the_sonarqube_cli_on_path():
-    assert "%h/.local/share/sonarqube-cli/bin" in foothold.render_unit("main")
+def test_rendered_unit_finds_the_sonarqube_cli_through_the_user_bin_dir_link():
+    unit = foothold.render_unit("main")
+    assert "%h/.local/bin" in unit
+    assert "sonarqube-cli" not in unit
 
 
 @pytest.mark.parametrize("account", foothold.ACCOUNTS)

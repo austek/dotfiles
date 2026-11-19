@@ -66,11 +66,11 @@ def test_steps_run_in_the_order_the_shell_installer_used(tmp_path):
     steps = flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))
     assert [name for name, _ in steps] == [
         "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
-        "install_tools", "install_user_binaries", "install_system_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
+        "install_tools", "install_user_binaries", "link_user_tools", "install_system_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
         "report_unremoved", "report_skipped_sources", "install_post_apt_tools",
         "enable_gpaste_extension",
         "install_github_bins", "configure_docker_group", "configure_dotfiles", "refresh_zsh_completion_cache", "ensure_secrets_env", "retire_claude_profile",
-        "configure_claude_tools", "change_shell", "set_default_terminal",
+        "configure_claude_tools", "report_stale_copies", "change_shell", "set_default_terminal",
         "disable_ibus_unicode_hotkey",
     ]
 
@@ -209,8 +209,56 @@ def test_rule014_auto_skips_the_system_steps_and_the_sudo_prompt_when_nothing_is
     assert ran == ["configure_dotfiles"]
 
 
+def test_the_link_user_tools_step_links_an_installed_tool_and_records_it(tmp_path):
+    home = tmp_path / "home"
+    real = home / ".local/share/sonarqube-cli/bin/sonar"
+    real.parent.mkdir(parents=True)
+    real.write_bytes(b"\x7fELF")
+    log = RollbackLog(tmp_path / "log")
+    steps = dict(flow.build_steps(inputs(tmp_path), frozenset({"sonarqube-cli"}), log))
+    assert steps["link_user_tools"]() is True
+    assert (home / ".local/bin/sonar").resolve() == real.resolve()
+    assert log.entries()[-1] == f"LINK_INSTALLED:{real.parent}|{home / '.local/bin/sonar'}"
+
+
+def test_the_report_stale_copies_step_names_a_copy_that_shadows_a_managed_binary(tmp_path, capsys):
+    home = tmp_path / "home"
+    for directory in (".local/bin", "bin"):
+        (home / directory).mkdir(parents=True)
+        (home / directory / "sops").write_text(directory)
+    steps = dict(flow.build_steps(inputs(tmp_path), frozenset({"sops"}), RollbackLog(tmp_path / "log")))
+    steps["report_stale_copies"]()
+    assert f"{home / 'bin/sops'} precedes {home / '.local/bin/sops'} on PATH and shadows it" in capsys.readouterr().out
+
+
+def antigravity_probe(monkeypatch):
+    ran = []
+    monkeypatch.setattr(tools, "SYSTEM_TOOL_INSTALLERS", (("antigravity-ide", lambda t: ran.append("antigravity")),))
+    real = flow.build_steps
+    monkeypatch.setattr(flow, "build_steps", lambda *a: [s for s in real(*a) if s[0] == "install_system_tools"])
+    return ran
+
+
+def test_antigravity_runs_in_the_system_stage_under_system(tmp_path, no_sudo, monkeypatch):
+    ran = antigravity_probe(monkeypatch)
+    assert flow.run_install(inputs(tmp_path, system="always", packages="antigravity-ide")).succeeded
+    assert ran == ["antigravity"]
+
+
+def test_antigravity_does_not_run_under_no_system(tmp_path, monkeypatch):
+    ran = antigravity_probe(monkeypatch)
+    _no_sudo_prompt(monkeypatch)
+    assert flow.run_install(inputs(tmp_path, system="never", packages="antigravity-ide")).succeeded
+    assert ran == []
+
+
+def test_antigravity_is_not_a_user_stage_tool():
+    assert "antigravity-ide" not in [name for name, _ in tools.TOOL_INSTALLERS]
+
+
 def test_install_user_binaries_is_a_user_stage_step():
     assert "install_user_binaries" not in flow.SYSTEM_STEPS
+    assert {"link_user_tools", "report_stale_copies"}.isdisjoint(flow.SYSTEM_STEPS)
     assert "install_tools" not in flow.SYSTEM_STEPS
 
 

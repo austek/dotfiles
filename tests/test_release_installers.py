@@ -130,6 +130,8 @@ def payload_for(spec):
 def installed(spec, machine, home):
     if spec.kind == "deb":
         return machine.ran("sudo", "dpkg", "-i")
+    if spec is ri.AWSCLI:
+        return any(command[0].endswith("aws/install") for command in machine.commands)
     if spec.binary:
         return (home / ".local" / "bin" / spec.binary).exists()
     return machine.ran("sudo") or ri._jetbrains_binary(home).exists()
@@ -354,8 +356,9 @@ def test_istioctl_installs_the_binary_from_the_versioned_directory(tmp_path):
     t, downloads = make(tmp_path, machine, payload=tarball(f"istio-{version}/bin/istioctl"))
     ri.install_release(t, ri.ISTIOCTL)
     assert downloads == [f"https://github.com/istio/istio/releases/download/{version}/istio-{version}-linux-amd64.tar.gz"]
-    install = next(c for c in machine.commands if c[:2] == ["sudo", "install"])
-    assert install[2].endswith(f"istio-{version}/bin/istioctl")
+    assert (user_bin(tmp_path) / "istioctl").read_bytes() == b"bin"
+    assert (user_bin(tmp_path) / "istioctl").stat().st_mode & 0o777 == 0o755
+    assert not machine.ran("sudo")
 
 
 @pytest.mark.parametrize(("spec", "url"), [
@@ -379,7 +382,9 @@ def test_awscli_runs_the_extracted_installer(tmp_path):
     t, downloads = make(tmp_path, machine, payload=zipball("aws/install", 0o755))
     ri.install_release(t, ri.AWSCLI)
     assert downloads == [f"https://awscli.amazonaws.com/awscli-exe-linux-x86_64-{ri.SPEC_DATA["awscli"].version}.zip"]
-    assert any(c[0] == "sudo" and c[1].endswith("aws/install") for c in machine.commands)
+    assert not machine.ran("sudo")
+    [command] = [c for c in machine.commands if c[0].endswith("aws/install")]
+    assert command[1:] == ["-i", str(tmp_path / ".local" / "aws-cli"), "-b", str(user_bin(tmp_path)), "--update"]
 
 
 def test_awscli_extraction_keeps_the_installer_executable(tmp_path):
@@ -446,7 +451,7 @@ def test_an_unexpected_zip_error_is_reported_not_raised(tmp_path, monkeypatch, c
     machine = Machine()
     t, _ = make(tmp_path, machine, payload=zipball("aws/install", 0o755))
     ri.install_release(t, ri.AWSCLI)
-    assert not machine.ran("sudo")
+    assert machine.commands == []
     assert "Failed to extract AWS CLI installer: RuntimeError" in capsys.readouterr().err
 
 
@@ -454,7 +459,7 @@ def test_awscli_bad_zip_is_reported_and_skipped(tmp_path):
     machine = Machine()
     t, _ = make(tmp_path, machine, payload=b"not a zip")
     ri.install_release(t, ri.AWSCLI)
-    assert not any(c[0] == "sudo" for c in machine.commands)
+    assert machine.commands == []
 
 
 def zoom_listing(version):
@@ -663,12 +668,13 @@ def test_release_installers_run_after_the_script_installers(tmp_path):
     names = [name for name, _ in tools.TOOL_INSTALLERS]
     assert names == [
         "oh-my-zsh", "sdkman", "nvm", "jetbrains-toolbox", "coderabbit", "sonarqube-cli", "uv",
-        "antigravity-ide",
     ]
-    assert [name for name, _ in tools.SYSTEM_TOOL_INSTALLERS] == ["zoom", "istioctl", "awscli"]
+    assert [name for name, _ in tools.SYSTEM_TOOL_INSTALLERS] == ["zoom", "antigravity-ide"]
 
 
-BINARY_PACKAGES = ("lazydocker", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux", "kubeconform", "sops")
+BINARY_PACKAGES = (
+    "lazydocker", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux", "kubeconform", "sops",
+)
 
 
 class Tracker:
@@ -683,8 +689,9 @@ def user_bin(tmp_path):
     return tmp_path / ".local" / "bin"
 
 
-def test_only_the_non_binary_release_specs_are_privileged():
-    assert ri.PRIVILEGED_PACKAGES == {"zoom", "istioctl", "awscli"}
+def test_only_zoom_keeps_a_sudo_release_install():
+    assert ri.PRIVILEGED_PACKAGES == {"zoom"}
+    assert [p for p, _ in ri.SYSTEM_SPECS] == ["zoom"]
     assert [p for p, _ in ri.USER_BINARY_SPECS] == list(BINARY_PACKAGES)
 
 
@@ -793,30 +800,6 @@ def test_dry_run_creates_nothing_and_tracks_nothing(tmp_path, capsys):
     assert "Would download and install chip" in capsys.readouterr().out
 
 
-def test_a_legacy_copy_in_the_system_dir_is_named_for_manual_removal(tmp_path, monkeypatch, capsys):
-    legacy = tmp_path / "usr-local-bin"
-    legacy.mkdir()
-    (legacy / "chip").write_text("")
-    monkeypatch.setattr(ri, "SYSTEM_BIN_DIR", legacy)
-    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
-    ri.install_user_binaries(t, {"chip", "sops"}, Tracker())
-    out = capsys.readouterr().out
-    assert f"{legacy / 'chip'} is now shadowed by {user_bin(tmp_path) / 'chip'}; remove it with sudo when convenient" in out
-    assert str(legacy / "sops") not in out
-
-
-def test_a_home_bin_copy_that_precedes_the_user_bin_dir_is_reported_and_kept(tmp_path, capsys):
-    (tmp_path / "bin").mkdir()
-    stale = tmp_path / "bin" / "chip"
-    stale.write_text("stale")
-    t, _ = make(tmp_path, Machine(), payload=b"\x7fELF")
-    ri.install_user_binaries(t, {"chip", "sops"}, Tracker())
-    out = capsys.readouterr().out
-    assert f"{stale} precedes {user_bin(tmp_path) / 'chip'} on PATH and shadows it; remove it manually" in out
-    assert str(tmp_path / "bin" / "sops") not in out
-    assert stale.read_text() == "stale"
-
-
 def test_a_file_where_the_user_bin_parent_should_be_fails_the_step_cleanly(tmp_path, capsys):
     (tmp_path / ".local").write_text("a file")
     t, downloads = make(tmp_path, Machine(), payload=b"\x7fELF")
@@ -894,53 +877,6 @@ def test_the_upgrade_ignores_a_legacy_copy_when_there_is_no_user_level_binary(tm
     assert not machine.ran(str(legacy / "chip"))
 
 
-def test_a_home_bin_symlink_to_the_user_copy_is_not_reported(tmp_path, capsys):
-    user_bin(tmp_path).mkdir(parents=True)
-    (user_bin(tmp_path) / "chip").write_bytes(b"x")
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin" / "chip").symlink_to(user_bin(tmp_path) / "chip")
-    t, _ = make(tmp_path, Machine())
-    ri.install_user_binaries(t, {"chip"}, Tracker())
-    assert "shadows it" not in capsys.readouterr().out
-
-
-def test_a_legacy_symlink_to_the_user_copy_is_not_reported(tmp_path, monkeypatch, capsys):
-    user_bin(tmp_path).mkdir(parents=True)
-    (user_bin(tmp_path) / "chip").write_bytes(b"x")
-    legacy = tmp_path / "usr-local-bin"
-    legacy.mkdir()
-    (legacy / "chip").symlink_to(user_bin(tmp_path) / "chip")
-    monkeypatch.setattr(ri, "SYSTEM_BIN_DIR", legacy)
-    t, _ = make(tmp_path, Machine())
-    ri.install_user_binaries(t, {"chip"}, Tracker())
-    assert "shadowed" not in capsys.readouterr().out
-
-
-def test_a_user_symlink_to_a_home_bin_copy_is_not_reported(tmp_path, capsys):
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin" / "chip").write_bytes(b"x")
-    user_bin(tmp_path).mkdir(parents=True)
-    (user_bin(tmp_path) / "chip").symlink_to(tmp_path / "bin" / "chip")
-    t, _ = make(tmp_path, Machine())
-    ri.install_user_binaries(t, {"chip"}, Tracker())
-    assert "shadows it" not in capsys.readouterr().out
-
-
-def test_a_run_with_nothing_to_install_prints_one_shadowed_line_per_binary(tmp_path, monkeypatch, capsys):
-    legacy = tmp_path / "usr-local-bin"
-    legacy.mkdir()
-    user_bin(tmp_path).mkdir(parents=True)
-    for name in ("chip", "sops"):
-        (legacy / name).write_text("")
-        (user_bin(tmp_path) / name).write_text("")
-    monkeypatch.setattr(ri, "SYSTEM_BIN_DIR", legacy)
-    t, downloads = make(tmp_path, Machine())
-    ri.install_user_binaries(t, {"chip", "sops"}, Tracker())
-    out = capsys.readouterr().out
-    assert downloads == []
-    assert out.count("is now shadowed by") == 2
-
-
 def test_the_real_user_binaries_step_installs_under_no_system(tmp_path, monkeypatch):
     import dataclasses
 
@@ -1014,3 +950,75 @@ def test_the_user_bin_install_step_upgrades_only_with_the_flag(tmp_path):
     assert downloads == []
     assert tools.install_user_binaries(t, {"chip"}, Tracker(), upgrade=True)
     assert len(downloads) == 1
+
+
+def aws_root(tmp_path):
+    return tmp_path / ".local" / "aws-cli"
+
+
+def test_istioctl_is_tracked_like_the_other_binary_specs(tmp_path):
+    tracker = Tracker()
+    version = ri.SPEC_DATA["istioctl"].version
+    t, _ = make(tmp_path, Machine(), payload=tarball(f"istio-{version}/bin/istioctl"))
+    ri.install_user_binaries(t, {"istioctl"}, tracker)
+    assert tracker.entries == [
+        f"DIR_CREATED:{user_bin(tmp_path)}",
+        f"BIN_INSTALLED:{user_bin(tmp_path) / 'istioctl'}|{digest_of(b'bin')}",
+    ]
+
+
+def test_istioctl_counts_as_installed_only_inside_the_user_bin_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name, path=None: f"/usr/local/bin/{name}")
+    t, downloads = make(tmp_path, Machine(), payload=tarball("istioctl"))
+    ri.install_user_binaries(t, {"istioctl"}, Tracker())
+    assert len(downloads) == 1
+
+
+def test_awscli_counts_as_installed_only_inside_the_user_bin_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name, path=None: f"/usr/local/bin/{name}")
+    machine = Machine()
+    t, downloads = make(tmp_path, machine, payload=zipball("aws/install", 0o755))
+    ri.install_user_binaries(t, {"awscli"}, Tracker())
+    assert len(downloads) == 1
+    user_bin(tmp_path).joinpath("aws").write_text("")
+    ri.install_user_binaries(t, {"awscli"}, Tracker())
+    assert len(downloads) == 1
+
+
+def test_a_fresh_awscli_install_tracks_its_tree_and_link(tmp_path):
+    tracker = Tracker()
+    t, _ = make(tmp_path, Machine(), payload=zipball("aws/install", 0o755))
+    ri.install_user_binaries(t, {"awscli"}, tracker)
+    assert tracker.entries == [
+        f"DIR_CREATED:{user_bin(tmp_path)}",
+        f"TREE_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws'}",
+        f"LINK_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws_completer'}",
+    ]
+
+
+def test_awscli_over_an_existing_tree_tracks_only_the_link(tmp_path):
+    aws_root(tmp_path).mkdir(parents=True)
+    user_bin(tmp_path).mkdir(parents=True)
+    tracker = Tracker()
+    t, _ = make(tmp_path, Machine(), payload=zipball("aws/install", 0o755))
+    ri.install_user_binaries(t, {"awscli"}, tracker)
+    assert tracker.entries == [
+        f"LINK_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws'}",
+        f"LINK_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws_completer'}",
+    ]
+
+
+def test_a_failed_awscli_installer_is_not_tracked(tmp_path):
+    tracker = Tracker()
+    t, _ = make(tmp_path, Machine(), payload=b"not a zip")
+    ri.install_user_binaries(t, {"awscli"}, tracker)
+    assert [e.split(":")[0] for e in tracker.entries] == ["DIR_CREATED"]
+
+
+def test_upgrade_does_not_touch_istioctl_or_awscli(tmp_path):
+    user_bin(tmp_path).mkdir(parents=True)
+    for name in ("istioctl", "aws"):
+        (user_bin(tmp_path) / name).write_text("old")
+    t, downloads = make(tmp_path, Machine())
+    assert tools.install_user_binaries(t, {"istioctl", "awscli"}, Tracker(), upgrade=True)
+    assert downloads == []

@@ -221,6 +221,15 @@ def _installed_build(layout: Layout) -> str | None:
         return None
 
 
+def pending(layout: Layout | None = None, machine: str | None = None) -> bool:
+    """True when this architecture has a build and the installed build is absent or not the pinned one."""
+    layout = layout or Layout()
+    arch_dir = ARCH_DIRS.get(machine or platform.machine())
+    if arch_dir is None:
+        return False
+    return _installed_build(layout) != resolve_build(arch_dir).cache_key.removesuffix(".tar.gz")
+
+
 def install_antigravity_ide(t: Tooling, layout: Layout | None = None, machine: str | None = None) -> None:
     layout = layout or Layout()
     t.logger.info("Installing Antigravity IDE...")

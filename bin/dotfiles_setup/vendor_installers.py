@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotfiles_setup import checksums
+from dotfiles_setup.release_installers import user_bin_dir
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all
 
 
@@ -52,9 +53,9 @@ def install_vendor(t: Tooling, spec: VendorSpec) -> None:
         )
 
 
-def _on_path_or_at(binary: str, fallback: Callable[[Path], Path]) -> Callable[[Tooling], bool]:
+def _on_path_or_at(binary: str, fallback: Callable[[Tooling], Path]) -> Callable[[Tooling], bool]:
     def check(t: Tooling) -> bool:
-        path = fallback(t.home)
+        path = fallback(t)
         return shutil.which(binary) is not None or (path.is_file() and os.access(path, os.X_OK))
 
     return check
@@ -75,13 +76,13 @@ CODERABBIT = VendorSpec(
     _coderabbit_success,
 )
 SONARQUBE_CLI = VendorSpec(
-    "SonarQube CLI", _on_path_or_at("sonar", lambda home: home / ".local/share/sonarqube-cli/bin/sonar"),
+    "SonarQube CLI", _on_path_or_at("sonar", lambda t: t.home / ".local/share/sonarqube-cli/bin/sonar"),
     "https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/tags/1.11.0.16877/user-scripts/install.sh", "bash",
     "Would install the SonarQube CLI via SonarSource's install script.",
     lambda t: "SonarQube CLI installed.",
 )
 UV = VendorSpec(
-    "uv", _on_path_or_at("uv", lambda home: home / ".local/bin/uv"),
+    "uv", _on_path_or_at("uv", lambda t: user_bin_dir(t) / "uv"),
     "https://astral.sh/uv/0.13.7/install.sh", "sh",
     "Would install uv via https://astral.sh/uv/0.13.7/install.sh.",
     lambda t: "uv installed.",

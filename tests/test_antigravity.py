@@ -280,6 +280,28 @@ def test_the_legacy_install_is_kept_when_the_new_one_fails(tmp_path):
     assert not machine.ran("sudo", "rm", "-rf", "--", str(layout.legacy_dir))
 
 
+def test_a_missing_install_is_pending(tmp_path):
+    assert ag.pending(ag.Layout(root=tmp_path / "root"), machine="x86_64") is True
+
+
+def test_an_install_of_another_build_is_pending(tmp_path):
+    layout = ag.Layout(root=tmp_path / "root")
+    layout.build_file.parent.mkdir(parents=True)
+    layout.build_file.write_text("1.0.0-1\n")
+    assert ag.pending(layout, machine="x86_64") is True
+
+
+def test_an_install_of_the_pinned_build_is_not_pending(tmp_path):
+    layout = ag.Layout(root=tmp_path / "root")
+    layout.build_file.parent.mkdir(parents=True)
+    layout.build_file.write_text(f"{BUILD}\n")
+    assert ag.pending(layout, machine="x86_64") is False
+
+
+def test_an_unsupported_architecture_is_never_pending(tmp_path):
+    assert ag.pending(ag.Layout(root=tmp_path / "root"), machine="aarch64") is False
+
+
 def test_the_tarball_is_cached_by_build_id(tmp_path):
     machine = Machine()
     t, downloads, layout = make(tmp_path, machine)

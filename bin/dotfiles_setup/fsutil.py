@@ -4,7 +4,10 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
+
+from dotfiles_setup.result import Err, Ok, Result
 
 
 def stage_text(path: Path, text: str, mode: int) -> Path:
@@ -59,6 +62,21 @@ def install_executable(source: Path, target: Path) -> None:
         staged.unlink(missing_ok=True)
         raise
     commit_staged(staged, target)
+
+
+def link_executable(real: Path, name: str, bin_dir: Path) -> Result[Path]:
+    """Atomically point `bin_dir/name` at the absolute form of `real`, replacing only a symlink; a file or directory there is kept and reported as Err. A file that appears between the check and the replace may be overwritten."""
+    link, real = bin_dir / name, Path(os.path.abspath(real))
+    if link.exists(follow_symlinks=False) and not link.is_symlink():
+        return Err(f"{link} exists and is not a symlink; leaving it in place.")
+    staged = bin_dir / f".{name}.{uuid.uuid4().hex}.tmp"
+    try:
+        staged.symlink_to(real)
+        commit_staged(staged, link)
+    except OSError as error:
+        staged.unlink(missing_ok=True)
+        return Err(f"Could not link {link} to {real}: {error}")
+    return Ok(link)
 
 
 def atomic_write_text(path: Path, text: str, mode: int) -> None:

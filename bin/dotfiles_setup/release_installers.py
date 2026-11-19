@@ -54,6 +54,7 @@ class ReleaseSpec:
     kind: Literal["targz", "zip", "deb", "binary"]
     install: Callable[[Tooling, Path, Path, Resolved], bool]
     binary: str | None = None
+    begin_tracking: Callable[[Tooling, ReleaseSpec, RollbackLog | None], Callable[[], None]] | None = None
 
 
 def user_bin_dir(t: Tooling) -> Path:
@@ -140,12 +141,15 @@ def _unpack(t: Tooling, spec: ReleaseSpec, artifact: Path, temp_dir: Path) -> bo
     return True
 
 
-def _track_binary(t: Tooling, spec: ReleaseSpec, changes: RollbackLog | None) -> None:
-    if changes is None or spec.binary is None:
-        return
-    target = user_bin_dir(t) / spec.binary
-    digest = hashlib.sha256(target.read_bytes()).hexdigest()
-    changes.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=t.logger.dry_run)
+def _track_binary(t: Tooling, spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
+    def record() -> None:
+        if changes is None or spec.binary is None:
+            return
+        target = user_bin_dir(t) / spec.binary
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        changes.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=t.logger.dry_run)
+
+    return record
 
 
 def _fetch_and_install(
@@ -168,10 +172,11 @@ def _fetch_and_install(
         t.logger.info("(using cached download)")
     if not _unpack(t, spec, artifact, temp_dir):
         return
+    record = (spec.begin_tracking or _track_binary)(t, spec, changes)
     if not spec.install(t, temp_dir, artifact, resolved):
         skip(t, f"Failed to install {spec.name}.")
         return
-    _track_binary(t, spec, changes)
+    record()
     t.logger.success(f"{spec.name} installed successfully{suffix}.")
 
 
@@ -196,16 +201,26 @@ def install_release(t: Tooling, spec: ReleaseSpec, changes: RollbackLog | None =
         _fetch_and_install(t, spec, resolved, Path(temp_dir), changes)
 
 
-def _sudo_install(t: Tooling, binary: Path) -> bool:
-    return t.run(["sudo", "install", str(binary), str(SYSTEM_BIN_DIR)]).returncode == 0
-
-
-def _istioctl_install(t: Tooling, temp_dir: Path, _artifact: Path, resolved: Resolved) -> bool:
-    return _sudo_install(t, temp_dir / f"istio-{resolved.version}" / "bin" / "istioctl")
+def aws_cli_root(t: Tooling) -> Path:
+    return t.home / ".local" / "aws-cli"
 
 
 def _awscli_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
-    return t.run(["sudo", str(temp_dir / "aws" / "install")]).returncode == 0
+    argv = [str(temp_dir / "aws" / "install"), "-i", str(aws_cli_root(t)), "-b", str(user_bin_dir(t)), "--update"]
+    return t.run(argv).returncode == 0
+
+
+def _awscli_tracking(t: Tooling, _spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
+    """Captured before the install: an existing tree is not ours to remove on rollback, so only the link is tracked."""
+    root, bin_dir = aws_cli_root(t), user_bin_dir(t)
+    action = "LINK_INSTALLED" if root.exists() else "TREE_INSTALLED"
+
+    def record() -> None:
+        if changes is not None:
+            changes.track(f"{action}:{root}|{bin_dir / 'aws'}", dry_run=t.logger.dry_run)
+            changes.track(f"LINK_INSTALLED:{root}|{bin_dir / 'aws_completer'}", dry_run=t.logger.dry_run)
+
+    return record
 
 
 def _jetbrains_binary(home: Path) -> Path:
@@ -229,10 +244,6 @@ def _jetbrains_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: R
 
 def _deb_installed(package: str) -> Callable[[Tooling], bool]:
     return lambda t: re.search(rf"^ii {{2}}{re.escape(package)} ", _dpkg_listing(t), re.MULTILINE) is not None
-
-
-def _which_installed(binary: str) -> Callable[[Tooling], bool]:
-    return lambda t: shutil.which(binary) is not None
 
 
 def _user_bin_install(t: Tooling, source: Path, binary: str) -> bool:
@@ -269,19 +280,27 @@ def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool
 CUSTOM_BEHAVIOR: dict[str, tuple[Callable[[Tooling], bool], Callable[[Tooling, Path, Path, Resolved], bool]]] = {
     "zoom": (_deb_installed("zoom"), _deb_install("zoom")),
     "jetbrains-toolbox": (lambda t: _jetbrains_binary(t.home).is_file(), _jetbrains_install),
-    "istioctl": (_which_installed("istioctl"), _istioctl_install),
-    "awscli": (_which_installed("aws"), _awscli_install),
+    "awscli": (_user_bin_installed("aws"), _awscli_install),
 }
+CUSTOM_BINARY_NAMES = {"awscli": "aws"}
+CUSTOM_TRACKING = {"awscli": _awscli_tracking}
+
+
+def _behavior(data: SpecData) -> tuple[Callable[[Tooling], bool], Callable[[Tooling, Path, Path, Resolved], bool]]:
+    if data.package in CUSTOM_BEHAVIOR:
+        return CUSTOM_BEHAVIOR[data.package]
+    binary = data.binary or data.package
+    place = _raw_binary_install if data.kind == "binary" else _binary_install
+    return _user_bin_installed(binary), place(binary)
 
 
 def _release_spec(data: SpecData) -> ReleaseSpec:
     resolved = Resolved(data.version, data.download_url, data.artifact_name)
-    if data.binary:
-        place = _raw_binary_install if data.kind == "binary" else _binary_install
-        is_installed, install = _user_bin_installed(data.binary), place(data.binary)
-    else:
-        is_installed, install = CUSTOM_BEHAVIOR[data.package]
-    return ReleaseSpec(data.name, is_installed, lambda _t: resolved, data.kind, install, data.binary)
+    is_installed, install = _behavior(data)
+    binary = CUSTOM_BINARY_NAMES.get(data.package, data.binary)
+    return ReleaseSpec(
+        data.name, is_installed, lambda _t: resolved, data.kind, install, binary, CUSTOM_TRACKING.get(data.package),
+    )
 
 
 def _load_spec_data() -> tuple[SpecData, ...]:
@@ -297,7 +316,7 @@ def _load_spec_data() -> tuple[SpecData, ...]:
 
 SPEC_DATA: dict[str, SpecData] = {d.package: d for d in _load_spec_data()}
 RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = tuple((p, _release_spec(d)) for p, d in SPEC_DATA.items())
-PRIVILEGED_PACKAGES = frozenset({"zoom", "istioctl", "awscli"})
+PRIVILEGED_PACKAGES = frozenset({"zoom"})
 USER_BINARY_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if s.binary)
 USER_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p not in PRIVILEGED_PACKAGES and not s.binary)
 SYSTEM_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p in PRIVILEGED_PACKAGES)
@@ -347,7 +366,8 @@ def upgrade_release(t: Tooling, spec: ReleaseSpec, installed: str | None) -> Non
         _fetch_and_install(t, spec, resolved, Path(temp_dir))
 
 
-def _ensure_user_bin_dir(t: Tooling, changes: RollbackLog | None) -> bool:
+def ensure_user_bin_dir(t: Tooling, changes: RollbackLog | None) -> bool:
+    """Creates `~/.local/bin` (mode 0755) and tracks it for rollback; False, with a warning, when it cannot be made."""
     target = user_bin_dir(t)
     if target.is_dir() or t.logger.dry_run:
         return True
@@ -362,37 +382,20 @@ def _ensure_user_bin_dir(t: Tooling, changes: RollbackLog | None) -> bool:
     return True
 
 
-def _same_file(first: Path, second: Path) -> bool:
-    return first.resolve() == second.resolve()
-
-
-def _note_system_copy(t: Tooling, spec: ReleaseSpec) -> None:
-    assert spec.binary is not None
-    current = user_bin_dir(t) / spec.binary
-    if not current.is_file():
-        return
-    legacy, home_copy = SYSTEM_BIN_DIR / spec.binary, t.home / "bin" / spec.binary
-    if legacy.is_file() and not _same_file(legacy, current):
-        t.logger.info(f"{legacy} is now shadowed by {current}; remove it with sudo when convenient.")
-    if home_copy.is_file() and not _same_file(home_copy, current):
-        t.logger.info(f"{home_copy} precedes {current} on PATH and shadows it; remove it manually.")
-
-
 def _user_bin_dir_ready(t: Tooling, wanted: list[ReleaseSpec], changes: RollbackLog | None) -> bool:
     missing = platform.machine() == SUPPORTED_ARCH and any(not spec.is_installed(t) for spec in wanted)
-    return _ensure_user_bin_dir(t, changes) if missing else True
+    return ensure_user_bin_dir(t, changes) if missing else True
 
 
 def install_user_binaries(
     t: Tooling, package_names: Collection[str], changes: RollbackLog | None = None,
 ) -> bool:
-    """Installs each wanted pinned binary that is missing from `~/.local/bin`, with no sudo, and reports older copies it shadows. False when the directory cannot be created."""
+    """Installs each wanted pinned binary that is missing from `~/.local/bin`, with no sudo. False when the directory cannot be created."""
     wanted = [spec for package, spec in USER_BINARY_SPECS if package in package_names]
     if not _user_bin_dir_ready(t, wanted, changes):
         return False
     for spec in wanted:
         install_release(t, spec, changes)
-        _note_system_copy(t, spec)
     return True
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from dotfiles_setup import (
+    antigravity,
     apt_packages,
     desktop_defaults,
     release_installers,
@@ -50,6 +51,8 @@ def _missing_debs(ctx: SystemContext) -> str | None:
 
 def _missing_releases(ctx: SystemContext) -> str | None:
     missing = release_installers.pending_system_releases(ctx.t, ctx.packages)
+    if "antigravity-ide" in ctx.packages and antigravity.pending():
+        missing = [*missing, "antigravity-ide"]
     return f"{len(missing)} release tool(s) not installed ({', '.join(missing)})" if missing else None
 
 
