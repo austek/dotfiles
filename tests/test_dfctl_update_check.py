@@ -521,7 +521,49 @@ def test_ask_mode_still_prompts_when_nothing_is_typed(due):
     assert PROMPT in due.run(key=b"\n").output
 
 
-STTY_BEFORE = 'print -r -- "before=$(stty -g)"'
+def lock_call(env: Env, *calls: str) -> subprocess.CompletedProcess:
+    script = f'fpath=("{FUNCTIONS}" $fpath)\nautoload -Uz $fpath[1]/*(:t)\n' + "\n".join(calls)
+    return subprocess.run([env.zsh, "-f", "-c", script], env=env.env, capture_output=True, text=True, timeout=30, check=False)
+
+
+def age_lock(env: Env, seconds: int) -> None:
+    old = time.time() - seconds
+    os.utime(env.lock, (old, old))
+
+
+def test_a_stale_lock_reclaimed_by_another_shell_survives_the_first_shells_cleanup(env):
+    take, release = f'_dfctl_update_lock "{env.lock}" {{}}', f'_dfctl_update_unlock "{env.lock}" {{}}'
+    assert lock_call(env, take.format("tokA")).returncode == 0
+    age_lock(env, 2 * 3600)
+    assert lock_call(env, take.format("tokB")).returncode == 0
+    lock_call(env, release.format("tokA"))
+    assert env.lock.is_dir()
+    assert lock_call(env, take.format("tokC")).returncode != 0
+    lock_call(env, release.format("tokB"))
+    assert not env.lock.exists()
+
+
+def test_a_lock_is_removed_by_its_owner(env):
+    assert lock_call(env, f'_dfctl_update_lock "{env.lock}" tokA').returncode == 0
+    lock_call(env, f'_dfctl_update_unlock "{env.lock}" tokA')
+    assert not env.lock.exists()
+
+
+def test_a_lock_without_an_owner_file_is_reclaimed_after_an_hour_and_removed_by_its_owner(env):
+    env.lock.mkdir(parents=True)
+    age_lock(env, 2 * 3600)
+    assert lock_call(env, f'_dfctl_update_lock "{env.lock}" tokB').returncode == 0
+    lock_call(env, f'_dfctl_update_unlock "{env.lock}" tokB')
+    assert not env.lock.exists()
+
+
+def test_a_lock_without_an_owner_file_younger_than_an_hour_is_kept(env):
+    env.lock.mkdir(parents=True)
+    assert lock_call(env, f'_dfctl_update_lock "{env.lock}" tokB').returncode != 0
+    assert env.lock.is_dir()
+
+
+STTY_BEFORE ='print -r -- "before=$(stty -g)"'
 STTY_AFTER = 'print -r -- "after=$(stty -g)"'
 
 

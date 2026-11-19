@@ -1,10 +1,17 @@
-# Takes the mkdir lock $1; a lock older than an hour belongs to a killed shell and is replaced.
+# Takes the mkdir lock $1 for the owner token $2; a lock older than an hour belongs to a killed shell and is replaced.
 _dfctl_update_lock() {
   emulate -L zsh
   zmodload -F zsh/datetime p:EPOCHSECONDS
   zmodload -F zsh/stat b:zstat
+  zmodload -F zsh/files b:zf_rm
   local -a mtime
   mkdir -p ${1:h} 2>/dev/null
-  zstat -A mtime +mtime $1 2>/dev/null && (( EPOCHSECONDS - mtime[1] > 3600 )) && rmdir $1 2>/dev/null
-  mkdir $1 2>/dev/null
+  if zstat -A mtime +mtime $1 2>/dev/null && (( EPOCHSECONDS - mtime[1] > 3600 )); then
+    zf_rm -f $1/owner 2>/dev/null
+    rmdir $1 2>/dev/null
+  fi
+  mkdir $1 2>/dev/null || return 1
+  print -r -- $2 >| $1/owner 2>/dev/null && return 0
+  rmdir $1 2>/dev/null
+  return 1
 }
