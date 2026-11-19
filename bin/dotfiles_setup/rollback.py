@@ -6,6 +6,7 @@ import errno
 import hashlib
 import os
 import shutil
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,63 +120,109 @@ def _dir_created(ctx: RollbackContext, data: str) -> None:
 def _binary_installed(ctx: RollbackContext, data: str) -> None:
     path, _, digest = data.rpartition("|")
     target = Path(path)
-    held = target.with_name(f".{target.name}.rollback-{os.getpid()}")
     try:
-        os.replace(target, held)
+        held = _hold(ctx, target)
+    except _HoldFailed:
+        return
+    if held is None:
+        return
+    try:
+        matches = hashlib.sha256(held.read_bytes()).hexdigest() == digest
+    except OSError as exc:
+        ctx.t.logger.warn(f"Kept {target}: could not read it: {exc}")
+        _put_back(ctx, held, target)
+        return
+    if matches:
+        ctx.t.logger.info(f"Removing installed binary: {target}")
+        _discard(ctx, held)
+    else:
+        ctx.t.logger.info(f"Kept {target}: it changed since the install.")
+        _put_back(ctx, held, target)
+
+
+class _HoldFailed(Exception):
+    """`_hold` could not move the path and has already warned."""
+
+
+def _hold(ctx: RollbackContext, path: Path) -> Path | None:
+    """Moves `path` into a new private directory beside it and returns the new location, or None when `path` is missing. Raises `_HoldFailed` after warning on any other error."""
+    try:
+        held_dir = Path(tempfile.mkdtemp(dir=path.parent, prefix=f".{path.name}.rollback-"))
     except FileNotFoundError:
-        return
+        return None
     except OSError as exc:
-        ctx.t.logger.warn(f"Failed to remove {target}: {exc}")
-        return
+        ctx.t.logger.warn(f"Failed to remove {path}: {exc}")
+        raise _HoldFailed from exc
+    held = held_dir / path.name
     try:
-        if hashlib.sha256(held.read_bytes()).hexdigest() == digest:
-            ctx.t.logger.info(f"Removing installed binary: {target}")
-            held.unlink()
-        else:
-            ctx.t.logger.info(f"Kept {target}: it changed since the install.")
-            _put_back(ctx, held, target)
+        os.replace(path, held)
     except OSError as exc:
-        ctx.t.logger.warn(f"Could not finish rolling back {target}: {exc}; the file is at {held}")
+        held_dir.rmdir()
+        if isinstance(exc, FileNotFoundError):
+            return None
+        ctx.t.logger.warn(f"Failed to remove {path}: {exc}")
+        raise _HoldFailed from exc
+    return held
+
+
+def _discard(ctx: RollbackContext, held: Path) -> None:
+    try:
+        held.unlink()
+        held.parent.rmdir()
+    except OSError as exc:
+        ctx.t.logger.warn(f"Could not delete {held}: {exc}")
 
 
 def _put_back(ctx: RollbackContext, held: Path, target: Path) -> None:
-    """Restores `held` to `target` as a hard link and never overwrites an existing target: on `FileExistsError` it warns and leaves `held` in place. Other `OSError`s propagate."""
+    """Restores `held` to `target` as a hard link and never overwrites an existing target. A newer target or any other failure warns and keeps `held` in its directory; success removes both."""
     try:
-        os.link(held, target)
+        os.link(held, target, follow_symlinks=False)
     except FileExistsError:
         ctx.t.logger.warn(f"A newer {target} exists; the previous file is kept at {held}")
         return
-    held.unlink()
+    except OSError as exc:
+        ctx.t.logger.warn(f"Could not restore {target}: {exc}; the file is kept at {held}")
+        return
+    _discard(ctx, held)
 
 
-def _link_matches(ctx: RollbackContext, link: Path, root: Path) -> bool:
-    """True when `link` is gone or still a symlink into `root`; anything else is the user's and is kept."""
-    if link.is_symlink():
-        if link.resolve().is_relative_to(root.resolve()):
-            return True
-    elif not link.exists():
-        return True
-    ctx.t.logger.info(f"Kept {link}: it is not a symlink into {root}.")
-    return False
+def _points_into(held: Path, original: Path, root: Path) -> bool:
+    """True when the held symlink, read as if it still sat at `original`, resolves into `root`."""
+    try:
+        resolved = (original.parent / os.readlink(held)).resolve()
+        return resolved.is_relative_to(root.resolve())
+    except (OSError, RuntimeError):
+        return False
 
 
 def _link_installed(ctx: RollbackContext, data: str) -> bool:
+    """True when the link is gone or was ours and is now removed; a replaced object is restored and reported as False."""
     root_text, _, link_text = data.partition("|")
     root, link = Path(root_text), Path(link_text)
-    if not _link_matches(ctx, link, root):
-        return False
     try:
-        link.unlink(missing_ok=True)
-    except OSError as exc:
-        ctx.t.logger.warn(f"Failed to remove {link}: {exc}")
+        held = _hold(ctx, link)
+    except _HoldFailed:
         return False
-    return True
+    if held is None:
+        return True
+    if held.is_symlink() and _points_into(held, link, root):
+        _discard(ctx, held)
+        return True
+    ctx.t.logger.info(f"Kept {link}: it is not a symlink into {root}.")
+    _put_back(ctx, held, link)
+    return False
 
 
 def _tree_installed(ctx: RollbackContext, data: str) -> None:
     """The entry is `root|link`. The tree we created is removed when the link is gone or still resolves into it; both stay when the link was retargeted or is a regular file."""
     root = Path(data.partition("|")[0])
-    if not _link_installed(ctx, data) or root.is_symlink() or not root.is_dir():
+    if not _link_installed(ctx, data):
+        return
+    try:
+        if root.is_symlink() or not root.is_dir():
+            return
+    except OSError as exc:
+        ctx.t.logger.warn(f"Kept {root}: {exc}")
         return
     ctx.t.logger.info(f"Removing installed tree: {root}")
     try:

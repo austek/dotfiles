@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -196,12 +197,109 @@ def test_a_mismatch_with_a_newer_target_keeps_both_and_logs_the_temporary_path(t
     ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
     replace_then_write(monkeypatch, target, b"newer")
     rollback.perform_rollback(ctx)
-    (held,) = target.parent.glob(".chip.rollback-*")
+    (held,) = target.parent.glob(".chip.rollback-*/chip")
     assert held.read_bytes() == b"someone elses"
     assert target.read_bytes() == b"newer"
     output = capsys.readouterr().out
     assert f"Kept {target}: it changed since the install." in output
     assert str(held) in output
+
+
+def test_two_rollbacks_in_one_process_keep_both_preserved_files(tmp_path, monkeypatch):
+    target, digest = installed_binary(tmp_path, content=b"first")
+    for newer in (b"second", b"third"):
+        ctx = context(tmp_path, Machine())
+        ctx.log.discard()
+        ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+        replace_then_write(monkeypatch, target, newer)
+        rollback.perform_rollback(ctx)
+        monkeypatch.undo()
+    kept = sorted(p.read_bytes() for p in target.parent.glob(".chip.rollback-*/chip"))
+    assert kept == [b"first", b"second"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_an_unreadable_binary_is_put_back_and_left_alone(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    target.chmod(0o111)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert target.stat().st_mode & 0o777 == 0o111
+    assert sorted(p.name for p in target.parent.iterdir()) == ["chip"]
+    assert "Kept" in capsys.readouterr().out
+
+
+def test_a_binary_that_cannot_be_put_back_keeps_its_directory_and_says_where(tmp_path, monkeypatch, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path, content=b"someone elses")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    monkeypatch.setattr(rollback.os, "link", lambda *args, **kwargs: (_ for _ in ()).throw(PermissionError("denied")))
+    rollback.perform_rollback(ctx)
+    (held,) = target.parent.glob(".chip.rollback-*/chip")
+    assert held.read_bytes() == b"someone elses"
+    assert str(held) in capsys.readouterr().out
+
+
+def swap_before_replace(monkeypatch, path, make):
+    real = os.replace
+
+    def replace(src, dst):
+        if Path(src) == path:
+            path.unlink()
+            make(path)
+        real(src, dst)
+
+    monkeypatch.setattr(rollback.os, "replace", replace)
+
+
+def test_a_link_replaced_by_a_regular_file_before_the_move_survives(tmp_path, monkeypatch):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{link}", dry_run=False)
+    swap_before_replace(monkeypatch, link, lambda path: path.write_bytes(b"mine"))
+    rollback.perform_rollback(ctx)
+    assert link.read_bytes() == b"mine"
+    assert sorted(p.name for p in link.parent.iterdir()) == ["aws"]
+
+
+def test_a_link_replaced_by_a_symlink_outside_the_root_is_restored(tmp_path, monkeypatch):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    other = tmp_path / "other-aws"
+    other.write_bytes(b"mine")
+    ctx.log.track(f"LINK_INSTALLED:{root}|{link}", dry_run=False)
+    swap_before_replace(monkeypatch, link, lambda path: path.symlink_to(other))
+    rollback.perform_rollback(ctx)
+    assert link.is_symlink()
+    assert link.resolve() == other.resolve()
+    assert sorted(p.name for p in link.parent.iterdir()) == ["aws"]
+
+
+def test_a_matching_link_is_removed_and_leaves_no_temporary_directory(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert list(link.parent.iterdir()) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+@pytest.mark.parametrize("action", ["LINK_INSTALLED", "TREE_INSTALLED"])
+def test_an_unreadable_link_directory_does_not_stop_the_remaining_entries(tmp_path, action):
+    ctx = context(tmp_path, Machine())
+    later = tmp_path / "later"
+    later.mkdir()
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    ctx.log.track(f"DIR_CREATED:{later}", dry_run=False)
+    ctx.log.track(f"{action}:{locked / 'root'}|{locked / 'aws'}", dry_run=False)
+    locked.chmod(0)
+    try:
+        rollback.perform_rollback(ctx)
+    finally:
+        locked.chmod(0o700)
+    assert not later.exists()
 
 
 def test_an_already_removed_user_binary_is_not_an_error(tmp_path, capsys):
