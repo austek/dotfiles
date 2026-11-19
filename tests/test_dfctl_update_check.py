@@ -210,7 +210,8 @@ def test_ask_is_the_default_and_the_fallback_for_an_unknown_mode(due, mode):
 
 def test_disabled_mode_does_nothing(due):
     result = due.run(zstyles="zstyle ':dfctl:update' mode disabled")
-    assert PROMPT not in result.output and "[dfctl]" not in result.output
+    assert PROMPT not in result.output
+    assert "[dfctl]" not in result.output
     assert due.calls() == []
     assert due.stamp_days() == today() - AGE
 
@@ -225,7 +226,8 @@ def test_auto_mode_updates_without_asking(due):
 
 def test_the_first_run_writes_the_stamp_without_prompting(env):
     result = env.run()
-    assert PROMPT not in result.output and "[dfctl]" not in result.output
+    assert PROMPT not in result.output
+    assert "[dfctl]" not in result.output
     assert env.stamp_days() == today()
     assert env.calls() == []
 
@@ -261,7 +263,8 @@ def test_frequency_gates_the_prompt_by_stamp_age(env, frequency, age, prompts):
 @pytest.mark.parametrize(("stdin_tty", "stdout_tty"), [(False, False), (True, False), (False, True)])
 def test_silent_unless_stdin_and_stdout_are_ttys(due, stdin_tty, stdout_tty):
     result = due.run(stdin_tty=stdin_tty, stdout_tty=stdout_tty)
-    assert PROMPT not in result.output and "[dfctl]" not in result.output
+    assert PROMPT not in result.output
+    assert "[dfctl]" not in result.output
     assert due.calls() == []
     assert due.stamp_days() == today() - AGE
 
@@ -378,7 +381,8 @@ def test_apply_still_runs_without_git_or_a_checkout(due):
 def test_a_future_stamp_is_rewritten_silently(env):
     env.set_stamp(today() + 3)
     result = env.run()
-    assert PROMPT not in result.output and "[dfctl]" not in result.output
+    assert PROMPT not in result.output
+    assert "[dfctl]" not in result.output
     assert env.stamp_days() == today()
     assert env.calls() == []
 
@@ -406,7 +410,8 @@ def test_an_unwritable_state_dir_is_silent_and_does_not_loop(due):
         result = due.run()
     finally:
         due.stamp.parent.chmod(0o700)
-    assert PROMPT not in result.output and "[dfctl]" not in result.output
+    assert PROMPT not in result.output
+    assert "[dfctl]" not in result.output
     assert result.output.rstrip().endswith("rc=0")
     assert due.calls() == []
 
@@ -446,7 +451,8 @@ def test_reminder_mode_prints_one_line_and_does_nothing_else(due):
     result = due.run(zstyles=REMINDER_STYLE, typed=b"q", tail=READ_BACK)
     assert REMINDER.format(days=AGE) in result.output
     assert result.output.count("[dfctl]") == 1
-    assert PROMPT not in result.output and HINT not in result.output
+    assert PROMPT not in result.output
+    assert HINT not in result.output
     assert due.calls() == []
     assert LEFT in result.output
 
@@ -519,14 +525,17 @@ def test_the_terminal_settings_are_restored_after_the_pending_input_check(due, t
     result = due.run(key=b"\n", typed=typed, zstyles=STTY_BEFORE, tail=STTY_AFTER)
     before = re.search(r"before=(\S+)", result.output)
     after = re.search(r"after=(\S+)", result.output)
-    assert before and after and before.group(1) == after.group(1)
+    assert before
+    assert after
+    assert before.group(1) == after.group(1)
 
 
 def test_a_missing_zselect_module_falls_back_to_the_prompt_quietly(due):
     stub = 'zmodload() { [[ $1 == zsh/zselect ]] && return 1; builtin zmodload "$@" }'
     result = due.run(key=b"\n", typed=b"q", zstyles=stub)
     assert PROMPT in result.output
-    assert "zselect" not in result.output and "zmodload" not in result.output
+    assert "zselect" not in result.output
+    assert "zmodload" not in result.output
     assert due.stamp_days() == today()
 
 
