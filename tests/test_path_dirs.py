@@ -33,6 +33,31 @@ def test_parse_rejects_a_relative_entry_naming_its_line():
     assert "line 2" in result.error
 
 
+def test_parse_rejects_a_colon_inside_an_entry_naming_its_line():
+    result = path_dirs.parse("~/a\n/opt/tools:./bin\n")
+    assert isinstance(result, Err)
+    assert "line 2" in result.error
+    assert "':'" in result.error
+
+
+def test_parse_rejects_a_trailing_colon_that_would_add_an_empty_component():
+    assert isinstance(path_dirs.parse("/usr/bin:\n"), Err)
+
+
+def test_load_returns_an_error_for_a_list_that_is_not_utf8(tmp_path):
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "path_dirs.txt").write_bytes(b"~/a\n\xff\n")
+    assert isinstance(path_dirs.load(tmp_path, None), Err)
+
+
+def test_load_returns_an_error_for_extras_that_are_not_utf8(tmp_path):
+    dotfiles, overlay_root = tmp_path / "dotfiles", tmp_path / "overlay"
+    _write_base(dotfiles, "~/a\n")
+    (overlay_root / "packages").mkdir(parents=True)
+    (overlay_root / "packages" / "path_dirs_extra.txt").write_bytes(b"\xff\n")
+    assert isinstance(path_dirs.load(dotfiles, overlay_root), Err)
+
+
 def test_parse_trims_whitespace_around_an_entry():
     assert _unwrap(path_dirs.parse("  ~/a  \n")) == ("~/a",)
 
@@ -90,3 +115,7 @@ def test_for_env_expands_the_tilde_to_home(tmp_path):
 
 def test_for_systemd_maps_the_tilde_to_percent_h_and_leaves_absolute_paths():
     assert path_dirs.for_systemd(("~/.local/bin", "/usr/bin")) == ("%h/.local/bin", "/usr/bin")
+
+
+def test_for_systemd_escapes_a_literal_percent_but_keeps_the_home_prefix_expandable():
+    assert path_dirs.for_systemd(("/opt/%h/bin", "~/100%/bin")) == ("/opt/%%h/bin", "%h/100%%/bin")

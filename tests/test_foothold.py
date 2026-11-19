@@ -86,6 +86,11 @@ def test_rendered_unit_path_is_the_list_with_percent_h():
     assert 'Environment="PATH=%h/.local/bin:%h/.krew/bin:/usr/bin"' in unit
 
 
+def test_rendered_unit_path_keeps_a_literal_percent_literal_and_the_home_prefix_expandable():
+    unit = foothold.render_unit("main", ("/opt/%h/bin", "~/.local/bin"))
+    assert 'Environment="PATH=/opt/%%h/bin:%h/.local/bin"' in unit
+
+
 def test_rendered_unit_path_changes_with_the_list():
     assert foothold.render_unit("main", ("~/a",)) != foothold.render_unit("main", ("~/b",))
 

@@ -32,6 +32,8 @@ def parse(text: str, source: str = "PATH list") -> Result[tuple[str, ...]]:
             continue
         if not _is_directory_entry(entry):
             return Err(f"{source}: line {number}: '{entry}' must start with '~/' or '/'.")
+        if ":" in entry:
+            return Err(f"{source}: line {number}: '{entry}' must not contain ':', the PATH separator.")
         entries.append(entry)
     return Ok(_dedupe(entries))
 
@@ -39,7 +41,7 @@ def parse(text: str, source: str = "PATH list") -> Result[tuple[str, ...]]:
 def _read(path: Path) -> Result[tuple[str, ...]]:
     try:
         return parse(path.read_text(encoding="utf-8"), source=str(path))
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         return Err(f"Cannot read {path}: {exc}")
 
 
@@ -65,5 +67,12 @@ def for_env(entries: tuple[str, ...], home: Path) -> str:
     return ":".join(f"{home}/{entry[len(HOME_PREFIX):]}" if entry.startswith(HOME_PREFIX) else entry for entry in entries)
 
 
+def _systemd_entry(entry: str) -> str:
+    """A literal `%` is doubled so systemd does not read it as a specifier; the `%h` prefix for `~/` stays one."""
+    if entry.startswith(HOME_PREFIX):
+        return "%h/" + entry[len(HOME_PREFIX):].replace("%", "%%")
+    return entry.replace("%", "%%")
+
+
 def for_systemd(entries: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(f"%h/{entry[len(HOME_PREFIX):]}" if entry.startswith(HOME_PREFIX) else entry for entry in entries)
+    return tuple(_systemd_entry(entry) for entry in entries)
