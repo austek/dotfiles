@@ -11,6 +11,7 @@ def system_dir(tmp_path, monkeypatch):
     path = tmp_path / "usr-local-bin"
     path.mkdir()
     monkeypatch.setattr(ri, "SYSTEM_BIN_DIR", path)
+    monkeypatch.setenv("PATH", f"{path}:/usr/bin")
     return path
 
 
@@ -38,6 +39,31 @@ def test_a_system_copy_is_reported_as_shadowed_and_kept(tmp_path, system_dir, ca
     stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
     assert lines(capsys) == [f"{legacy} is now shadowed by {managed}; remove it with sudo when convenient."]
     assert legacy.read_text() == "old"
+
+
+@pytest.mark.parametrize("spelling", ["{dir}/", "{dir}//", "{dir}/./"])
+def test_a_system_dir_on_path_with_another_spelling_still_counts_as_on_path(tmp_path, system_dir, capsys, monkeypatch, spelling):
+    monkeypatch.setenv("PATH", f"{spelling.format(dir=system_dir)}:/usr/bin")
+    managed = put(tmp_path / ".local/bin", "sops", "new")
+    legacy = put(system_dir, "sops", "old")
+    stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
+    assert lines(capsys) == [f"{legacy} is now shadowed by {managed}; remove it with sudo when convenient."]
+
+
+def test_a_system_copy_is_described_neutrally_when_its_directory_is_not_on_path(tmp_path, system_dir, capsys, monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+    put(tmp_path / ".local/bin", "sops", "new")
+    legacy = put(system_dir, "sops", "old")
+    stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
+    assert lines(capsys) == [f"{legacy} also exists; it is not on PATH here."]
+
+
+def test_the_home_directories_keep_the_path_order_wording_when_path_lacks_them(tmp_path, system_dir, capsys, monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+    managed = put(tmp_path / ".local/bin", "sops", "new")
+    stale = put(tmp_path / "bin", "sops", "old")
+    stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
+    assert lines(capsys) == [f"{stale} precedes {managed} on PATH and shadows it; remove it manually."]
 
 
 @pytest.mark.parametrize("directory", ["bin", ".dotfiles/bin"])

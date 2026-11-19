@@ -50,7 +50,7 @@ def _link_one(t: Tooling, name: str, real: Path, changes: RollbackLog | None) ->
 
 
 def link_user_tools(t: Tooling, package_names: Collection[str], changes: RollbackLog | None = None) -> bool:
-    """Links each wanted, installed tool into `~/.local/bin`; a name taken by a regular file is warned about and kept. Never fails the step."""
+    """Links each wanted, installed tool into `~/.local/bin`; a name taken by a regular file or directory is warned about and kept. Never fails the step."""
     for package, name, locate in USER_LINKS:
         real = locate(t.home)
         if package in package_names and real.is_file():

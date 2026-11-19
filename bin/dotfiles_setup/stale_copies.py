@@ -1,6 +1,7 @@
 """Reports a same-named copy in `~/.dotfiles/bin`, `~/bin` or `/usr/local/bin` of each binary dfctl manages in `~/.local/bin`; never removes one."""
 from __future__ import annotations
 
+import os
 from collections.abc import Collection, Iterable
 from pathlib import Path
 
@@ -29,14 +30,21 @@ def _is_other_file(copy: Path, managed: Path) -> bool:
     return copy.is_file() and not copy.samefile(managed)
 
 
-def _message(copy: Path, managed: Path, shadows: bool) -> str:
+def _message(copy: Path, managed: Path, shadows: bool, on_path: bool) -> str:
     if shadows:
         return f"{copy} precedes {managed} on PATH and shadows it; remove it manually."
+    if not on_path:
+        return f"{copy} also exists; it is not on PATH here."
     return f"{copy} is now shadowed by {managed}; remove it with sudo when convenient."
 
 
+def _on_path(directory: Path) -> bool:
+    entries = (os.path.normpath(entry) for entry in os.environ.get("PATH", "").split(os.pathsep) if entry)
+    return os.path.normpath(directory) in entries
+
+
 def report_stale_copies(t: Tooling, names: Iterable[str]) -> None:
-    """Logs one line per other copy of each managed binary, saying whether it shadows `~/.local/bin` or is shadowed by it."""
+    """Logs one line per other copy of each managed binary, saying whether it shadows `~/.local/bin`, is shadowed by it, or (a copy in a directory that is off `PATH`) exists and is not on PATH here."""
     dirs, managed_dir = search_dirs(t), user_bin_dir(t)
     rank = dirs.index(managed_dir)
     others = [(directory, position < rank) for position, directory in enumerate(dirs) if directory != managed_dir]
@@ -46,4 +54,4 @@ def report_stale_copies(t: Tooling, names: Iterable[str]) -> None:
             continue
         for directory, shadows in others:
             if _is_other_file(directory / name, managed):
-                t.logger.info(_message(directory / name, managed, shadows))
+                t.logger.info(_message(directory / name, managed, shadows, _on_path(directory)))

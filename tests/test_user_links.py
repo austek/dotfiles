@@ -127,8 +127,9 @@ def test_a_failing_success_log_still_leaves_the_link_tracked(tmp_path, monkeypat
     real = real_tool(tmp_path, SONAR)
     monkeypatch.setattr(Logger, "info", lambda self, message: (_ for _ in ()).throw(BrokenPipeError()))
     tracker = Tracker()
+    t = tooling(tmp_path)
     with pytest.raises(BrokenPipeError):
-        user_links.link_user_tools(tooling(tmp_path), {"sonarqube-cli"}, tracker)
+        user_links.link_user_tools(t, {"sonarqube-cli"}, tracker)
     assert f"LINK_INSTALLED:{real.parent}|{user_bin(tmp_path) / 'sonar'}" in tracker.entries
 
 

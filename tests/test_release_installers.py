@@ -1039,6 +1039,11 @@ def test_awscli_counts_as_installed_only_inside_the_user_bin_dir(tmp_path, monke
     assert len(downloads) == 1
 
 
+def tree_identity(tmp_path):
+    status = aws_root(tmp_path).lstat()
+    return f"{status.st_dev}:{status.st_ino}"
+
+
 class AwsMachine(Machine):
     """Plays the AWS installer: builds the tree under -i and links `links` into -b, exiting 0 either way."""
 
@@ -1058,6 +1063,7 @@ class AwsMachine(Machine):
             (version_dir / "bin").mkdir(parents=True, exist_ok=True)
             for name in ("aws", "aws_completer"):
                 (version_dir / "bin" / name).write_text("#!/bin/sh\n")
+                (version_dir / "bin" / name).chmod(0o755)
         for name in self.links:
             link = bin_dir / name
             link.unlink(missing_ok=True)
@@ -1070,8 +1076,9 @@ def test_a_missing_aws_link_is_restored_when_the_installer_exits_zero(tmp_path):
     ri.install_user_binaries(t, {"awscli"}, tracker)
     link = user_bin(tmp_path) / "aws"
     assert link.is_symlink()
+    assert ri.AWSCLI.is_installed(t)
     assert link.resolve() == (aws_root(tmp_path) / "v2" / "current" / "bin" / "aws").resolve()
-    assert f"TREE_INSTALLED:{aws_root(tmp_path)}|{link}" in tracker.entries
+    assert f"TREE_INSTALLED:{aws_root(tmp_path)}|{link}|{tree_identity(tmp_path)}" in tracker.entries
 
 
 def test_the_aws_link_falls_back_to_the_versioned_directory(tmp_path):
@@ -1081,11 +1088,12 @@ def test_the_aws_link_falls_back_to_the_versioned_directory(tmp_path):
     assert link.resolve() == (aws_root(tmp_path) / "v2" / "2.39.6" / "bin" / "aws").resolve()
 
 
-def test_an_aws_link_that_cannot_be_restored_fails_the_step(tmp_path, capsys):
+def test_an_aws_link_that_cannot_be_restored_is_reported_untracked_and_leaves_the_setup_running(tmp_path, capsys):
     tracker = Tracker()
     t, _ = make(tmp_path, AwsMachine(links=(), tree=()), payload=zipball("aws/install", 0o755))
-    ri.install_user_binaries(t, {"awscli"}, tracker)
+    assert ri.install_user_binaries(t, {"awscli"}, tracker)
     output = capsys.readouterr()
+    assert not ri.AWSCLI.is_installed(t)
     assert not (user_bin(tmp_path) / "aws").exists()
     assert "installer left no aws executable" in output.err
     assert "Failed to install AWS CLI" in output.err
@@ -1097,6 +1105,7 @@ def test_the_aws_fallback_picks_the_highest_version_by_number_not_by_text(tmp_pa
         executable = aws_root(tmp_path) / "v2" / version / "bin" / "aws"
         executable.parent.mkdir(parents=True)
         executable.write_text("#!/bin/sh\n")
+        executable.chmod(0o755)
     t, _ = make(tmp_path, AwsMachine(links=(), tree=()), payload=zipball("aws/install", 0o755))
     ri.install_user_binaries(t, {"awscli"}, Tracker())
     link = user_bin(tmp_path) / "aws"
@@ -1107,6 +1116,7 @@ def test_a_dangling_aws_link_is_relinked_and_tracked_as_created(tmp_path):
     executable = aws_root(tmp_path) / "v2" / "current" / "bin" / "aws"
     executable.parent.mkdir(parents=True)
     executable.write_text("#!/bin/sh\n")
+    executable.chmod(0o755)
     user_bin(tmp_path).mkdir(parents=True)
     (user_bin(tmp_path) / "aws").symlink_to(tmp_path / "gone")
     tracker = Tracker()
@@ -1114,6 +1124,44 @@ def test_a_dangling_aws_link_is_relinked_and_tracked_as_created(tmp_path):
     ri.install_user_binaries(t, {"awscli"}, tracker)
     assert (user_bin(tmp_path) / "aws").resolve() == executable.resolve()
     assert f"LINK_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws'}" in tracker.entries
+
+
+def test_a_non_executable_current_aws_is_skipped_for_an_executable_versioned_one(tmp_path):
+    current = aws_root(tmp_path) / "v2" / "current" / "bin" / "aws"
+    versioned = aws_root(tmp_path) / "v2" / "2.39.6" / "bin" / "aws"
+    for path, mode in ((current, 0o644), (versioned, 0o755)):
+        path.parent.mkdir(parents=True)
+        path.write_text("#!/bin/sh\n")
+        path.chmod(mode)
+    t, _ = make(tmp_path, AwsMachine(links=(), tree=()), payload=zipball("aws/install", 0o755))
+    ri.install_user_binaries(t, {"awscli"}, Tracker())
+    assert (user_bin(tmp_path) / "aws").resolve() == versioned.resolve()
+
+
+def test_a_tree_with_no_executable_aws_fails_the_step(tmp_path, capsys):
+    path = aws_root(tmp_path) / "v2" / "current" / "bin" / "aws"
+    path.parent.mkdir(parents=True)
+    path.write_text("#!/bin/sh\n")
+    path.chmod(0o644)
+    t, _ = make(tmp_path, AwsMachine(links=(), tree=()), payload=zipball("aws/install", 0o755))
+    ri.install_user_binaries(t, {"awscli"}, Tracker())
+    assert "installer left no aws executable" in capsys.readouterr().err
+    assert not (user_bin(tmp_path) / "aws").exists()
+
+
+def test_a_non_executable_aws_file_left_by_the_installer_fails_the_step_and_is_kept(tmp_path, capsys):
+    user_bin(tmp_path).mkdir(parents=True)
+    leftover = user_bin(tmp_path) / "aws"
+    leftover.write_text("mine")
+    leftover.chmod(0o644)
+    tracker = Tracker()
+    t, _ = make(tmp_path, AwsMachine(links=()), payload=zipball("aws/install", 0o755))
+    ri.install_user_binaries(t, {"awscli"}, tracker)
+    errors = capsys.readouterr().err
+    assert "leaving it in place" in errors
+    assert "Failed to install AWS CLI" in errors
+    assert leftover.read_text() == "mine"
+    assert not leftover.is_symlink()
 
 
 def test_an_aws_link_the_installer_made_is_left_alone(tmp_path):
@@ -1152,7 +1200,7 @@ def test_a_fresh_awscli_install_tracks_its_tree_and_link(tmp_path):
     ri.install_user_binaries(t, {"awscli"}, tracker)
     assert tracker.entries == [
         f"DIR_CREATED:{user_bin(tmp_path)}",
-        f"TREE_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws'}",
+        f"TREE_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws'}|{tree_identity(tmp_path)}",
         f"LINK_INSTALLED:{aws_root(tmp_path)}|{user_bin(tmp_path) / 'aws_completer'}",
     ]
 

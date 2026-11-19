@@ -217,13 +217,13 @@ def _version_key(executable: Path) -> tuple[tuple[int, ...], str]:
 
 def _aws_executable(root: Path) -> Path | None:
     versioned = sorted(root.glob("v2/*/bin/aws"), key=_version_key, reverse=True)
-    return next((path for path in [root / "v2" / "current" / "bin" / "aws", *versioned] if path.is_file()), None)
+    return next((path for path in [root / "v2" / "current" / "bin" / "aws", *versioned] if is_executable(path)), None)
 
 
 def _ensure_aws_link(t: Tooling) -> bool:
-    """Links `aws` to the newest installed executable when the installer left no link. False, with an error, when there is none."""
+    """Ensures `~/.local/bin/aws` is an executable link into the tree, linking the newest executable when none is there. False, with an error, when the tree has no executable or a non-symlink file blocks the link."""
     link = user_bin_dir(t) / "aws"
-    if link.exists():
+    if is_executable(link):
         return True
     executable = _aws_executable(aws_cli_root(t))
     if executable is None:
@@ -231,14 +231,25 @@ def _ensure_aws_link(t: Tooling) -> bool:
         return False
     match link_executable(executable, "aws", link.parent):
         case Err(error=message):
-            t.logger.error(message)
+            t.logger.error(f"Cannot restore the aws command: {message}")
             return False
         case _:
             return True
 
 
+def _tree_identity(root: Path, action: str) -> str:
+    """The `|<dev>:<ino>` suffix that lets rollback tell the tree this install created from a directory put at the same path later; empty when it cannot be read. Empty for any action other than `TREE_INSTALLED`."""
+    if action != "TREE_INSTALLED":
+        return ""
+    try:
+        status = root.lstat()
+    except OSError:
+        return ""
+    return f"|{status.st_dev}:{status.st_ino}"
+
+
 def _awscli_tracking(t: Tooling, _spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
-    """Captured before the install. Tracks a new tree as `TREE_INSTALLED`, which always names the `aws` link; over an existing tree, tracks each link the install created as `LINK_INSTALLED`."""
+    """Captured before the install. Tracks a new tree as `TREE_INSTALLED`, which always names the `aws` link; over an existing tree, tracks each link the install created as `LINK_INSTALLED`. The tree's device and inode are read after the install."""
     root, bin_dir = aws_cli_root(t), user_bin_dir(t)
     action = "LINK_INSTALLED" if root.exists() else "TREE_INSTALLED"
     existed = {name: (bin_dir / name).exists() for name in ("aws", "aws_completer")}
@@ -250,7 +261,7 @@ def _awscli_tracking(t: Tooling, _spec: ReleaseSpec, changes: RollbackLog | None
         if changes is None:
             return
         if action == "TREE_INSTALLED" or created("aws"):
-            changes.track(f"{action}:{root}|{bin_dir / 'aws'}", dry_run=t.logger.dry_run)
+            changes.track(f"{action}:{root}|{bin_dir / 'aws'}{_tree_identity(root, action)}", dry_run=t.logger.dry_run)
         if created("aws_completer"):
             changes.track(f"LINK_INSTALLED:{root}|{bin_dir / 'aws_completer'}", dry_run=t.logger.dry_run)
 
