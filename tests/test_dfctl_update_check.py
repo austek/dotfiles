@@ -130,10 +130,10 @@ class Env:
 
     def run(
         self, key: bytes | int | None = None, stdin_tty: bool = True, stdout_tty: bool = True, zstyles: str = "",
-        typed: bytes | None = None, tail: str = "",
+        typed: bytes | None = None, tail: str = "", functions: Path = FUNCTIONS,
     ) -> Result:
         script = (
-            f'fpath=("{FUNCTIONS}" $fpath)\nautoload -Uz {FUNCTIONS}/*(:t)\n{zstyles}\n'
+            f'fpath=("{functions}" $fpath)\nautoload -Uz $fpath[1]/*(:t)\n{zstyles}\n'
             f'dfctl-update-check\nprint -r -- "rc=$?"\n{tail}\n'
         )
         master, slave = pty.openpty()
@@ -523,6 +523,14 @@ def test_ask_mode_still_prompts_when_nothing_is_typed(due):
 
 STTY_BEFORE = 'print -r -- "before=$(stty -g)"'
 STTY_AFTER = 'print -r -- "after=$(stty -g)"'
+
+
+def test_the_functions_load_from_a_path_with_a_space(due, tmp_path):
+    copy = tmp_path / "dot files" / "functions"
+    shutil.copytree(FUNCTIONS, copy)
+    result = due.run(key=b"\n", functions=copy)
+    assert PROMPT in result.output
+    assert "not found" not in result.output
 
 
 @pytest.mark.parametrize("typed", [b"q", None])
