@@ -56,7 +56,7 @@ assert_apt_sources_follow_the_preset() {
     local sources_dir=/etc/apt/sources.list.d
     local tracked_dir="$HOME/.dotfiles/apt$sources_dir"
     local pair package file
-    for pair in 1password:1password.sources google-chrome-stable:google-chrome.sources code:vscode.sources gh:github-cli.sources; do
+    for pair in 1password:1password.sources google-chrome-stable:google-chrome.sources code:vscode.sources gh:github-cli.sources google-cloud-cli:google-cloud-sdk.sources; do
         package=${pair%%:*}
         file=${pair#*:}
         [[ -f "$tracked_dir/$file" ]] || fail "tracked source $file is missing from the checkout"

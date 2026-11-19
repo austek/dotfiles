@@ -87,6 +87,8 @@ if [[ -r ~/.config/dotfiles/secrets.env ]]; then
 fi
 # --- END SECRET ENV VARS ---
 
+dfctl-update-check
+
 # --- DIRENV ---
 # Must follow the secrets blocks so .envrc values (e.g. SONARQUBE_CLI_ORG) win.
 if (( $+commands[direnv] )); then

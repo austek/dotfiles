@@ -18,7 +18,6 @@ REQUIRED_TOOLS = ("systemctl", "tmux", "curl")
 NETWORK_PROBE_URL = "https://api.anthropic.com"
 LAUNCHER = "%h/.dotfiles/bin/claude-foothold-launch"
 PATH_DIRS = (
-    "%h/.local/share/sonarqube-cli/bin",
     "%h/.local/bin",
     "%h/.dotfiles/bin",
     "%h/.sdkman/candidates/java/current/bin",

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -110,6 +111,420 @@ def test_rollback_removes_a_created_file_then_its_created_directory(tmp_path):
     ctx.log.track(f"FILE_CREATED:{config / 'secrets.env'}", dry_run=False)
     rollback.perform_rollback(ctx)
     assert not config.exists()
+
+
+def installed_binary(tmp_path, content=b"bin"):
+    import hashlib
+    target = tmp_path / "bin" / "chip"
+    target.parent.mkdir()
+    target.write_bytes(content)
+    return target, hashlib.sha256(b"bin").hexdigest()
+
+
+def test_an_installed_user_binary_is_removed_without_sudo(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    target, digest = installed_binary(tmp_path)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not target.exists()
+    assert machine.commands == []
+
+
+def test_a_created_user_bin_dir_is_removed_after_the_binary_installed_into_it(tmp_path):
+    import hashlib
+    ctx = context(tmp_path, Machine())
+    created = tmp_path / "local-bin"
+    created.mkdir()
+    target = created / "chip"
+    target.write_bytes(b"bin")
+    ctx.log.track(f"DIR_CREATED:{created}", dry_run=False)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{hashlib.sha256(b'bin').hexdigest()}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not created.exists()
+
+
+def test_a_user_binary_replaced_since_the_install_is_kept(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path, content=b"someone elses")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert target.read_bytes() == b"someone elses"
+    assert f"Kept {target}" in capsys.readouterr().out
+
+
+def replace_then_write(monkeypatch, target, content):
+    import os
+    real = os.replace
+
+    def replace(src, dst):
+        real(src, dst)
+        target.write_bytes(content)
+
+    monkeypatch.setattr(rollback.os, "replace", replace)
+
+
+def test_a_binary_replaced_after_the_move_survives(tmp_path, monkeypatch):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    replace_then_write(monkeypatch, target, b"replacement")
+    rollback.perform_rollback(ctx)
+    assert target.read_bytes() == b"replacement"
+    assert sorted(p.name for p in target.parent.iterdir()) == ["chip"]
+
+
+def test_a_matching_binary_is_removed_and_leaves_no_temporary_file(tmp_path):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert list(target.parent.iterdir()) == []
+
+
+def test_a_mismatching_binary_is_put_back_without_a_temporary_file(tmp_path):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path, content=b"someone elses")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert target.read_bytes() == b"someone elses"
+    assert sorted(p.name for p in target.parent.iterdir()) == ["chip"]
+
+
+def test_a_mismatch_with_a_newer_target_keeps_both_and_logs_the_temporary_path(tmp_path, monkeypatch, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path, content=b"someone elses")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    replace_then_write(monkeypatch, target, b"newer")
+    rollback.perform_rollback(ctx)
+    (held,) = target.parent.glob(".chip.rollback-*/chip")
+    assert held.read_bytes() == b"someone elses"
+    assert target.read_bytes() == b"newer"
+    output = capsys.readouterr().out
+    assert f"Kept {target}: it changed since the install." in output
+    assert str(held) in output
+
+
+def test_two_rollbacks_in_one_process_keep_both_preserved_files(tmp_path, monkeypatch):
+    target, digest = installed_binary(tmp_path, content=b"first")
+    for newer in (b"second", b"third"):
+        ctx = context(tmp_path, Machine())
+        ctx.log.discard()
+        ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+        replace_then_write(monkeypatch, target, newer)
+        rollback.perform_rollback(ctx)
+        monkeypatch.undo()
+    kept = sorted(p.read_bytes() for p in target.parent.glob(".chip.rollback-*/chip"))
+    assert kept == [b"first", b"second"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_an_unreadable_binary_is_put_back_and_left_alone(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    target.chmod(0o111)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert target.stat().st_mode & 0o777 == 0o111
+    assert sorted(p.name for p in target.parent.iterdir()) == ["chip"]
+    assert "Kept" in capsys.readouterr().out
+
+
+def test_a_binary_that_cannot_be_put_back_keeps_its_directory_and_says_where(tmp_path, monkeypatch, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path, content=b"someone elses")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    monkeypatch.setattr(rollback.os, "link", lambda *args, **kwargs: (_ for _ in ()).throw(PermissionError("denied")))
+    rollback.perform_rollback(ctx)
+    (held,) = target.parent.glob(".chip.rollback-*/chip")
+    assert held.read_bytes() == b"someone elses"
+    assert str(held) in capsys.readouterr().out
+
+
+def test_a_failed_move_whose_directory_cannot_be_removed_warns_and_does_not_escape(tmp_path, monkeypatch, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    monkeypatch.setattr(rollback.os, "replace", lambda src, dst: (_ for _ in ()).throw(PermissionError("denied")))
+    monkeypatch.setattr(rollback.Path, "rmdir", lambda self: (_ for _ in ()).throw(OSError("busy")))
+    rollback.perform_rollback(ctx)
+    assert target.exists()
+    output = capsys.readouterr().out
+    assert "denied" in output
+    assert "busy" in output
+
+
+def swap_before_replace(monkeypatch, path, make):
+    real = os.replace
+
+    def replace(src, dst):
+        if Path(src) == path:
+            path.unlink()
+            make(path)
+        real(src, dst)
+
+    monkeypatch.setattr(rollback.os, "replace", replace)
+
+
+def test_a_link_replaced_by_a_regular_file_before_the_move_survives(tmp_path, monkeypatch):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{link}", dry_run=False)
+    swap_before_replace(monkeypatch, link, lambda path: path.write_bytes(b"mine"))
+    rollback.perform_rollback(ctx)
+    assert link.read_bytes() == b"mine"
+    assert sorted(p.name for p in link.parent.iterdir()) == ["aws"]
+
+
+def test_a_link_replaced_by_a_symlink_outside_the_root_is_restored(tmp_path, monkeypatch):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    other = tmp_path / "other-aws"
+    other.write_bytes(b"mine")
+    ctx.log.track(f"LINK_INSTALLED:{root}|{link}", dry_run=False)
+    swap_before_replace(monkeypatch, link, lambda path: path.symlink_to(other))
+    rollback.perform_rollback(ctx)
+    assert link.is_symlink()
+    assert link.resolve() == other.resolve()
+    assert sorted(p.name for p in link.parent.iterdir()) == ["aws"]
+
+
+def test_a_matching_link_is_removed_and_leaves_no_temporary_directory(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert list(link.parent.iterdir()) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+@pytest.mark.parametrize("action", ["LINK_INSTALLED", "TREE_INSTALLED"])
+def test_an_unreadable_link_directory_does_not_stop_the_remaining_entries(tmp_path, action):
+    ctx = context(tmp_path, Machine())
+    later = tmp_path / "later"
+    later.mkdir()
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    ctx.log.track(f"DIR_CREATED:{later}", dry_run=False)
+    ctx.log.track(f"{action}:{locked / 'root'}|{locked / 'aws'}", dry_run=False)
+    locked.chmod(0)
+    try:
+        rollback.perform_rollback(ctx)
+    finally:
+        locked.chmod(0o700)
+    assert not later.exists()
+
+
+def test_an_already_removed_user_binary_is_not_an_error(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    ctx.log.track(f"BIN_INSTALLED:{tmp_path / 'gone'}|abc", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert "Unknown rollback action" not in capsys.readouterr().err
+
+
+def aws_install(tmp_path):
+    root, link = tmp_path / "aws-cli", tmp_path / "bin" / "aws"
+    real = root / "v2" / "2.39.6" / "bin" / "aws"
+    real.parent.mkdir(parents=True)
+    real.write_bytes(b"aws")
+    link.parent.mkdir()
+    link.symlink_to(real)
+    return root, link
+
+
+def identity(path):
+    stat = path.lstat()
+    return f"{stat.st_dev}:{stat.st_ino}"
+
+
+def tree_entry(root, link):
+    return f"TREE_INSTALLED:{root}|{link}|{identity(root)}"
+
+
+def test_a_directory_at_a_binary_path_is_left_alone(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    target.unlink()
+    target.mkdir()
+    (target / "keep").write_bytes(b"x")
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert (target / "keep").read_bytes() == b"x"
+    assert sorted(p.name for p in target.parent.iterdir()) == ["chip"]
+    assert f"Kept {target}: it is not a regular file." in capsys.readouterr().out
+
+
+def test_a_symlink_at_a_binary_path_is_left_alone(tmp_path):
+    ctx = context(tmp_path, Machine())
+    target, digest = installed_binary(tmp_path)
+    other = tmp_path / "other"
+    other.write_bytes(b"bin")
+    target.unlink()
+    target.symlink_to(other)
+    ctx.log.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert target.is_symlink()
+
+
+def test_a_directory_at_a_link_path_is_left_alone_and_keeps_the_tree(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    link.unlink()
+    link.mkdir()
+    (link / "keep").write_bytes(b"x")
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert (link / "keep").read_bytes() == b"x"
+    assert root.is_dir()
+    assert f"Kept {link}: it is not a symlink." in capsys.readouterr().out
+
+
+def test_a_held_link_that_cannot_be_deleted_is_put_back_and_keeps_the_tree(tmp_path, monkeypatch):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    real = rollback.Path.unlink
+
+    def unlink(self, *args, **kwargs):
+        if self.parent.name.startswith(".aws.rollback-"):
+            raise PermissionError("denied")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(rollback.Path, "unlink", unlink)
+    rollback.perform_rollback(ctx)
+    monkeypatch.undo()
+    assert (root / "v2" / "2.39.6" / "bin" / "aws").is_file()
+    assert link.is_symlink()
+
+
+def test_a_replaced_tree_and_the_link_resolving_into_it_are_both_kept(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    entry = tree_entry(root, link)
+    root.rename(tmp_path / "old-tree")
+    replacement = root / "v2" / "2.39.6" / "bin" / "aws"
+    replacement.parent.mkdir(parents=True)
+    replacement.write_bytes(b"theirs")
+    ctx.log.track(entry, dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert replacement.read_bytes() == b"theirs"
+    assert link.is_symlink()
+    assert link.resolve() == replacement.resolve()
+    assert f"Kept {root} and {link}: ownership could not be verified." in capsys.readouterr().out
+
+
+def test_an_old_two_field_tree_entry_keeps_the_tree_and_the_link(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    ctx.log.track(f"TREE_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert root.is_dir()
+    assert link.is_symlink()
+    assert f"Kept {root} and {link}: ownership could not be verified." in capsys.readouterr().out
+
+
+def test_a_fresh_awscli_tree_and_its_link_are_removed(tmp_path):
+    machine = Machine()
+    ctx = context(tmp_path, machine)
+    root, link = aws_install(tmp_path)
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not root.exists()
+    assert not link.is_symlink()
+    assert machine.commands == []
+
+
+def test_the_aws_completer_link_is_removed_with_aws_and_the_tree(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    completer = link.with_name("aws_completer")
+    completer.symlink_to(root / "v2" / "2.39.6" / "bin" / "aws")
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{completer}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not completer.is_symlink()
+    assert not link.is_symlink()
+    assert not root.exists()
+
+
+def test_a_retargeted_aws_completer_is_kept_and_does_not_stop_the_rest(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    completer = link.with_name("aws_completer")
+    other = tmp_path / "mine"
+    other.write_bytes(b"x")
+    completer.symlink_to(other)
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{completer}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert completer.resolve() == other.resolve()
+    assert not link.is_symlink()
+    assert not root.exists()
+
+
+def test_a_retargeted_link_keeps_both_the_link_and_the_tree(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    other = tmp_path / "other-aws"
+    other.write_bytes(b"mine")
+    link.unlink()
+    link.symlink_to(other)
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert link.resolve() == other.resolve()
+    assert (root / "v2" / "2.39.6" / "bin" / "aws").is_file()
+    assert f"Kept {link}" in capsys.readouterr().out
+
+
+def test_a_regular_file_where_the_link_was_keeps_both(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    link.unlink()
+    link.write_bytes(b"mine")
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert link.read_bytes() == b"mine"
+    assert root.is_dir()
+
+
+def test_a_tree_whose_link_is_already_gone_is_still_removed(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    link.unlink()
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not root.exists()
+
+
+def test_a_link_only_entry_leaves_the_tree(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    ctx.log.track(f"LINK_INSTALLED:{root}|{link}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert not link.is_symlink()
+    assert root.is_dir()
+
+
+def test_a_tree_that_was_replaced_by_a_symlink_is_not_followed(tmp_path):
+    ctx = context(tmp_path, Machine())
+    root, link = aws_install(tmp_path)
+    precious = tmp_path / "precious"
+    precious.mkdir()
+    (precious / "keep").write_bytes(b"x")
+    link.unlink()
+    import shutil
+    shutil.rmtree(root)
+    root.symlink_to(precious)
+    ctx.log.track(tree_entry(root, link), dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert (precious / "keep").is_file()
+
+
+def test_an_already_removed_awscli_tree_is_not_an_error(tmp_path, capsys):
+    ctx = context(tmp_path, Machine())
+    ctx.log.track(f"TREE_INSTALLED:{tmp_path / 'gone'}|{tmp_path / 'gone-link'}", dry_run=False)
+    rollback.perform_rollback(ctx)
+    assert "Unknown rollback action" not in capsys.readouterr().err
 
 
 def test_an_unstowed_private_package_is_restowed(tmp_path):

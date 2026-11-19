@@ -3,6 +3,11 @@ and a failed run can undo them newest first."""
 from __future__ import annotations
 
 import errno
+import hashlib
+import os
+import shutil
+import stat
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,6 +118,161 @@ def _dir_created(ctx: RollbackContext, data: str) -> None:
         log(f"Kept {data}: {exc}")
 
 
+def _binary_installed(ctx: RollbackContext, data: str) -> None:
+    path, _, digest = data.rpartition("|")
+    target = Path(path)
+    try:
+        held = _hold(ctx, target, stat.S_ISREG, "regular file")
+    except _HoldFailed:
+        return
+    if held is None:
+        return
+    try:
+        matches = hashlib.sha256(held.read_bytes()).hexdigest() == digest
+    except OSError as exc:
+        ctx.t.logger.warn(f"Kept {target}: could not read it: {exc}")
+        _put_back(ctx, held, target)
+        return
+    if matches:
+        ctx.t.logger.info(f"Removing installed binary: {target}")
+        if not _discard(ctx, held):
+            _put_back(ctx, held, target)
+    else:
+        ctx.t.logger.info(f"Kept {target}: it changed since the install.")
+        _put_back(ctx, held, target)
+
+
+class _HoldFailed(Exception):
+    """`_hold` left the path in place and has already said why."""
+
+
+def _hold(ctx: RollbackContext, path: Path, is_kind: Callable[[int], bool], kind: str) -> Path | None:
+    """Moves `path` into a new private directory beside it and returns the new location, or None when `path` is missing. Only an object whose mode satisfies `is_kind` is moved; raises `_HoldFailed` after logging for any other object or error."""
+    try:
+        if not is_kind(path.lstat().st_mode):
+            ctx.t.logger.info(f"Kept {path}: it is not a {kind}.")
+            raise _HoldFailed
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        ctx.t.logger.warn(f"Failed to remove {path}: {exc}")
+        raise _HoldFailed from exc
+    try:
+        held_dir = Path(tempfile.mkdtemp(dir=path.parent, prefix=f".{path.name}.rollback-"))
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        ctx.t.logger.warn(f"Failed to remove {path}: {exc}")
+        raise _HoldFailed from exc
+    held = held_dir / path.name
+    try:
+        os.replace(path, held)
+    except OSError as exc:
+        try:
+            held_dir.rmdir()
+        except OSError as cleanup:
+            ctx.t.logger.warn(f"Could not remove the empty directory {held_dir}: {cleanup}")
+        if isinstance(exc, FileNotFoundError):
+            return None
+        ctx.t.logger.warn(f"Failed to remove {path}: {exc}")
+        raise _HoldFailed from exc
+    return held
+
+
+def _discard(ctx: RollbackContext, held: Path) -> bool:
+    """Deletes `held`; False, with a warning, when that fails. A holding directory that cannot be removed afterwards is only a warning."""
+    try:
+        held.unlink()
+    except OSError as exc:
+        ctx.t.logger.warn(f"Could not delete {held}: {exc}")
+        return False
+    try:
+        held.parent.rmdir()
+    except OSError as exc:
+        ctx.t.logger.warn(f"Could not remove the empty directory {held.parent}: {exc}")
+    return True
+
+
+def _put_back(ctx: RollbackContext, held: Path, target: Path) -> None:
+    """Restores `held` to `target` as a hard link and never overwrites an existing target. A newer target or any other failure warns and keeps `held` in its directory; success removes both."""
+    try:
+        os.link(held, target, follow_symlinks=False)
+    except FileExistsError:
+        ctx.t.logger.warn(f"A newer {target} exists; the previous file is kept at {held}")
+        return
+    except OSError as exc:
+        ctx.t.logger.warn(f"Could not restore {target}: {exc}; the file is kept at {held}")
+        return
+    _discard(ctx, held)
+
+
+def _points_into(held: Path, original: Path, root: Path) -> bool:
+    """True when the held symlink, read as if it still sat at `original`, resolves into `root`."""
+    try:
+        resolved = (original.parent / os.readlink(held)).resolve()
+        return resolved.is_relative_to(root.resolve())
+    except (OSError, RuntimeError):
+        return False
+
+
+def _link_installed(ctx: RollbackContext, data: str) -> bool:
+    """True when the link is gone or was ours and is now removed; a replaced object is put back, or kept in its holding directory, and reported as False."""
+    root_text, _, rest = data.partition("|")
+    root, link = Path(root_text), Path(rest.partition("|")[0])
+    try:
+        held = _hold(ctx, link, stat.S_ISLNK, "symlink")
+    except _HoldFailed:
+        return False
+    if held is None:
+        return True
+    if _points_into(held, link, root):
+        if _discard(ctx, held):
+            return True
+    else:
+        ctx.t.logger.info(f"Kept {link}: it is not a symlink into {root}.")
+    _put_back(ctx, held, link)
+    return False
+
+
+def _identity(path: Path) -> str:
+    status = path.lstat()
+    return f"{status.st_dev}:{status.st_ino}"
+
+
+def _tree_state(ctx: RollbackContext, root: Path, recorded: str) -> str:
+    """`owned` when `root` is the directory the install created (recorded device and inode), `missing` when it is gone, else `foreign`."""
+    try:
+        owned = _identity(root) == recorded and stat.S_ISDIR(root.lstat().st_mode)
+    except FileNotFoundError:
+        return "missing"
+    except OSError as exc:
+        ctx.t.logger.warn(f"Could not inspect {root}: {exc}")
+        return "foreign"
+    return "owned" if owned else "foreign"
+
+
+def _tree_installed(ctx: RollbackContext, data: str) -> None:
+    """The entry is `root|link|dev:ino`, the last field absent in logs older than the identity check. Ownership is checked first: when the tree's device and inode do not match, both the tree and the link stay. Otherwise the link rule applies and the tree is removed once the link is gone or was ours and is now removed."""
+    root_text, _, rest = data.partition("|")
+    link_text, _, recorded = rest.partition("|")
+    root = Path(root_text)
+    state = _tree_state(ctx, root, recorded)
+    if state == "foreign":
+        ctx.t.logger.info(f"Kept {root} and {link_text}: ownership could not be verified.")
+        return
+    if not _link_installed(ctx, data) or state == "missing":
+        return
+    ctx.t.logger.info(f"Removing installed tree: {root}")
+    try:
+        shutil.rmtree(root)
+    except OSError as exc:
+        ctx.t.logger.warn(f"Failed to remove {root}: {exc}")
+
+
+def _link_only_installed(ctx: RollbackContext, data: str) -> None:
+    _link_installed(ctx, data)
+
+
 def _apt_removed(ctx: RollbackContext, data: str) -> None:
     ctx.t.logger.info(f"Reinstalling removed package: {data}")
     if not _run_quiet(ctx, ["sudo", "apt-get", "install", "-y", data]):
@@ -156,6 +316,9 @@ _UNDO_HANDLERS: dict[str, Callable[[RollbackContext, str], None]] = {
     "FILE_BACKUP": _restore_backup,
     "FILE_CREATED": _file_created,
     "DIR_CREATED": _dir_created,
+    "BIN_INSTALLED": _binary_installed,
+    "TREE_INSTALLED": _tree_installed,
+    "LINK_INSTALLED": _link_only_installed,
     "APT_REMOVED": _apt_removed,
     "DEB_REMOVED": _deb_removed,
     "FLATPAK_REMOVED": _flatpak_removed,

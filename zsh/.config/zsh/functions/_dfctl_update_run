@@ -1,0 +1,33 @@
+# With the mode $1, frequency $2 and stamp file $3: writes the stamp when none is readable (missing, unreadable, malformed or future-dated), and once it is $2 days
+# old asks (mode ask), goes ahead (mode auto) or prints the reminder (mode reminder), then writes the stamp.
+_dfctl_update_run() {
+  emulate -L zsh
+  local -i days
+  local reply
+  if ! days=$(_dfctl_update_age $3); then
+    _dfctl_update_stamp $3
+    return 0
+  fi
+  (( days >= $2 )) || return 0
+  # Pending keystrokes would be consumed by the prompt's read, so ask prints the reminder instead.
+  if [[ $1 == reminder ]] || { [[ $1 == ask ]] && _dfctl_update_typed }; then
+    print -n -r -- $'\r\e[0K'
+    print -r -- "[dfctl] It has been $days days since the last dfctl apply or reminder. Run dfctl apply --upgrade when you are ready."
+    _dfctl_update_stamp $3
+    return 0
+  fi
+  if [[ $1 == auto ]]; then
+    print -r -- "[dfctl] running dfctl apply --upgrade ($days days since the last apply or reminder)"
+    reply=y
+  else
+    print -n -r -- "[dfctl] It has been $days days since the last dfctl apply or reminder. Run dfctl apply --upgrade now? [y/N] "
+    read -r -k 1 reply
+    print
+  fi
+  if [[ $reply == [yY] ]]; then
+    _dfctl_update_apply
+  else
+    print -r -- 'Run dfctl apply --upgrade when ready'
+  fi
+  _dfctl_update_stamp $3
+}

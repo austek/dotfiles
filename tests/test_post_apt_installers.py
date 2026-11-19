@@ -188,7 +188,11 @@ def test_crate_dry_run_installs_nothing(tmp_path, on_path):
 
 
 def test_ruff_runs_after_the_apt_step_that_provides_pipx():
-    assert [name for name, _ in pa.POST_APT_INSTALLERS] == ["ruff", "auditr", "cargo-deny", "cargo-audit"]
+    assert [name for name, _ in pa.POST_APT_INSTALLERS] == ["ruff", "auditr", "cargo-audit"]
+
+
+def test_cargo_deny_is_no_longer_built_from_a_crate():
+    assert "cargo-deny" not in [name for name, _ in pa.POST_APT_INSTALLERS]
 
 
 def test_post_apt_tools_run_only_for_selected_packages(tmp_path, on_path):

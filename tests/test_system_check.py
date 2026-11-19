@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from dotfiles_setup import antigravity as ag
 from dotfiles_setup import system_check as sc
 from dotfiles_setup import tools
 from dotfiles_setup.log import Logger
@@ -67,14 +68,58 @@ def test_packages_installed_outside_apt_are_not_checked_against_dpkg(tmp_path, n
 
 def test_a_missing_sudo_release_tool_is_a_reason(tmp_path, nosnap, monkeypatch):
     monkeypatch.setattr("platform.machine", lambda: "x86_64")
-    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "chip", "uv"))
-    assert sc.system_stage_reasons(ctx, nosnap) == ["1 release tool(s) not installed (chip)"]
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "zoom", "uv"))
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 release tool(s) not installed (zoom)"]
+
+
+@pytest.fixture
+def antigravity_root(tmp_path, monkeypatch):
+    root, layout = tmp_path / "ag-root", ag.Layout
+    monkeypatch.setattr(ag, "Layout", lambda: layout(root=root))
+    return layout(root=root)
+
+
+def test_a_missing_antigravity_alone_requests_the_system_stage(tmp_path, nosnap, monkeypatch, antigravity_root):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "antigravity-ide"))
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 release tool(s) not installed (antigravity-ide)"]
+
+
+def test_an_outdated_antigravity_requests_the_system_stage(tmp_path, nosnap, monkeypatch, antigravity_root):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    antigravity_root.build_file.parent.mkdir(parents=True)
+    antigravity_root.build_file.write_text("0.1-1\n")
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "antigravity-ide"))
+    assert sc.system_stage_reasons(ctx, nosnap) == ["1 release tool(s) not installed (antigravity-ide)"]
+
+
+def test_a_current_antigravity_is_not_a_reason(tmp_path, nosnap, monkeypatch, antigravity_root):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    antigravity_root.build_file.parent.mkdir(parents=True)
+    antigravity_root.build_file.write_text(f"{ag.PINNED_BUILD}\n")
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "antigravity-ide"))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
+
+
+def test_an_unwanted_antigravity_is_not_a_reason(tmp_path, nosnap, monkeypatch, antigravity_root):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim",))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
 
 
 def test_an_installed_sudo_release_tool_is_not_a_reason(tmp_path, nosnap, monkeypatch):
     monkeypatch.setattr("platform.machine", lambda: "x86_64")
-    monkeypatch.setattr("shutil.which", lambda name, path=None: "/usr/local/bin/chip" if name == "chip" else None)
-    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", "chip"))
+    machine = Machine(installed=("vim",), debs="ii  zoom           7.2.5.6661       amd64        Zoom\n")
+    ctx = make(tmp_path, machine, packages=("vim", "zoom"))
+    assert sc.system_stage_reasons(ctx, nosnap) == []
+
+
+@pytest.mark.parametrize("package", [
+    "lazydocker", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux", "kubeconform", "sops",
+])
+def test_a_missing_pinned_binary_alone_is_not_a_reason(tmp_path, nosnap, monkeypatch, package):
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+    ctx = make(tmp_path, Machine(installed=("vim",)), packages=("vim", package))
     assert sc.system_stage_reasons(ctx, nosnap) == []
 
 

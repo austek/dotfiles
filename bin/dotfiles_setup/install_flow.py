@@ -17,13 +17,16 @@ from dotfiles_setup import (
     flatpak,
     removals,
     secrets_env,
+    stale_copies,
     stow,
     system_steps,
     tools,
+    user_links,
     zsh_cache,
 )
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.log import Logger
+from dotfiles_setup.release_installers import user_bin_dir
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.system_check import system_stage_reasons
 from dotfiles_setup.system_steps import SudoSession, SystemContext
@@ -129,6 +132,8 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("strip_snap_from_system_path", lambda: system_steps.strip_snap_from_system_path(ctx)),
         ("configure_apt_sources", lambda: apt_sources.configure_apt_sources(ctx)),
         ("install_tools", lambda: tools.install_tools(t, packages)),
+        ("install_user_binaries", lambda: tools.install_user_binaries(t, packages, changes, inputs.upgrade)),
+        ("link_user_tools", lambda: user_links.link_user_tools(t, packages, changes)),
         ("install_system_tools", lambda: tools.install_system_tools(t, packages, inputs.upgrade)),
         ("install_packages", lambda: apt_packages.install_packages(ctx)),
         *_upgrade_steps(inputs, ctx),
@@ -146,6 +151,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("ensure_secrets_env", lambda: secrets_env.ensure_secrets_env(t, changes)),
         ("retire_claude_profile", lambda: claude_profile.retire_claude_profile(t)),
         ("configure_claude_tools", lambda: claude_tools.configure_claude_tools(t, inputs.preset_name)),
+        ("report_stale_copies", lambda: stale_copies.report_stale_copies(t, stale_copies.managed_names(packages))),
         ("change_shell", lambda: desktop_defaults.change_shell(t)),
         ("set_default_terminal", lambda: desktop_defaults.set_default_terminal(t)),
         ("disable_ibus_unicode_hotkey", lambda: desktop_defaults.disable_ibus_unicode_hotkey(t)),
@@ -173,10 +179,10 @@ def _start_log(inputs: FlowInputs, logger: Logger) -> RollbackLog:
 
 
 @contextmanager
-def _user_bin_on_path(home: Path) -> Iterator[None]:
+def _user_bin_on_path(t: Tooling) -> Iterator[None]:
     """pipx and cargo install into ~/.local/bin, which a later step must be able to run."""
     original = os.environ.get("PATH", "")
-    os.environ["PATH"] = f"{home / '.local/bin'}:{original}"
+    os.environ["PATH"] = f"{user_bin_dir(t)}:{original}"
     try:
         yield
     finally:
@@ -220,7 +226,7 @@ def run_install(inputs: FlowInputs) -> InstallResult:
         if system and not session.start():
             return InstallResult(False, 1, "Could not obtain sudo credentials.")
         steps = [step for step in build_steps(inputs, packages, log) if system or step[0] not in SYSTEM_STEPS]
-        with _user_bin_on_path(inputs.t.home):
+        with _user_bin_on_path(inputs.t):
             return _run_steps(steps, logger, log)
     except KeyboardInterrupt:
         return InstallResult(False, INTERRUPTED_EXIT_CODE, "Interrupted.", rollback_pending=not logger.dry_run)

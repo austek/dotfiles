@@ -13,13 +13,11 @@ for sdkman_tool in sbt kotlin gradle java; do
         || sdkman_default+=("$HOME/.sdkman/candidates/$sdkman_tool/current/bin")
 done
 path=(
-    "$HOME/.local/share/sonarqube-cli/bin"
     $sdkman_default
     "$HOME/.dotfiles/bin"
     "$HOME/bin"
     "$HOME/.local/bin"
     $path
-    "$HOME/.local/share/JetBrains/Toolbox/bin"
     "$HOME/.local/share/JetBrains/Toolbox/scripts"
     "$HOME/.krew/bin"
     /usr/local/go/bin

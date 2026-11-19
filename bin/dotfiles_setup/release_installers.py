@@ -1,6 +1,7 @@
 """Installs tools shipped as release artifacts; a failure at any stage warns and continues."""
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import re
@@ -22,13 +23,15 @@ from dotfiles_setup.deb_helpers import (
     _install_deb_or_fix_broken,
     _is_older,
 )
+from dotfiles_setup.fsutil import install_executable, link_executable
 from dotfiles_setup.release_specs import SpecData, load_specs
 from dotfiles_setup.result import Err, Ok
+from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
 MSG_CONTINUING_SETUP = "Continuing with setup..."
 SUPPORTED_ARCH = "x86_64"
-INSTALL_DIR = Path("/usr/local/bin")
+SYSTEM_BIN_DIR = Path("/usr/local/bin")
 VERSION_PROBE_TIMEOUT_SECONDS = 10
 SPECS_FILE = Path(__file__).resolve().parent.parent.parent / "packages" / "release_specs.json"
 EXTRACT_ERRORS = (
@@ -50,6 +53,12 @@ class ReleaseSpec:
     resolve: Callable[[Tooling], Resolved]
     kind: Literal["targz", "zip", "deb", "binary"]
     install: Callable[[Tooling, Path, Path, Resolved], bool]
+    binary: str | None = None
+    begin_tracking: Callable[[Tooling, ReleaseSpec, RollbackLog | None], Callable[[], None]] | None = None
+
+
+def user_bin_dir(t: Tooling) -> Path:
+    return t.home / ".local" / "bin"
 
 
 def _cache_dir(t: Tooling, tool: str) -> Path:
@@ -132,7 +141,20 @@ def _unpack(t: Tooling, spec: ReleaseSpec, artifact: Path, temp_dir: Path) -> bo
     return True
 
 
-def _fetch_and_install(t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_dir: Path) -> None:
+def _track_binary(t: Tooling, spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
+    def record() -> None:
+        if changes is None or spec.binary is None:
+            return
+        target = user_bin_dir(t) / spec.binary
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        changes.track(f"BIN_INSTALLED:{target}|{digest}", dry_run=t.logger.dry_run)
+
+    return record
+
+
+def _fetch_and_install(
+    t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_dir: Path, changes: RollbackLog | None = None,
+) -> None:
     artifact = temp_dir / "artifact"
     suffix = f" v{resolved.version}" if resolved.version else ""
     t.logger.info(f"Fetching {spec.name}{suffix}...")
@@ -150,9 +172,11 @@ def _fetch_and_install(t: Tooling, spec: ReleaseSpec, resolved: Resolved, temp_d
         t.logger.info("(using cached download)")
     if not _unpack(t, spec, artifact, temp_dir):
         return
+    record = (spec.begin_tracking or _track_binary)(t, spec, changes)
     if not spec.install(t, temp_dir, artifact, resolved):
         skip(t, f"Failed to install {spec.name}.")
         return
+    record()
     t.logger.success(f"{spec.name} installed successfully{suffix}.")
 
 
@@ -163,7 +187,7 @@ def _supported_arch(t: Tooling, spec: ReleaseSpec) -> bool:
     return False
 
 
-def install_release(t: Tooling, spec: ReleaseSpec) -> None:
+def install_release(t: Tooling, spec: ReleaseSpec, changes: RollbackLog | None = None) -> None:
     t.logger.info(f"Installing {spec.name}...")
     if spec.is_installed(t):
         t.logger.info(f"{spec.name} is already installed. Skipping.")
@@ -174,19 +198,74 @@ def install_release(t: Tooling, spec: ReleaseSpec) -> None:
     if dry_run_all(t, f"Would download and install {spec.name} v{resolved.version}"):
         return
     with tempfile.TemporaryDirectory() as temp_dir:
-        _fetch_and_install(t, spec, resolved, Path(temp_dir))
+        _fetch_and_install(t, spec, resolved, Path(temp_dir), changes)
 
 
-def _sudo_install(t: Tooling, binary: Path) -> bool:
-    return t.run(["sudo", "install", str(binary), "/usr/local/bin"]).returncode == 0
-
-
-def _istioctl_install(t: Tooling, temp_dir: Path, _artifact: Path, resolved: Resolved) -> bool:
-    return _sudo_install(t, temp_dir / f"istio-{resolved.version}" / "bin" / "istioctl")
+def aws_cli_root(t: Tooling) -> Path:
+    return t.home / ".local" / "aws-cli"
 
 
 def _awscli_install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
-    return t.run(["sudo", str(temp_dir / "aws" / "install")]).returncode == 0
+    argv = [str(temp_dir / "aws" / "install"), "-i", str(aws_cli_root(t)), "-b", str(user_bin_dir(t)), "--update"]
+    return t.run(argv).returncode == 0 and _ensure_aws_link(t)
+
+
+def _version_key(executable: Path) -> tuple[tuple[int, ...], str]:
+    name = executable.parent.parent.name
+    return tuple(int(digits) for digits in re.findall(r"\d+", name)), name
+
+
+def _aws_executable(root: Path) -> Path | None:
+    versioned = sorted(root.glob("v2/*/bin/aws"), key=_version_key, reverse=True)
+    return next((path for path in [root / "v2" / "current" / "bin" / "aws", *versioned] if is_executable(path)), None)
+
+
+def _ensure_aws_link(t: Tooling) -> bool:
+    """Ensures `~/.local/bin/aws` is an executable link into the tree, linking the newest executable when none is there. False, with an error, when the tree has no executable or a non-symlink file blocks the link."""
+    link = user_bin_dir(t) / "aws"
+    if is_executable(link):
+        return True
+    executable = _aws_executable(aws_cli_root(t))
+    if executable is None:
+        t.logger.error(f"The AWS CLI installer left no aws executable under {aws_cli_root(t)}; {link} was not linked.")
+        return False
+    match link_executable(executable, "aws", link.parent):
+        case Err(error=message):
+            t.logger.error(f"Cannot restore the aws command: {message}")
+            return False
+        case _:
+            return True
+
+
+def _tree_identity(root: Path, action: str) -> str:
+    """The `|<dev>:<ino>` suffix that lets rollback tell the tree this install created from a directory put at the same path later; empty when it cannot be read. Empty for any action other than `TREE_INSTALLED`."""
+    if action != "TREE_INSTALLED":
+        return ""
+    try:
+        status = root.lstat()
+    except OSError:
+        return ""
+    return f"|{status.st_dev}:{status.st_ino}"
+
+
+def _awscli_tracking(t: Tooling, _spec: ReleaseSpec, changes: RollbackLog | None) -> Callable[[], None]:
+    """Captured before the install. Tracks a new tree as `TREE_INSTALLED`, which always names the `aws` link; over an existing tree, tracks each link the install created as `LINK_INSTALLED`. The tree's device and inode are read after the install."""
+    root, bin_dir = aws_cli_root(t), user_bin_dir(t)
+    action = "LINK_INSTALLED" if root.exists() else "TREE_INSTALLED"
+    existed = {name: (bin_dir / name).exists() for name in ("aws", "aws_completer")}
+
+    def created(name: str) -> bool:
+        return not existed[name] and (bin_dir / name).exists()
+
+    def record() -> None:
+        if changes is None:
+            return
+        if action == "TREE_INSTALLED" or created("aws"):
+            changes.track(f"{action}:{root}|{bin_dir / 'aws'}{_tree_identity(root, action)}", dry_run=t.logger.dry_run)
+        if created("aws_completer"):
+            changes.track(f"LINK_INSTALLED:{root}|{bin_dir / 'aws_completer'}", dry_run=t.logger.dry_run)
+
+    return record
 
 
 def _jetbrains_binary(home: Path) -> Path:
@@ -212,22 +291,35 @@ def _deb_installed(package: str) -> Callable[[Tooling], bool]:
     return lambda t: re.search(rf"^ii {{2}}{re.escape(package)} ", _dpkg_listing(t), re.MULTILINE) is not None
 
 
-def _which_installed(binary: str) -> Callable[[Tooling], bool]:
-    return lambda t: shutil.which(binary) is not None
+def _user_bin_install(t: Tooling, source: Path, binary: str) -> bool:
+    target = user_bin_dir(t) / binary
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        install_executable(source, target)
+    except OSError as error:
+        t.logger.error(f"Could not write {target}: {error}")
+        return False
+    return True
 
 
 def _binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
     def install(t: Tooling, temp_dir: Path, _artifact: Path, _resolved: Resolved) -> bool:
         found = sorted((p for p in temp_dir.rglob(binary) if p.is_file()), key=lambda p: (len(p.parts), str(p)))
-        return bool(found) and _sudo_install(t, found[0])
+        return bool(found) and _user_bin_install(t, found[0], binary)
 
     return install
 
 
 def _raw_binary_install(binary: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
-    return lambda t, _dir, artifact, _resolved: t.run(
-        ["sudo", "install", "-T", str(artifact), str(INSTALL_DIR / binary)],
-    ).returncode == 0
+    return lambda t, _dir, artifact, _resolved: _user_bin_install(t, artifact, binary)
+
+
+def is_executable(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def _user_bin_installed(binary: str) -> Callable[[Tooling], bool]:
+    return lambda t: is_executable(user_bin_dir(t) / binary)
 
 
 def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool]:
@@ -236,20 +328,28 @@ def _deb_install(package: str) -> Callable[[Tooling, Path, Path, Resolved], bool
 
 CUSTOM_BEHAVIOR: dict[str, tuple[Callable[[Tooling], bool], Callable[[Tooling, Path, Path, Resolved], bool]]] = {
     "zoom": (_deb_installed("zoom"), _deb_install("zoom")),
-    "jetbrains-toolbox": (lambda t: _jetbrains_binary(t.home).is_file(), _jetbrains_install),
-    "istioctl": (_which_installed("istioctl"), _istioctl_install),
-    "awscli": (_which_installed("aws"), _awscli_install),
+    "jetbrains-toolbox": (lambda t: is_executable(_jetbrains_binary(t.home)), _jetbrains_install),
+    "awscli": (_user_bin_installed("aws"), _awscli_install),
 }
+CUSTOM_BINARY_NAMES = {"awscli": "aws"}
+CUSTOM_TRACKING = {"awscli": _awscli_tracking}
+
+
+def _behavior(data: SpecData) -> tuple[Callable[[Tooling], bool], Callable[[Tooling, Path, Path, Resolved], bool]]:
+    if data.package in CUSTOM_BEHAVIOR:
+        return CUSTOM_BEHAVIOR[data.package]
+    binary = data.binary or data.package
+    place = _raw_binary_install if data.kind == "binary" else _binary_install
+    return _user_bin_installed(binary), place(binary)
 
 
 def _release_spec(data: SpecData) -> ReleaseSpec:
     resolved = Resolved(data.version, data.download_url, data.artifact_name)
-    if data.binary:
-        place = _raw_binary_install if data.kind == "binary" else _binary_install
-        is_installed, install = _which_installed(data.binary), place(data.binary)
-    else:
-        is_installed, install = CUSTOM_BEHAVIOR[data.package]
-    return ReleaseSpec(data.name, is_installed, lambda _t: resolved, data.kind, install)
+    is_installed, install = _behavior(data)
+    binary = CUSTOM_BINARY_NAMES.get(data.package, data.binary)
+    return ReleaseSpec(
+        data.name, is_installed, lambda _t: resolved, data.kind, install, binary, CUSTOM_TRACKING.get(data.package),
+    )
 
 
 def _load_spec_data() -> tuple[SpecData, ...]:
@@ -265,8 +365,9 @@ def _load_spec_data() -> tuple[SpecData, ...]:
 
 SPEC_DATA: dict[str, SpecData] = {d.package: d for d in _load_spec_data()}
 RELEASE_SPECS: tuple[tuple[str, ReleaseSpec], ...] = tuple((p, _release_spec(d)) for p, d in SPEC_DATA.items())
-PRIVILEGED_PACKAGES = frozenset({"zoom", "istioctl", "awscli", *(p for p, d in SPEC_DATA.items() if d.binary)})
-USER_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p not in PRIVILEGED_PACKAGES)
+PRIVILEGED_PACKAGES = frozenset({"zoom"})
+USER_BINARY_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if s.binary)
+USER_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p not in PRIVILEGED_PACKAGES and not s.binary)
 SYSTEM_SPECS = tuple((p, s) for p, s in RELEASE_SPECS if p in PRIVILEGED_PACKAGES)
 
 
@@ -285,13 +386,12 @@ UPGRADABLE_BINARIES: tuple[tuple[str, ReleaseSpec], ...] = (("chip", CHIP),)
 
 
 def _binary_version(t: Tooling, binary: str) -> str | None:
-    """Returns the version on the first line of `--version` of `<INSTALL_DIR>/<binary>`, else of the PATH match the install check accepts, without a leading `v`; None when neither exists, it exits non-zero or prints nothing."""
-    managed = INSTALL_DIR / binary
-    path = str(managed) if managed.is_file() else shutil.which(binary)
-    if path is None:
+    """Version of `~/.local/bin/<binary>` without a leading `v`. None when the file is not an executable file, or the probe times out, cannot start, exits non-zero or prints nothing."""
+    managed = user_bin_dir(t) / binary
+    if not is_executable(managed):
         return None
     try:
-        result = t.run([path, "--version"], capture_output=True, text=True, timeout=VERSION_PROBE_TIMEOUT_SECONDS)
+        result = t.run([str(managed), "--version"], capture_output=True, text=True, timeout=VERSION_PROBE_TIMEOUT_SECONDS)
     except (subprocess.TimeoutExpired, OSError):
         return None
     lines = (result.stdout or "").strip().splitlines() if result.returncode == 0 else []
@@ -315,6 +415,51 @@ def upgrade_release(t: Tooling, spec: ReleaseSpec, installed: str | None) -> Non
         _fetch_and_install(t, spec, resolved, Path(temp_dir))
 
 
+def ensure_user_bin_dir(t: Tooling, changes: RollbackLog | None) -> bool:
+    """Creates `~/.local/bin` (mode 0755) and tracks it for rollback; False, with a warning, when it cannot be made."""
+    target = user_bin_dir(t)
+    if target.is_dir() or t.logger.dry_run:
+        return True
+    try:
+        target.mkdir(parents=True)
+        target.chmod(0o755)
+    except OSError as error:
+        t.logger.warn(f"Could not create {target}: {error}")
+        return False
+    if changes is not None:
+        changes.track(f"DIR_CREATED:{target}", dry_run=False)
+    return True
+
+
+def _user_bin_dir_ready(t: Tooling, wanted: list[ReleaseSpec], changes: RollbackLog | None) -> bool:
+    missing = platform.machine() == SUPPORTED_ARCH and any(not spec.is_installed(t) for spec in wanted)
+    return ensure_user_bin_dir(t, changes) if missing else True
+
+
+def install_user_binaries(
+    t: Tooling, package_names: Collection[str], changes: RollbackLog | None = None,
+) -> bool:
+    """Installs each wanted pinned binary that is not an executable file in `~/.local/bin`, with no sudo. False when the directory cannot be created."""
+    wanted = [spec for package, spec in USER_BINARY_SPECS if package in package_names]
+    if not _user_bin_dir_ready(t, wanted, changes):
+        return False
+    for spec in wanted:
+        install_release(t, spec, changes)
+    return True
+
+
+def upgrade_user_binaries(t: Tooling, package_names: Collection[str]) -> None:
+    """Installs the pin of each wanted upgradable binary whose installed version is older, never a downgrade. A managed file that is not executable cannot report a version, so it is replaced with the pin."""
+    for package, spec in UPGRADABLE_BINARIES:
+        if package not in package_names:
+            continue
+        managed = user_bin_dir(t) / (SPEC_DATA[package].binary or package)
+        if managed.is_file() and not is_executable(managed):
+            install_release(t, spec)
+        else:
+            upgrade_release(t, spec, _binary_version(t, managed.name))
+
+
 def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[str]:
     """Names of wanted sudo-installed releases that are absent; empty on an unsupported architecture."""
     if platform.machine() != SUPPORTED_ARCH:
@@ -323,10 +468,7 @@ def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[
 
 
 def upgrade_vendor_debs(t: Tooling, package_names: Collection[str]) -> None:
-    """Installs the pinned version of each wanted vendor .deb or release binary whose installed version is older than the pin."""
+    """Installs the pinned version of each wanted vendor .deb whose installed version is older than the pin."""
     for package, spec in UPGRADABLE_DEBS:
         if package in package_names:
             upgrade_release(t, spec, _dpkg_version(t, package))
-    for package, spec in UPGRADABLE_BINARIES:
-        if package in package_names:
-            upgrade_release(t, spec, _binary_version(t, SPEC_DATA[package].binary or package))

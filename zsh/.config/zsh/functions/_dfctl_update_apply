@@ -1,0 +1,18 @@
+# Fast-forwards ~/.dotfiles when it is on main, then runs `dfctl apply --upgrade`. A failed pull stops before apply.
+_dfctl_update_apply() {
+  emulate -L zsh
+  local repo=$HOME/.dotfiles dfctl=dfctl
+  (( $+commands[dfctl] )) || dfctl=$repo/bin/dfctl
+  local -i rc
+  if (( $+commands[git] )) && [[ $(git -C $repo symbolic-ref --quiet --short HEAD 2>/dev/null) == main ]]; then
+    git -C $repo pull --ff-only || rc=$?
+    if (( rc )); then
+      print -r -- "[dfctl] git pull --ff-only exited with $rc; not running dfctl apply. Fix it, then run dfctl apply --upgrade"
+      return 1
+    fi
+  fi
+  $dfctl apply --upgrade && return 0
+  rc=$?
+  print -r -- "[dfctl] dfctl apply --upgrade exited with $rc; run it again to retry"
+  return $rc
+}

@@ -15,7 +15,7 @@ from dotfiles_setup.tooling import dry_run_all
 # Package names installed outside apt; the apt install skips them. Every release_specs.json package is one.
 CUSTOM_INSTALL_PACKAGES = frozenset({
     "oh-my-zsh", "sdkman", "nvm", "antigravity-ide", "ruff", "coderabbit", "auditr", "sonarqube-cli", "uv",
-    "cargo-deny", "cargo-audit", *SPEC_DATA,
+    "cargo-audit", *SPEC_DATA,
 })
 
 # Custom entries whose installer leaves a dpkg package of the same name.

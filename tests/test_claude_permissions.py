@@ -71,3 +71,7 @@ def test_path_is_portable_and_keeps_the_system_directories():
     assert "$HOME/.local/bin" in entries
     assert {"/usr/local/bin", "/usr/bin", "/bin"} <= set(entries)
     assert "/home/" not in SETTINGS["env"]["PATH"]
+
+
+def test_path_reaches_sonar_through_the_user_bin_dir_link_only():
+    assert not any("sonarqube-cli" in entry for entry in SETTINGS["env"]["PATH"].split(":"))

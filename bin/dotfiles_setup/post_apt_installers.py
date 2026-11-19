@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 
+from dotfiles_setup.release_installers import user_bin_dir
 from dotfiles_setup.tooling import Installer, Tooling, dry_run_all
 from dotfiles_setup.vendor_installers import install_ruff, run_vendor_script
 
@@ -102,7 +103,7 @@ def _run_cargo(t: Tooling, cargo: str, *args: str) -> bool:
 
 
 def _crate_present(t: Tooling, crate: str) -> bool:
-    local_bin = t.home / ".local/bin" / crate
+    local_bin = user_bin_dir(t) / crate
     return shutil.which(crate) is not None or (local_bin.is_file() and os.access(local_bin, os.X_OK))
 
 
@@ -117,7 +118,7 @@ def install_cargo_crate(t: Tooling, crate: str) -> None:
         t.logger.error(f"cargo not found; can't install {crate}. Add 'cargo' to the preset's package list and re-run, or install manually: {manual}")
     elif (cargo := _cargo_for_crates(t)) is None:
         t.logger.error(f"No cargo >= 1.{CARGO_MIN_MINOR} available for {crate}. Install rustup (https://rustup.rs) and re-run, or run: {manual}")
-    elif _run_cargo(t, cargo, "install", "--locked", "--quiet", "--root", str(t.home / ".local"), crate):
+    elif _run_cargo(t, cargo, "install", "--locked", "--quiet", "--root", str(user_bin_dir(t).parent), crate):
         t.logger.success(f"{crate} installed successfully.")
     else:
         t.logger.error(f"Failed to install {crate}. Install it manually: {manual}")
@@ -126,6 +127,5 @@ def install_cargo_crate(t: Tooling, crate: str) -> None:
 POST_APT_INSTALLERS: tuple[tuple[str, Installer], ...] = (
     ("ruff", install_ruff),
     ("auditr", install_auditr),
-    ("cargo-deny", lambda t: install_cargo_crate(t, "cargo-deny")),
     ("cargo-audit", lambda t: install_cargo_crate(t, "cargo-audit")),
 )

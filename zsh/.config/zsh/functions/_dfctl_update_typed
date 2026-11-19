@@ -1,0 +1,15 @@
+# Succeeds when a keystroke is already waiting on stdin, and leaves it unread. Fails when stty cannot read the terminal state.
+# Canonical mode is switched off so a keystroke without Enter counts.
+_dfctl_update_typed() {
+  emulate -L zsh
+  zmodload zsh/zselect 2>/dev/null || return 1
+  local termios
+  termios=$(stty -g 2>/dev/null) || return 1
+  {
+    stty -icanon
+    zselect -t 0 -r 0
+    return $?
+  } always {
+    stty $termios
+  }
+}

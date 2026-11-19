@@ -1,0 +1,9 @@
+# Removes the lock $1 only while it still records the owner token $2; a shell that reclaimed it since keeps its lock.
+_dfctl_update_unlock() {
+  emulate -L zsh
+  zmodload -F zsh/files b:zf_rm
+  [[ -r $1/owner && $(<$1/owner) == $2 ]] || return 0
+  zf_rm -f $1/owner 2>/dev/null
+  rmdir $1 2>/dev/null
+  return 0
+}

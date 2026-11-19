@@ -14,6 +14,7 @@ from dotfiles_setup import (
     rollback,
     state,
     tooling,
+    update_stamp,
     worktree,
 )
 from dotfiles_setup.approval import _approved_removals
@@ -149,6 +150,8 @@ def _finish_install(
     _sync_foothold(logger, plan.preset)
     if not (args.dry_run or _persist(logger, env, plan, inputs)):
         return PERSIST_FAILED_EXIT_CODE
+    if not args.dry_run:
+        update_stamp.record_apply(logger, env.home, env.clock())
     install_flow.print_completion_banner(logger)
     logger.success(f"Machine preset set to '{plan.preset.name}'.")
     return 0
