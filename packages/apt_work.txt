@@ -1,5 +1,6 @@
 1password
 awscli
+google-cloud-cli
 istioctl
 postgresql-17
 teleport

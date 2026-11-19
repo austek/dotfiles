@@ -53,7 +53,8 @@ def sleeps(monkeypatch):
 
 def test_each_selected_package_gets_its_signing_key_dearmored_into_its_keyring(tmp_path):
     machine = Machine()
-    ctx = make(tmp_path, machine, packages=["google-chrome-stable", "code", "docker-ce", "gh", "mise", "claude-desktop"])
+    ctx = make(tmp_path, machine, packages=["google-chrome-stable", "code", "docker-ce", "gh", "mise", "claude-desktop",
+                                            "google-cloud-cli"])
     assert aps.download_apt_gpg_keys(ctx)
     for destination, url in (
         ("/usr/share/keyrings/claude-desktop-archive-keyring.gpg", "https://downloads.claude.ai/claude-desktop/key.asc"),
@@ -63,6 +64,7 @@ def test_each_selected_package_gets_its_signing_key_dearmored_into_its_keyring(t
         ("/usr/share/keyrings/docker.gpg", "https://download.docker.com/linux/ubuntu/gpg"),
         ("/usr/share/keyrings/githubcli-archive-keyring.gpg",
          "https://cli.github.com/packages/githubcli-archive-keyring.gpg"),
+        ("/usr/share/keyrings/cloud.google.gpg", "https://packages.cloud.google.com/apt/doc/apt-key.gpg"),
     ):
         assert machine.input_for("sudo", "gpg", "--dearmor", "--yes", "-o", destination) == f"KEY:{url}".encode()
 
@@ -291,6 +293,7 @@ def test_unneeded_source_files_are_ignored_by_the_apt_stow(tmp_path):
     assert r"--ignore=1password\.sources$" in argv
     assert r"--ignore=vscode\.sources$" in argv
     assert not any("github-cli" in arg for arg in argv)
+    assert r"--ignore=google-cloud-sdk\.sources$" in argv
     assert r"--ignore=mise\.sources$" in argv
     assert r"--ignore=claude-desktop\.sources$" in argv
     assert r"--ignore=claude-desktop$" in argv
