@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from cli_support import stub_subprocess
-from dotfiles_setup import state
+from dotfiles_setup import path_dirs, state
 from dotfiles_setup.cli import Env, main
 
 
@@ -52,14 +52,17 @@ def _save_preset(tmp_path, preset_name):
 def test_main_foothold_restart_restarts_the_installed_footholds(tmp_path, monkeypatch):
     _save_preset(tmp_path, "homelab")
     restarted = []
-    monkeypatch.setattr("dotfiles_setup.foothold.restart_footholds", lambda logger, run: restarted.append(run) or True)
+    monkeypatch.setattr(
+        "dotfiles_setup.foothold.restart_footholds",
+        lambda logger, run, path_entries: restarted.append(path_entries) or True,
+    )
     assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 0
-    assert len(restarted) == 1
+    assert restarted == [path_dirs.load(Env().dotfiles_dir, None).value]
 
 
 def test_main_foothold_restart_fails_when_the_restart_fails(tmp_path, monkeypatch):
     _save_preset(tmp_path, "homelab")
-    monkeypatch.setattr("dotfiles_setup.foothold.restart_footholds", lambda logger, run: False)
+    monkeypatch.setattr("dotfiles_setup.foothold.restart_footholds", lambda logger, run, path_entries: False)
     assert main(["foothold", "restart"], Env(state_dir=tmp_path)) == 1
 
 

@@ -55,7 +55,7 @@ def foothold_syncs(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "dotfiles_setup.foothold.sync_footholds",
-        lambda logger, wanted: calls.append(wanted),
+        lambda logger, wanted, path_entries: calls.append(wanted),
     )
     return calls
 
@@ -91,6 +91,7 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
     }))
     (dotfiles_dir / "presets" / "work.json").write_text(json.dumps({"package_files": ["apt_common.txt"]}))
     (dotfiles_dir / "packages" / "apt_common.txt").write_text("zsh\ncurl\n")
+    (dotfiles_dir / "packages" / "path_dirs.txt").write_text("~/.local/bin\n/usr/bin\n")
     (dotfiles_dir / "claude-profiles" / "claude_homelab.json").write_text("{}")
 
     (dotfiles_dir / "claude" / ".claude").mkdir(parents=True)

@@ -11,6 +11,7 @@ from dotfiles_setup import (
     install_flow,
     overlay,
     overlay_migrate,
+    path_dirs,
     rollback,
     state,
     tooling,
@@ -33,6 +34,7 @@ from dotfiles_setup.result import Err, Ok, Result
 from dotfiles_setup.transcript import Transcript, open_transcript
 
 PERSIST_FAILED_EXIT_CODE = 4
+PATH_LIST_FAILED_EXIT_CODE = 2
 TRANSCRIPT_DIR = ".local/state/dotfiles/logs"
 
 
@@ -40,8 +42,8 @@ def _log_install_failure(logger: Logger, result: InstallResult) -> None:
     logger.error(result.stdout or f"The install failed with exit code {result.returncode}. See output above.")
 
 
-def _sync_foothold(logger: Logger, preset: Preset) -> None:
-    foothold.sync_footholds(logger, preset.footholds)
+def _sync_foothold(logger: Logger, preset: Preset, path_entries: tuple[str, ...]) -> None:
+    foothold.sync_footholds(logger, preset.footholds, path_entries)
 
 
 def _refuses_worktree(args: argparse.Namespace, env: Env) -> bool:
@@ -108,7 +110,18 @@ def _flow_inputs(
 
 
 def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _Install) -> int:
-    claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset, env.home)
+    match path_dirs.load(plan.dotfiles_dir, plan.overlay_root):
+        case Err(error=message):
+            logger.error(message)
+            return PATH_LIST_FAILED_EXIT_CODE
+        case Ok(value=path_entries):
+            return _apply_with_path(args, logger, env, plan, path_entries)
+
+
+def _apply_with_path(
+    args: argparse.Namespace, logger: Logger, env: Env, plan: _Install, path_entries: tuple[str, ...],
+) -> int:
+    claude_settings = _merged_claude_settings(plan.dotfiles_dir, plan.overlay_root, plan.preset, env.home, path_entries)
     t = _tooling(logger, env)
     match _approval(args, t, plan):
         case Err(error=message):
@@ -117,7 +130,8 @@ def _apply_install(args: argparse.Namespace, logger: Logger, env: Env, plan: _In
         case Ok(value=approved):
             # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
             _write_claude_settings(logger, claude_settings, env)
-            return _run_flow(args, env, plan, claude_settings, _flow_inputs(t, env, plan, args, approved))
+            inputs = _flow_inputs(t, env, plan, args, approved)
+            return _run_flow(args, env, plan, claude_settings, path_entries, inputs)
 
 
 def _approval(args: argparse.Namespace, t: tooling.Tooling, plan: _Install) -> Result[tuple[str, ...]]:
@@ -130,7 +144,7 @@ def _approval(args: argparse.Namespace, t: tooling.Tooling, plan: _Install) -> R
 
 def _run_flow(
     args: argparse.Namespace, env: Env, plan: _Install, claude_settings: dict[str, Any],
-    inputs: install_flow.FlowInputs,
+    path_entries: tuple[str, ...], inputs: install_flow.FlowInputs,
 ) -> int:
     logger = inputs.t.logger
     result = install_flow.run_install(inputs)
@@ -139,15 +153,15 @@ def _run_flow(
         if result.rollback_pending:
             rollback.offer_rollback(_rollback_context(logger, env, plan), interactive=sys.stdin.isatty())
         return result.returncode
-    return _finish_install(args, logger, env, plan, claude_settings, inputs)
+    return _finish_install(args, logger, env, plan, claude_settings, path_entries, inputs)
 
 
 def _finish_install(
     args: argparse.Namespace, logger: Logger, env: Env, plan: _Install, claude_settings: dict[str, Any],
-    inputs: install_flow.FlowInputs,
+    path_entries: tuple[str, ...], inputs: install_flow.FlowInputs,
 ) -> int:
     claude_plugins.update_claude_plugins(logger, claude_settings)
-    _sync_foothold(logger, plan.preset)
+    _sync_foothold(logger, plan.preset, path_entries)
     if not (args.dry_run or _persist(logger, env, plan, inputs)):
         return PERSIST_FAILED_EXIT_CODE
     if not args.dry_run:

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from dotfiles_setup import fsutil, overlay, settings_drift
+from dotfiles_setup import fsutil, overlay, path_dirs, settings_drift
 from dotfiles_setup.env import Env
 from dotfiles_setup.log import Logger
 from dotfiles_setup.presets import Preset
@@ -33,13 +33,15 @@ def _replace_settings_target(target: Path, rendered: str, now: datetime) -> None
 
 
 def _merged_claude_settings(
-    dotfiles_dir: Path, overlay_root: Path | None, preset: Preset, home: Path,
+    dotfiles_dir: Path, overlay_root: Path | None, preset: Preset, home: Path, path_entries: tuple[str, ...],
 ) -> dict[str, Any]:
+    """The merged settings with `env.PATH` taken from the single PATH list, whatever any settings layer sets."""
     profile = dotfiles_dir / "claude-profiles" / preset.claude_settings if preset.claude_settings else None
     merged = overlay.load_preset_settings(
         dotfiles_dir / "claude" / ".claude" / SETTINGS_FILE, profile, overlay_root, preset.name,
     )
-    return overlay.expand_home_in_env(merged, home)
+    expanded = overlay.expand_home_in_env(merged, home)
+    return {**expanded, "env": {**expanded.get("env", {}), "PATH": path_dirs.for_env(path_entries, home)}}
 
 
 def _write_claude_settings(logger: Logger, merged: dict[str, Any], env: Env) -> None:
