@@ -2,25 +2,37 @@
 export DENGJEN_ESPEAKNG_DATA_DIRECTORY=${DENGJEN_ESPEAKNG_DATA_DIRECTORY:-/usr/lib/x86_64-linux-gnu}
 
 # PATH lives here, not in .zshrc, so non-interactive shells (IDE-launched agents) get it.
-# typeset -U keeps entries unique across nested shells.
+# The list itself is packages/path_dirs.txt plus the overlay's packages/path_dirs_extra.txt; Claude's env.PATH
+# and the foothold unit render from the same files. typeset -U keeps entries unique across nested shells.
 typeset -U path PATH
-# A candidate the inherited PATH already selects (sdk use, a parent shell) keeps that version.
 path=( ${^path}(N-/) )
-typeset -a sdkman_default=()
-typeset sdkman_tool=''
-for sdkman_tool in sbt kotlin gradle java; do
-    (( ${path[(I)$HOME/.sdkman/candidates/$sdkman_tool/*]} )) \
-        || sdkman_default+=("$HOME/.sdkman/candidates/$sdkman_tool/current/bin")
-done
-path=(
-    $sdkman_default
-    "$HOME/.dotfiles/bin"
-    "$HOME/bin"
-    "$HOME/.local/bin"
-    $path
-    "$HOME/.local/share/JetBrains/Toolbox/scripts"
-    "$HOME/.krew/bin"
-    /usr/local/go/bin
-)
+
+# Sets `reply` to the listed directories. A candidate the inherited PATH already selects (sdk use, a parent
+# shell) keeps that version, so the list's `current` entry for that sdkman tool is dropped.
+_dotfiles_path_list() {
+    emulate -L zsh
+    setopt extendedglob
+    local file line entry tool
+    reply=()
+    for file in "$HOME/.dotfiles/packages/path_dirs.txt" \
+                "${DOTFILES_OVERLAY_ROOT:-$HOME/.dotfiles-overlay}/packages/path_dirs_extra.txt"; do
+        [[ -r $file ]] || continue
+        for line in "${(@f)$(<$file)}"; do
+            entry=${${line##[[:space:]]##}%%[[:space:]]##}
+            [[ -z $entry || $entry == '#'* ]] && continue
+            entry=${entry/#\~\//$HOME/}
+            if [[ $entry == $HOME/.sdkman/candidates/*/current/bin ]]; then
+                tool=${${entry#$HOME/.sdkman/candidates/}%%/*}
+                (( ${path[(I)$HOME/.sdkman/candidates/$tool/*]} )) && continue
+            fi
+            reply+=( $entry )
+        done
+    done
+}
+
+_dotfiles_path_list
+(( $#reply )) || reply=( "$HOME/.dotfiles/bin" "$HOME/bin" "$HOME/.local/bin" )
+path=( $reply $path )
 path=( ${^path}(N-/) )
-unset sdkman_default sdkman_tool
+unset reply
+unfunction _dotfiles_path_list
