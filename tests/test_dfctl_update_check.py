@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parent.parent
 FUNCTIONS = ROOT / "zsh" / ".config" / "zsh" / "functions"
 PROMPT = "[y/N]"
 HINT = "dfctl apply --upgrade when ready"
+AGO = "{days} days since the last dfctl apply or reminder."
+ASK_LINE = "[dfctl] It has been " + AGO + " Run dfctl apply --upgrade now? [y/N] "
+AUTO_LINE = "[dfctl] running dfctl apply --upgrade ({days} days since the last apply or reminder)"
 AGE = 9
 GITCONFIG = """[user]
 \tname = Update Test
@@ -197,8 +200,7 @@ def ask(env: Env, key: bytes = b"\n", **kwargs) -> Result:
 
 def test_ask_prompts_with_the_days_since_the_last_run(due):
     result = ask(due)
-    assert "[dfctl]" in result.output
-    assert f"{AGE} days" in result.output
+    assert ASK_LINE.format(days=AGE) in result.output
     assert not due.called("dfctl")
 
 
@@ -219,7 +221,7 @@ def test_disabled_mode_does_nothing(due):
 def test_auto_mode_updates_without_asking(due):
     result = due.run(zstyles="zstyle ':dfctl:update' mode auto")
     assert PROMPT not in result.output
-    assert f"{AGE} days" in result.output
+    assert AUTO_LINE.format(days=AGE) in result.output
     assert due.called("dfctl apply --upgrade")
     assert due.stamp_days() == today()
 
@@ -442,7 +444,7 @@ def test_zshrc_calls_the_check_after_oh_my_zsh_and_the_function_autoload():
 
 
 REMINDER_STYLE = "zstyle ':dfctl:update' mode reminder"
-REMINDER = "[dfctl] It has been {days} days since dfctl apply last ran. Run dfctl apply --upgrade when you are ready."
+REMINDER = "[dfctl] It has been " + AGO + " Run dfctl apply --upgrade when you are ready."
 LEFT = "left=q"
 READ_BACK = 'read -r -k 1 -t 2 left; print -r -- "left=$left"'
 
