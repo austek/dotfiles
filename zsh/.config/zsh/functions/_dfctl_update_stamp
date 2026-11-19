@@ -1,0 +1,6 @@
+# Writes today's day count to the stamp file $1.
+_dfctl_update_stamp() {
+  emulate -L zsh
+  zmodload -F zsh/datetime p:EPOCHSECONDS
+  print -r -- "LAST_EPOCH=$(( EPOCHSECONDS / 86400 ))" >| $1
+}

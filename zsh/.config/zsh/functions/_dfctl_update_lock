@@ -1,0 +1,10 @@
+# Takes the mkdir lock $1; a lock older than an hour belongs to a killed shell and is replaced.
+_dfctl_update_lock() {
+  emulate -L zsh
+  zmodload -F zsh/datetime p:EPOCHSECONDS
+  zmodload -F zsh/stat b:zstat
+  local -a mtime
+  mkdir -p ${1:h} 2>/dev/null
+  zstat -A mtime +mtime $1 2>/dev/null && (( EPOCHSECONDS - mtime[1] > 3600 )) && rmdir $1 2>/dev/null
+  mkdir $1 2>/dev/null
+}

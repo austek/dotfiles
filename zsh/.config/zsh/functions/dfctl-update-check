@@ -1,0 +1,17 @@
+# Reminds you every few days to run `dfctl apply --upgrade`, like Oh My Zsh's update prompt.
+# The zstyle keys, stamp and lock are documented in AGENTS.md.
+dfctl-update-check() {
+  emulate -L zsh
+  setopt local_traps
+  local mode frequency state=${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles
+  zstyle -s ':dfctl:update' mode mode
+  [[ $mode == (ask|auto|disabled) ]] || mode=ask
+  [[ $mode == disabled || ! -t 0 || ! -t 1 ]] && return 0
+  zstyle -s ':dfctl:update' frequency frequency
+  [[ $frequency == <-> ]] || frequency=7
+  _dfctl_update_lock $state/update-check.lock || return 0
+  trap "rmdir ${(q)state}/update-check.lock 2>/dev/null" EXIT
+  trap 'return 130' INT TERM HUP
+  _dfctl_update_run $mode $frequency $state/update-check
+  return 0
+}

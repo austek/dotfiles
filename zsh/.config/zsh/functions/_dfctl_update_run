@@ -1,0 +1,26 @@
+# With the mode $1, frequency $2 and stamp file $3: writes the stamp when none is readable (missing, unreadable, malformed or future-dated), and once it is $2 days
+# old asks (mode ask) or goes ahead (mode auto), then writes the stamp.
+_dfctl_update_run() {
+  emulate -L zsh
+  local -i days
+  local reply
+  if ! days=$(_dfctl_update_age $3); then
+    _dfctl_update_stamp $3
+    return 0
+  fi
+  (( days >= $2 )) || return 0
+  if [[ $1 == auto ]]; then
+    print -r -- "[dfctl] running dfctl apply --upgrade ($days days since the last run)"
+    reply=y
+  else
+    print -n -r -- "[dfctl] It has been $days days since dfctl apply last ran. Run dfctl apply --upgrade now? [y/N] "
+    read -r -k 1 reply
+    print
+  fi
+  if [[ $reply == [yY] ]]; then
+    _dfctl_update_apply
+  else
+    print -r -- 'Run dfctl apply --upgrade when ready'
+  fi
+  _dfctl_update_stamp $3
+}

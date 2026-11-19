@@ -61,6 +61,8 @@ fpath=( ~/.config/zsh/functions "${fpath[@]}" )
 autoload -Uz $fpath[1]/*(:t)
 # --- END NEW FUNCTION LOADING ---
 
+dfctl-update-check
+
 # Base PATH is defined in .zshenv.
 
 alias claude-chrome='CLAUDE_CONFIG_DIR=~/.claude-chrome claude --chrome'

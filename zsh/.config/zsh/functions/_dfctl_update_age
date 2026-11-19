@@ -1,0 +1,9 @@
+# Prints the whole days since the stamp file $1 was written; fails when it is missing, unreadable, malformed or dated in the future.
+_dfctl_update_age() {
+  emulate -L zsh
+  zmodload -F zsh/datetime p:EPOCHSECONDS
+  [[ -r $1 && $(<$1) =~ '^LAST_EPOCH=([0-9]+)$' ]] || return 1
+  local -i days=$(( EPOCHSECONDS / 86400 - match[1] ))
+  (( days >= 0 )) || return 1
+  print -r -- $days
+}
