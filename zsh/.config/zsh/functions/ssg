@@ -1,6 +1,10 @@
 # Connects to a GCP instance through IAP with agent forwarding
 # Usage: ssg <instance>   (e.g. ssg dev, ssg dgc-dev)
-# .zshrc unloads it when gcloud is not on PATH.
+
+if ! command -v gcloud &> /dev/null; then
+    echo "Error: 'gcloud' CLI is not installed." >&2
+    return 1
+fi
 
 if [[ -z "$1" ]]; then
     echo "Usage: ssg <instance>" >&2
