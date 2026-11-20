@@ -59,6 +59,7 @@ unset RTK_TEE_DIR                   # use the default; avoids path-traversal foo
 fpath=( ~/.config/zsh/functions "${fpath[@]}" )
 
 autoload -Uz $fpath[1]/*(:t)
+(( $+commands[gcloud] )) || unfunction ssg
 # --- END NEW FUNCTION LOADING ---
 
 # Base PATH is defined in .zshenv.
