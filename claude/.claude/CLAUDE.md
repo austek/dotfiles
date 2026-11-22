@@ -1,3 +1,15 @@
+## Working style
+- Use sub-agents for searches, code review and other independent side tasks; return only a short summary.
+- Do small, tightly coupled edits directly in the main session.
+- For long or parallel work (separate platforms or repos), propose splitting it into separate sessions or branches and ask first.
+
+## Agent coordination (actor-style)
+- One owner per task or file area; nobody else edits it.
+- No shared mutable state between agents. The repo, issues and PRs are the shared record.
+- Hand off through explicit messages (issue comment, PR, short summary), not by reading another agent's working state.
+- A parent agent checks each child's result and decides whether to retry or escalate.
+- Give each task a self-contained brief and ask for a short result, not a transcript.
+
 # Writing & Voice
 - **Directness**: First sentence = verdict. Answer *only* the asked question. No preamble, restatements, or affirmations.
 - **Confidence**: No hedging ("generally speaking", "it's worth noting"). State caveats only if they alter decisions.
