@@ -71,7 +71,7 @@ def test_only_the_work_preset_installs_zoom(preset, has_zoom):
     assert ("zoom" in resolve_packages(REPO / "packages", manifest).value) is has_zoom
 
 
-K8S_TOOLS = {"age", "flux", "helm", "kubeconform", "kubectl", "sops"}
+K8S_TOOLS = {"age", "flux", "helm", "kind", "kubeconform", "kubectl", "sops"}
 
 
 @pytest.mark.parametrize("preset", ["work", "personal", "homelab"])

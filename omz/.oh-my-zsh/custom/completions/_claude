@@ -1,7 +1,8 @@
 #compdef claude
 
 # Completes the claude function's own flags (accounts from ~/.claude-*, --with names from _claude_with_names);
-# Claude Code's options come from its --help via _gnu_generic.
+# Claude Code's options come from its --help; -i skips the wrapped help text
+# that reads `--system-prompt[-file]` and is not a valid option definition.
 function _claude {
     local -a accounts=(main) names=(${(f)"$(_claude_with_names)"})
     local dir
@@ -24,5 +25,5 @@ function _claude {
     fi
 
     [[ $PREFIX == -* ]] && compadd -- --account= --burst --with=
-    _gnu_generic
+    _arguments '*:arg: _default' -- -i '(*\[*)'
 }

@@ -61,6 +61,10 @@ LEGACY = {
         "sops", "v3.13.3", "https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64",
         "sops-v3.13.3", "binary",
     ),
+    "kind": (
+        "kind", "v0.33.0", "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
+        "kind-v0.33.0", "binary",
+    ),
 }
 GOOD = {
     "package": "tool", "name": "Tool", "version": "1.0", "url": "https://example.com/{version}/tool.tgz",

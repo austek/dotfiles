@@ -210,6 +210,39 @@ def test_an_already_patched_file_is_not_rewritten(tmp_path, on_path):
     assert not path.with_name(path.name + ".bak").exists()
 
 
+def test_the_patch_follows_the_serena_executable_into_a_uv_tool_venv(tmp_path, monkeypatch):
+    venv = tmp_path / ".local/share/uv/tools/serena-agent"
+    path = venv / "lib/solidlsp/language_servers/eclipse_jdtls.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"x = {ct.JDTLS_ENABLED}\n")
+    (venv / "pyvenv.cfg").write_text("")
+    (venv / "bin").mkdir()
+    (venv / "bin/serena").write_text("")
+    link = tmp_path / ".local/bin/serena"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(venv / "bin/serena")
+    monkeypatch.setattr("shutil.which", lambda name, path=None: str(link) if name in {"serena", "pipx"} else None)
+    t, _ = make(tmp_path, Machine())
+    ct.configure_serena(t, "work")
+    assert ct.JDTLS_DISABLED in path.read_text()
+
+
+def test_an_installed_serena_is_configured_and_patched_without_pipx(tmp_path, on_path):
+    on_path.update({"serena", "claude"})
+    path = jdtls(tmp_path, f"x = {ct.JDTLS_ENABLED}\n")
+    t, _ = make(tmp_path, Machine())
+    ct.configure_serena(t, "work")
+    assert ct.JDTLS_DISABLED in path.read_text()
+
+
+def test_a_missing_jdtls_file_only_warns(tmp_path, on_path, capsys):
+    on_path.update({"pipx", "serena"})
+    t, _ = make(tmp_path, Machine())
+    ct.configure_serena(t, "work")
+    out = capsys.readouterr()
+    assert "eclipse_jdtls.py not found in the Serena venv" in out.out + out.err
+
+
 def test_the_patch_is_not_applied_in_a_dry_run(tmp_path, on_path):
     on_path.update({"pipx", "serena"})
     path = jdtls(tmp_path, f"x = {ct.JDTLS_ENABLED}\n")
