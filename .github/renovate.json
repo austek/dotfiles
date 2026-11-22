@@ -128,6 +128,17 @@
     },
     {
       "customType": "regex",
+      "description": "kind CLI release: version constant and the checksums.txt URL; the digest stays stale until re-recorded",
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "\"package\": \"kind\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
+        "kubernetes-sigs/kind/releases/download/(?<currentValue>v\\d[^/\\s\"]*)/"
+      ],
+      "depNameTemplate": "kubernetes-sigs/kind",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
       "description": "kind node image used by kdev",
       "managerFilePatterns": ["/^local/\\.local/bin/kdev$/"],
       "matchStrings": ["K8S_VERSION=\"(?<currentValue>v[^\"]+)\""],

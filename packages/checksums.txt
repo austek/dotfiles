@@ -15,6 +15,7 @@ d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983  https://get.he
 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
 98c56e6a408bfa5c3c60744b6015aaa6aa08f743fdeb88386d06fca035bb1786  https://github.com/EmbarkStudios/cargo-deny/releases/download/0.22.0/cargo-deny-0.22.0-x86_64-unknown-linux-musl.tar.gz
 e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b  https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64
+aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
 7a121264f2637a3b90767aaf5bdd43ee88b8c925a931d0479fa2ce22b1a2fa76  https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.39.6.zip
 43add3c33c9b86ee560adc8579261e8e26465a101b281720937c6d1d4967b3e4  https://download.jetbrains.com/toolbox/jetbrains-toolbox-3.9.1.89198.tar.gz
 5cd7b9f1e6dc7226a44193df23d0664790496e8267f26152b0cbbd5888025444  https://cdn.zoom.us/prod/7.2.5.6661/zoom_amd64.deb

@@ -3,5 +3,6 @@
 age
 flux
 helm
+kind
 kubeconform
 sops
