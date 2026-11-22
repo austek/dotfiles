@@ -135,10 +135,18 @@ def _find_jdtls(venv: Path) -> Path | None:
     return next((Path(path) for path in resolved if path.startswith(root)), None)
 
 
+def _serena_venvs(t: Tooling) -> list[Path]:
+    """The venv behind the `serena` executable (pipx, uv tool or other), then pipx's default location."""
+    exe = shutil.which("serena")
+    venv = Path(os.path.realpath(exe)).parent.parent if exe else None
+    from_exe = [venv] if venv is not None and (venv / "pyvenv.cfg").is_file() else []
+    return [*from_exe, t.home / ".local/share/pipx/venvs/serena-agent"]
+
+
 def _patch_jdtls(t: Tooling) -> None:
-    found = _find_jdtls(t.home / ".local/share/pipx/venvs/serena-agent")
+    found = next(filter(None, map(_find_jdtls, _serena_venvs(t))), None)
     if found is None:
-        t.logger.warn("eclipse_jdtls.py not found under the serena-agent pipx venv; skipping the Gradle 9 annotation-processing patch.")
+        t.logger.warn("eclipse_jdtls.py not found in the Serena venv; skipping the Gradle 9 annotation-processing patch.")
         return
     source = found.read_text()
     if JDTLS_DISABLED in source:
