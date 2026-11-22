@@ -136,7 +136,7 @@ def _find_jdtls(venv: Path) -> Path | None:
 
 
 def _serena_venvs(t: Tooling) -> list[Path]:
-    """The venv behind the `serena` executable (pipx, uv tool or other), then pipx's default location."""
+    """The venv behind the `serena` executable when it has a `pyvenv.cfg` (pipx, uv tool), then pipx's default location."""
     exe = shutil.which("serena")
     venv = Path(os.path.realpath(exe)).parent.parent if exe else None
     from_exe = [venv] if venv is not None and (venv / "pyvenv.cfg").is_file() else []
