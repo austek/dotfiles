@@ -60,9 +60,8 @@ case "$cmd" in
         kubectl --context "kind-${CLUSTER_NAME}" apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_NGINX_REF:-controller-v1.15.1}/deploy/static/provider/kind/deploy.yaml || exit 1
 
         echo "⏳ Waiting for Ingress..."
-        kubectl --context "kind-${CLUSTER_NAME}" wait --namespace ingress-nginx \
-            --for=condition=ready pod \
-            --selector=app.kubernetes.io/component=controller \
+        kubectl --context "kind-${CLUSTER_NAME}" rollout status --namespace ingress-nginx \
+            deployment/ingress-nginx-controller \
             --timeout=120s || exit 1
         echo "✅ Environment Ready!"
         ;;

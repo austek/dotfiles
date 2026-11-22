@@ -238,6 +238,15 @@ def test_kdev_up_fails_when_the_ingress_wait_fails(sandbox):
     assert "Environment Ready" not in result.stdout
 
 
+def test_kdev_up_waits_on_the_ingress_deployment_not_on_a_pod_that_may_not_exist_yet(sandbox):
+    _, stubs, _, env = sandbox
+    _kdev_stubs(stubs)
+    assert _run("kdev", ["up"], env).returncode == 0
+    ingress_calls = [c for c in _calls(env) if "ingress-nginx" in c and " apply " not in c]
+    assert any("rollout status" in c and "deployment/ingress-nginx-controller" in c for c in ingress_calls)
+    assert not any(" wait " in f" {c} " and "--selector" in c for c in ingress_calls)
+
+
 def test_kdev_load_returns_the_failure_status_of_kind(sandbox):
     _, stubs, _, env = sandbox
     _kdev_stubs(stubs)
