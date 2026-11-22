@@ -99,6 +99,9 @@ def _serena_install_argv(t: Tooling) -> list[str]:
 def _ensure_serena_cli(t: Tooling) -> bool:
     if shutil.which("serena") is not None:
         t.logger.success(f"Serena CLI already installed ({_version_of(t, 'serena', first_line=True)}).")
+    elif shutil.which("pipx") is None:
+        t.logger.error(f"pipx not found; can't install Serena. Add 'pipx' to packages/apt_common.txt and re-run, or install manually: {SERENA_INSTALL_TEXT}")
+        return False
     elif not dry_run_all(t, f"Would install Serena via: {SERENA_INSTALL_TEXT}"):
         t.logger.info("Serena CLI not found; installing...")
         if t.run(_serena_install_argv(t)).returncode != 0:
@@ -161,12 +164,10 @@ def _patch_jdtls(t: Tooling) -> None:
 
 
 def configure_serena(t: Tooling, preset_name: str) -> None:
-    """The jdtls patch lives inside the pipx venv, so `pipx upgrade serena-agent` wipes it; re-applying is idempotent."""
+    """The jdtls patch lives inside Serena's venv, so an upgrade wipes it; re-applying is idempotent."""
     t.logger.step("Step 7e: Verifying Serena MCP is installed and configured...")
     if preset_name == "homelab":
         t.logger.success("Serena not needed on the homelab profile; skipping.")
-    elif shutil.which("pipx") is None:
-        t.logger.error(f"pipx not found; can't install Serena. Add 'pipx' to packages/apt_common.txt and re-run, or install manually: {SERENA_INSTALL_TEXT}")
     elif _ensure_serena_cli(t):
         _ensure_serena_init(t)
         _ensure_serena_mcp(t)

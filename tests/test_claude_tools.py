@@ -227,6 +227,14 @@ def test_the_patch_follows_the_serena_executable_into_a_uv_tool_venv(tmp_path, m
     assert ct.JDTLS_DISABLED in path.read_text()
 
 
+def test_an_installed_serena_is_configured_and_patched_without_pipx(tmp_path, on_path):
+    on_path.update({"serena", "claude"})
+    path = jdtls(tmp_path, f"x = {ct.JDTLS_ENABLED}\n")
+    t, _ = make(tmp_path, Machine())
+    ct.configure_serena(t, "work")
+    assert ct.JDTLS_DISABLED in path.read_text()
+
+
 def test_a_missing_jdtls_file_only_warns(tmp_path, on_path, capsys):
     on_path.update({"pipx", "serena"})
     t, _ = make(tmp_path, Machine())
