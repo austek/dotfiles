@@ -1,13 +1,13 @@
 # Manages Claude accounts: ~/.claude-<name> config dirs plus a manifest (telemetry, labels, API-key variable) per account. Use one with claude --account <name>.
-# Usage: claude-account create <name> [<option>...] | update <name> <option>... | rename <old> <new> [--relabel] | ls
+# Usage: claude-account create <name> [<option>...] | update <name> <option>... | rename <old> <new> [--relabel] | remove <name> [--yes] | ls
 # Options: --telemetry on|off, --label <key>=<value>, --unset-label <key>, --otel-account <label>, --no-otel-account, --api-key-env <VAR>, --no-api-key
 claude-account() {
   local sub=${1:-}
   (( $# )) && shift
   case $sub in
-    create|update|rename|ls)
+    create|update|rename|remove|ls)
       (( $+commands[jq] )) || { print -ru2 -- "claude-account: jq is required"; return 1 }
       _claude_account_$sub "$@" ;;
-    *) print -ru2 -- "Usage: claude-account create|update|rename|ls ... (claude-account <sub> with no arguments explains it)"; return 2 ;;
+    *) print -ru2 -- "Usage: claude-account create|update|rename|remove|ls ... (claude-account <sub> with no arguments explains it)"; return 2 ;;
   esac
 }

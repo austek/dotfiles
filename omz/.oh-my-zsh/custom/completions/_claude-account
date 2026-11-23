@@ -2,7 +2,7 @@
 
 # Completes claude-account subcommands, account names (from ~/.claude-*) and the create/update options.
 function _claude-account {
-    local -a subs=(create update rename ls) accounts=(main)
+    local -a subs=(create update rename remove ls) accounts=(main)
     local dir
     for dir in ~/.claude-*(N/); do
         accounts+=(${dir:t:s/.claude-/})
@@ -19,9 +19,11 @@ function _claude-account {
     case $words[2] in
         update) (( CURRENT == 3 )) && { compadd -a accounts; return } ;;
         rename) (( CURRENT == 3 )) && { compadd -a accounts; return }; (( CURRENT == 4 )) && return ;;
+        remove) (( CURRENT == 3 )) && { compadd -a accounts; return } ;;
     esac
     case $words[2] in
         create|update) compadd -- --telemetry --label --unset-label --otel-account --no-otel-account --api-key-env --no-api-key ;;
         rename) compadd -- --relabel ;;
+        remove) compadd -- --yes ;;
     esac
 }
