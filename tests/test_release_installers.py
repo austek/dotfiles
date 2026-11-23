@@ -696,7 +696,7 @@ def test_release_installers_run_after_the_script_installers(tmp_path):
 
 BINARY_PACKAGES = (
     "lazydocker", "istioctl", "awscli", "zizmor", "mcp-grafana", "chip", "kubectl", "helm", "flux", "kubeconform",
-    "cargo-deny", "sops", "kind",
+    "cargo-deny", "sops", "kind", "actionlint", "gitleaks", "yq",
 )
 
 
