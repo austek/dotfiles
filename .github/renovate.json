@@ -139,6 +139,43 @@
     },
     {
       "customType": "regex",
+      "description": "actionlint release: version constant and the checksums.txt URL; the digest stays stale until re-recorded",
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "\"package\": \"actionlint\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
+        "rhysd/actionlint/releases/download/v(?<currentValue>\\d[^/\\s\"]*)/",
+        "actionlint_(?<currentValue>\\d[\\d.]*)_linux"
+      ],
+      "depNameTemplate": "rhysd/actionlint",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "gitleaks release: version constant and the checksums.txt URL; the digest stays stale until re-recorded",
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "\"package\": \"gitleaks\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
+        "gitleaks/gitleaks/releases/download/v(?<currentValue>\\d[^/\\s\"]*)/",
+        "gitleaks_(?<currentValue>\\d[\\d.]*)_linux"
+      ],
+      "depNameTemplate": "gitleaks/gitleaks",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "yq (mikefarah, v4) release: tag argument and the checksums.txt URL; the digest stays stale until re-recorded",
+      "managerFilePatterns": ["/^packages/release_specs\\.json$/", "/^packages/checksums\\.txt$/"],
+      "matchStrings": [
+        "\"package\": \"yq\".*?\"version\": \"(?<currentValue>[^\"]+)\"",
+        "mikefarah/yq/releases/download/(?<currentValue>v\\d[^/\\s\"]*)/"
+      ],
+      "depNameTemplate": "mikefarah/yq",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
       "description": "kind node image used by kdev",
       "managerFilePatterns": ["/^local/\\.local/bin/kdev$/"],
       "matchStrings": ["K8S_VERSION=\"(?<currentValue>v[^\"]+)\""],

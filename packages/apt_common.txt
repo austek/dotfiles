@@ -1,4 +1,5 @@
 # Common packages for ALL machines (headless-safe: no GUI/desktop packages here)
+actionlint
 auditr
 coderabbit
 containerd.io
@@ -9,6 +10,7 @@ docker-ce
 docker-ce-cli
 docker-compose-plugin
 gh
+gitleaks
 gnupg
 htop
 iotop
@@ -33,6 +35,7 @@ ubuntu-minimal
 ubuntu-standard
 uv
 wget
+yamllint
 yq
 zizmor
 zsh

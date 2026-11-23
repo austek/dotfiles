@@ -13,5 +13,8 @@
   {"package": "kubeconform", "name": "kubeconform", "version": "v0.8.0", "url": "https://github.com/yannh/kubeconform/releases/download/{version}/kubeconform-linux-amd64.tar.gz", "cache_key": "kubeconform-{version}.tar.gz", "kind": "targz", "binary": "kubeconform"},
   {"package": "cargo-deny", "name": "cargo-deny", "version": "0.22.0", "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/{version}/cargo-deny-{version}-x86_64-unknown-linux-musl.tar.gz", "cache_key": "cargo-deny-{version}.tar.gz", "kind": "targz", "binary": "cargo-deny"},
   {"package": "sops", "name": "sops", "version": "v3.13.3", "url": "https://github.com/getsops/sops/releases/download/{version}/sops-{version}.linux.amd64", "cache_key": "sops-{version}", "kind": "binary", "binary": "sops"},
-  {"package": "kind", "name": "kind", "version": "v0.33.0", "url": "https://github.com/kubernetes-sigs/kind/releases/download/{version}/kind-linux-amd64", "cache_key": "kind-{version}", "kind": "binary", "binary": "kind"}
+  {"package": "kind", "name": "kind", "version": "v0.33.0", "url": "https://github.com/kubernetes-sigs/kind/releases/download/{version}/kind-linux-amd64", "cache_key": "kind-{version}", "kind": "binary", "binary": "kind"},
+  {"package": "actionlint", "name": "actionlint", "version": "1.7.12", "url": "https://github.com/rhysd/actionlint/releases/download/v{version}/actionlint_{version}_linux_amd64.tar.gz", "cache_key": "actionlint-{version}.tar.gz", "kind": "targz", "binary": "actionlint"},
+  {"package": "gitleaks", "name": "gitleaks", "version": "8.30.1", "url": "https://github.com/gitleaks/gitleaks/releases/download/v{version}/gitleaks_{version}_linux_x64.tar.gz", "cache_key": "gitleaks-{version}.tar.gz", "kind": "targz", "binary": "gitleaks"},
+  {"package": "yq", "name": "yq", "version": "v4.54.3", "url": "https://github.com/mikefarah/yq/releases/download/{version}/yq_linux_amd64", "cache_key": "yq-{version}", "kind": "binary", "binary": "yq"}
 ]

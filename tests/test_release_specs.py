@@ -65,6 +65,20 @@ LEGACY = {
         "kind", "v0.33.0", "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
         "kind-v0.33.0", "binary",
     ),
+    "actionlint": (
+        "actionlint", "1.7.12",
+        "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+        "actionlint-1.7.12.tar.gz", "targz",
+    ),
+    "gitleaks": (
+        "gitleaks", "8.30.1",
+        "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+        "gitleaks-8.30.1.tar.gz", "targz",
+    ),
+    "yq": (
+        "yq", "v4.54.3", "https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64",
+        "yq-v4.54.3", "binary",
+    ),
 }
 GOOD = {
     "package": "tool", "name": "Tool", "version": "1.0", "url": "https://example.com/{version}/tool.tgz",
