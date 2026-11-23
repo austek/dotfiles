@@ -38,6 +38,7 @@ The `.githooks/pre-commit` hook runs the shell and machine-path validation befor
 - A step that changes system state records an undo entry in the rollback log (`RollbackLog.track`). A new sudo step goes in `install_flow.SYSTEM_STEPS`, and in `system_check` if its state can be read without root.
 - Output goes through `Logger`, not `print`, so it reaches syslog and the install transcript.
 - Zsh functions live in `~/.config/zsh/functions`. The base `PATH` lives in `zsh/.zshenv`.
+- Keep list files sorted (byte order, `LC_ALL=C sort`): every `packages/apt_*.txt`, `flatpak_*.txt` and `github_bins.txt`, and `.stow-packages`. Leave comment headers on top. Order-significant lists stay as they are: `packages/path_dirs.txt` (precedence) and `packages/release_specs.json` (installer run order, new pins at the end).
 - Shareable Claude Code skills belong in `austek/ustekai-skills`, not here.
 - Private or employer-specific content belongs in the overlay (`austek/dotfiles-overlay`), never in this repo.
 
