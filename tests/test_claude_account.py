@@ -428,3 +428,44 @@ def test_the_api_key_never_appears_on_a_command_line(tmp_path):
     argv_log = (tmp_path / "log.env").read_text()
     assert "CLAUDE_CONFIG_DIR" in argv_log
     assert "sk-secret-9" not in argv_log
+
+
+def test_remove_deletes_the_dir_manifest_and_saved_with_names(tmp_path):
+    _run(tmp_path, "claude-account create old --label team=data")
+    state = tmp_path / "home" / ".local" / "state" / "dotfiles" / "claude-with"
+    state.mkdir(parents=True)
+    (state / "old").write_text("idea")
+    result = _run(tmp_path, "claude-account remove old --yes")
+    assert result.returncode == 0, result.stderr
+    manifest = tmp_path / "home" / ".config" / "dotfiles" / "claude-accounts" / "old.json"
+    assert not any(p.exists() for p in (tmp_path / "home" / ".claude-old", manifest, state / "old"))
+
+
+def test_remove_does_not_follow_links_into_the_main_config(tmp_path):
+    keep = tmp_path / "home" / ".claude"
+    keep.mkdir(parents=True)
+    (keep / "settings.json").write_text("{}")
+    _run(tmp_path, "claude-account create old")
+    _run(tmp_path, "claude-account-link old")
+    assert (tmp_path / "home" / ".claude-old" / "settings.json").is_symlink()
+    _run(tmp_path, "claude-account remove old --yes")
+    assert (keep / "settings.json").read_text() == "{}"
+
+
+def test_remove_without_a_terminal_or_yes_keeps_the_account(tmp_path):
+    _run(tmp_path, "claude-account create old")
+    result = _run(tmp_path, "claude-account remove old")
+    assert result.returncode == 1
+    assert (tmp_path / "home" / ".claude-old").is_dir()
+
+
+@pytest.mark.parametrize("name", ["main", "ghost"])
+def test_remove_rejects_main_and_unknown_accounts(tmp_path, name):
+    assert _run(tmp_path, f"claude-account remove {name} --yes").returncode != 0
+
+
+def test_remove_refuses_a_foothold_account(tmp_path):
+    _preset(tmp_path, "homelab", footholds=["main", "burst"])
+    _run(tmp_path, "claude-account create burst")
+    result = _run(tmp_path, "claude-account remove burst --yes")
+    assert (result.returncode, (tmp_path / "home" / ".claude-burst").is_dir()) == (1, True)
