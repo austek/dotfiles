@@ -83,8 +83,8 @@ SONARQUBE_CLI = VendorSpec(
 )
 UV = VendorSpec(
     "uv", _on_path_or_at("uv", lambda t: user_bin_dir(t) / "uv"),
-    "https://astral.sh/uv/0.13.7/install.sh", "sh",
-    "Would install uv via https://astral.sh/uv/0.13.7/install.sh.",
+    "https://astral.sh/uv/0.13.8/install.sh", "sh",
+    "Would install uv via https://astral.sh/uv/0.13.8/install.sh.",
     lambda t: "uv installed.",
 )
 
