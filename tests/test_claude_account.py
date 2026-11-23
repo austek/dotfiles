@@ -469,3 +469,10 @@ def test_remove_refuses_a_foothold_account(tmp_path):
     _run(tmp_path, "claude-account create burst")
     result = _run(tmp_path, "claude-account remove burst --yes")
     assert (result.returncode, (tmp_path / "home" / ".claude-burst").is_dir()) == (1, True)
+
+
+def test_remove_finishes_cleanup_when_only_the_manifest_remains(tmp_path):
+    _run(tmp_path, "claude-account create old")
+    shutil.rmtree(tmp_path / "home" / ".claude-old")
+    assert _run(tmp_path, "claude-account remove old --yes").returncode == 0
+    assert not (tmp_path / "home" / ".config" / "dotfiles" / "claude-accounts" / "old.json").exists()

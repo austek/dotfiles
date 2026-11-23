@@ -5,12 +5,13 @@ _claude_account_remove() {
   local name=${1:-} with_dir=${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/claude-with reply
   _claude_account_valid $name || { print -ru2 -- "claude-account: usage: claude-account remove <name> [--yes] (name cannot be main)"; return 2 }
   [[ -z ${2:-} || ${2:-} == --yes ]] || { print -ru2 -- "claude-account: unknown option '${2:-}'"; return 2 }
-  [[ -d $HOME/.claude-$name ]] || { print -ru2 -- "claude-account: account '$name' does not exist"; return 1 }
+  [[ -e $HOME/.claude-$name || -e $(_claude_account_file $name) || -e $with_dir/$name ]] || { print -ru2 -- "claude-account: account '$name' does not exist"; return 1 }
   _claude_account_rename_blocked $name && return 1
   if [[ ${2:-} != --yes ]]; then
     [[ -t 0 ]] || { print -ru2 -- "claude-account: refusing to remove '$name' without --yes on a non-interactive shell"; return 1 }
     read -r "reply?Remove account '$name' and its login in ~/.claude-$name? [y/N] "
     [[ $reply == [yY] || $reply == [yY][eE][sS] ]] || { print -ru2 -- "claude-account: kept '$name'"; return 1 }
+    _claude_account_rename_blocked $name && return 1
   fi
   rm -rf -- $HOME/.claude-$name $(_claude_account_file $name) $with_dir/$name || { print -ru2 -- "claude-account: could not remove everything of '$name'"; return 1 }
   print -r -- "Removed '$name'."
