@@ -5,9 +5,9 @@
 56b539a509eb2d6357cf4f575ed38c089f0e4880c95f79a70196b54f14954908  https://github.com/derailed/k9s/releases/download/v0.51.0/k9s_linux_amd64.deb
 c0f3213a3b9ccdf88b005eb91c406c1c0186fbdc3115385907d8cced6313cf41  https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_amd64.deb
 0d9dbfc26068b218e7ed84b104748cadc6e3cf733c0afd35465306fb39b9523c  https://github.com/jesseduffield/lazydocker/releases/download/v0.25.2/lazydocker_0.25.2_Linux_x86_64.tar.gz
-956421eb4934c10029622b6cd96442c904548d12eadbe874fb1d1a38d5d58ccc  https://github.com/istio/istio/releases/download/1.31.4/istio-1.31.4-linux-amd64.tar.gz
+956421eb4934c10029622b6cd96442c904548d12eadbe874fb1d1a38d5d58ccc  https://github.com/istio/istio/releases/download/1.32.0/istio-1.32.0-linux-amd64.tar.gz
 bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b  https://github.com/zizmorcore/zizmor/releases/download/v1.32.0/zizmor-x86_64-unknown-linux-gnu.tar.gz
-f93bfbd94cde68cc2e43cf5ba55da4f8e28b1a36b14fb14dadd566fc36b1312b  https://github.com/grafana/mcp-grafana/releases/download/v2.2.0/mcp-grafana_Linux_x86_64.tar.gz
+f93bfbd94cde68cc2e43cf5ba55da4f8e28b1a36b14fb14dadd566fc36b1312b  https://github.com/grafana/mcp-grafana/releases/download/v2.3.0/mcp-grafana_Linux_x86_64.tar.gz
 265e1080d1a5e8818f954648ed60e8238889c683c13a506d748677d4f0608a52  https://github.com/collibra/chip/releases/download/v0.0.67/chip-0.0.67-linux-amd64
 29818b6729dc9262b692307470d0558d027725e738be5dd47c760261868a2634  https://dl.k8s.io/release/v1.36.6/bin/linux/amd64/kubectl
 d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983  https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz
@@ -16,7 +16,7 @@ d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983  https://get.he
 98c56e6a408bfa5c3c60744b6015aaa6aa08f743fdeb88386d06fca035bb1786  https://github.com/EmbarkStudios/cargo-deny/releases/download/0.22.0/cargo-deny-0.22.0-x86_64-unknown-linux-musl.tar.gz
 e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b  https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64
 aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
-7a121264f2637a3b90767aaf5bdd43ee88b8c925a931d0479fa2ce22b1a2fa76  https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.39.6.zip
+7a121264f2637a3b90767aaf5bdd43ee88b8c925a931d0479fa2ce22b1a2fa76  https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.40.3.zip
 43add3c33c9b86ee560adc8579261e8e26465a101b281720937c6d1d4967b3e4  https://download.jetbrains.com/toolbox/jetbrains-toolbox-3.9.1.89198.tar.gz
 5cd7b9f1e6dc7226a44193df23d0664790496e8267f26152b0cbbd5888025444  https://cdn.zoom.us/prod/7.2.5.6661/zoom_amd64.deb
 9360a86521c3e5498846254b743b1f3203768ebadf65a178bc549395936f7a5d  https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.7.0-4507555968450560/linux-x64/Antigravity%20IDE.tar.gz
