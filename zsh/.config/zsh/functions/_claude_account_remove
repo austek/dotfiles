@@ -13,6 +13,6 @@ _claude_account_remove() {
     [[ $reply == [yY] || $reply == [yY][eE][sS] ]] || { print -ru2 -- "claude-account: kept '$name'"; return 1 }
     _claude_account_rename_blocked $name && return 1
   fi
-  rm -rf -- $HOME/.claude-$name $(_claude_account_file $name) $with_dir/$name || { print -ru2 -- "claude-account: could not remove everything of '$name'"; return 1 }
+  rm -rf -- $HOME/.claude-$name "$(_claude_account_file $name)" $with_dir/$name || { print -ru2 -- "claude-account: could not remove everything of '$name'"; return 1 }
   print -r -- "Removed '$name'."
 }

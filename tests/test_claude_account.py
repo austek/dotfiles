@@ -454,7 +454,7 @@ def test_remove_does_not_follow_links_into_the_main_config(tmp_path):
 
 def test_remove_without_a_terminal_or_yes_keeps_the_account(tmp_path):
     _run(tmp_path, "claude-account create old")
-    result = _run(tmp_path, "claude-account remove old")
+    result = _run(tmp_path, "claude-account remove old </dev/null")
     assert result.returncode == 1
     assert (tmp_path / "home" / ".claude-old").is_dir()
 
