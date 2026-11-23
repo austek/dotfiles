@@ -17,11 +17,11 @@ LEGACY = {
         "jetbrains-toolbox-3.9.1.89198.tar.gz", "targz",
     ),
     "istioctl": (
-        "istioctl", "1.31.4", "https://github.com/istio/istio/releases/download/1.31.4/istio-1.31.4-linux-amd64.tar.gz",
-        "istio-1.31.4-linux-amd64.tar.gz", "targz",
+        "istioctl", "1.32.0", "https://github.com/istio/istio/releases/download/1.32.0/istio-1.32.0-linux-amd64.tar.gz",
+        "istio-1.32.0-linux-amd64.tar.gz", "targz",
     ),
     "awscli": (
-        "AWS CLI", "2.39.6", "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.39.6.zip", "awscliv2-2.39.6.zip", "zip",
+        "AWS CLI", "2.40.3", "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.40.3.zip", "awscliv2-2.40.3.zip", "zip",
     ),
     "zizmor": (
         "zizmor", "v1.32.0",
@@ -29,9 +29,9 @@ LEGACY = {
         "zizmor-v1.32.0.tar.gz", "targz",
     ),
     "mcp-grafana": (
-        "mcp-grafana", "v2.2.0",
-        "https://github.com/grafana/mcp-grafana/releases/download/v2.2.0/mcp-grafana_Linux_x86_64.tar.gz",
-        "mcp-grafana-v2.2.0.tar.gz", "targz",
+        "mcp-grafana", "v2.3.0",
+        "https://github.com/grafana/mcp-grafana/releases/download/v2.3.0/mcp-grafana_Linux_x86_64.tar.gz",
+        "mcp-grafana-v2.3.0.tar.gz", "targz",
     ),
     "chip": (
         "chip", "0.0.67", "https://github.com/collibra/chip/releases/download/v0.0.67/chip-0.0.67-linux-amd64",

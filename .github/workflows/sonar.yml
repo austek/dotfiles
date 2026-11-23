@@ -35,14 +35,14 @@ jobs:
           sudo apt-get install -y zsh
 
       - name: Install the pinned tools
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
-          version: '2026.11.4'
+          version: '2026.11.8'
 
       - name: Run the tests and write coverage.xml
         run: mise run test
 
       - name: Scan with SonarCloud
-        uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
+        uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

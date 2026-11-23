@@ -13,7 +13,7 @@ from dotfiles_setup.checksums import ChecksumError, verify_file
 from dotfiles_setup.release_installers import Resolved, download_with_cache, skip
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
-PINNED_BUILD = "2.7.0-4507555968450560"
+PINNED_BUILD = "2.8.0-6733682917113856"
 ARCH_DIRS = {"x86_64": "linux-x64"}
 CACHE_TOOL = "antigravity-ide"
 DESKTOP_ENTRY = """[Desktop Entry]

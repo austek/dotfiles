@@ -365,7 +365,7 @@ def test_istioctl_installs_the_binary_from_the_versioned_directory(tmp_path):
 
 @pytest.mark.parametrize(("spec", "url"), [
     (ri.ZIZMOR, "https://github.com/zizmorcore/zizmor/releases/download/v1.32.0/zizmor-x86_64-unknown-linux-gnu.tar.gz"),
-    (ri.MCP_GRAFANA, "https://github.com/grafana/mcp-grafana/releases/download/v2.2.0/mcp-grafana_Linux_x86_64.tar.gz"),
+    (ri.MCP_GRAFANA, "https://github.com/grafana/mcp-grafana/releases/download/v2.3.0/mcp-grafana_Linux_x86_64.tar.gz"),
 ], ids=lambda value: getattr(value, "name", ""))
 def test_zizmor_and_mcp_grafana_download_their_pinned_tag(tmp_path, spec, url):
     t, downloads = make(tmp_path, Machine(), payload=tarball(spec.name))
