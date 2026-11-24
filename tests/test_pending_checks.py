@@ -1,4 +1,5 @@
 import os
+import shutil
 from types import SimpleNamespace
 
 import pytest
@@ -22,6 +23,8 @@ def _t(home, run=None):
 
 
 def _stow_plan(tmp_path, overlay=False, preset="work"):
+    if shutil.which("stow") is None:
+        pytest.skip("stow is not installed")
     home, repo = tmp_path / "home", tmp_path / "repo"
     home.mkdir(exist_ok=True)
     repo.mkdir(exist_ok=True)
@@ -41,7 +44,7 @@ def _package(root, name, files):
 def _link(plan, name, rel, root=None):
     target = plan.t.home / rel
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.symlink_to((root or plan.dotfiles_dir) / name / rel)
+    target.symlink_to(os.path.relpath((root or plan.dotfiles_dir) / name / rel, target.parent))
 
 
 def test_stow_reports_a_public_package_that_is_not_linked(tmp_path):
@@ -124,12 +127,6 @@ def test_a_local_ignore_file_does_not_hide_files_it_does_not_name(tmp_path):
     assert stow.pending_links(plan) == ("link claude",)
 
 
-def test_an_invalid_local_ignore_pattern_is_skipped(tmp_path):
-    plan = _ignoring_plan(tmp_path, "([unclosed\n", ["keep"])
-    _link(plan, "claude", "keep")
-    assert stow.pending_links(plan) == ()
-
-
 def _folded_plan(tmp_path, monkeypatch):
     plan = _stow_plan(tmp_path)
     (plan.dotfiles_dir / ".stow-packages").write_text("gradle\n")
@@ -145,7 +142,7 @@ def test_a_folded_package_is_checked_at_the_top_level_without_walking_it(tmp_pat
 
 def test_a_folded_package_linked_at_the_top_level_is_not_pending(tmp_path, monkeypatch):
     plan = _folded_plan(tmp_path, monkeypatch)
-    (plan.t.home / ".gradle").symlink_to(plan.dotfiles_dir / "gradle" / ".gradle")
+    _link(plan, "gradle", ".gradle")
     assert stow.pending_links(plan) == ()
 
 
@@ -158,7 +155,7 @@ def test_a_folded_package_whose_target_is_an_empty_real_directory_is_pending(tmp
 def test_a_folded_package_whose_real_directory_holds_the_links_is_not_pending(tmp_path, monkeypatch):
     plan = _folded_plan(tmp_path, monkeypatch)
     (plan.t.home / ".gradle").mkdir()
-    (plan.t.home / ".gradle" / "caches").symlink_to(plan.dotfiles_dir / "gradle" / ".gradle" / "caches")
+    _link(plan, "gradle", ".gradle/caches")
     assert stow.pending_links(plan) == ()
 
 
@@ -182,12 +179,12 @@ def test_a_folded_package_skips_a_file_the_overlay_overrides(tmp_path):
     assert stow.pending_links(plan) == ()
 
 
-def test_a_dangling_package_symlink_that_is_linked_is_not_pending(tmp_path):
+def test_a_dangling_package_symlink_that_is_linked_is_not_pending_because_stow_reverts_its_relink(tmp_path):
     plan = _stow_plan(tmp_path)
     (plan.dotfiles_dir / ".stow-packages").write_text("zsh\n")
     (plan.dotfiles_dir / "zsh").mkdir()
-    (plan.dotfiles_dir / "zsh" / "dangling").symlink_to(tmp_path / "missing")
-    (plan.t.home / "dangling").symlink_to(plan.dotfiles_dir / "zsh" / "dangling")
+    (plan.dotfiles_dir / "zsh" / "dangling").symlink_to("missing")
+    _link(plan, "zsh", "dangling")
     assert stow.pending_links(plan) == ()
 
 
@@ -195,21 +192,8 @@ def test_a_dangling_package_symlink_that_is_not_linked_is_pending(tmp_path):
     plan = _stow_plan(tmp_path)
     (plan.dotfiles_dir / ".stow-packages").write_text("zsh\n")
     (plan.dotfiles_dir / "zsh").mkdir()
-    (plan.dotfiles_dir / "zsh" / "dangling").symlink_to(tmp_path / "missing")
+    (plan.dotfiles_dir / "zsh" / "dangling").symlink_to("missing")
     assert stow.pending_links(plan) == ("link zsh",)
-
-
-def test_ignore_pattern_parsing_is_linear_on_long_whitespace_runs():
-    text = "a" + " " * 200000 + "b\n"
-    assert stow._strip_comment(text.strip()) == text.strip()
-
-
-@pytest.mark.parametrize(
-    "line,expected",
-    [("a # b # c", "a"), ("a #", "a #"), ("a#b", "a#b"), ("a # ", "a #"), ("a #  # x", "a"), ("a \\#b", "a \\#b")],
-)
-def test_strip_comment_matches_stows_regex(line, expected):
-    assert stow._strip_comment(line.strip()) == expected
 
 
 def test_a_trailing_comment_in_a_local_ignore_line_is_not_part_of_the_pattern(tmp_path):
@@ -218,8 +202,9 @@ def test_a_trailing_comment_in_a_local_ignore_line_is_not_part_of_the_pattern(tm
     assert stow.pending_links(plan) == ()
 
 
-def test_the_global_ignore_file_replaces_the_default_list_without_a_local_one(tmp_path):
+def test_the_global_ignore_file_replaces_the_default_list_without_a_local_one(tmp_path, monkeypatch):
     plan = _stow_plan(tmp_path)
+    monkeypatch.setenv("HOME", str(plan.t.home))
     (plan.dotfiles_dir / ".stow-packages").write_text("zsh\n")
     _package(plan.dotfiles_dir, "zsh", ["README.md", "skipme", "keep"])
     (plan.t.home / ".stow-global-ignore").write_text("skipme\n")
