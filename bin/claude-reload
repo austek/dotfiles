@@ -25,6 +25,22 @@ live_session_id() {
     return 1
 }
 
+# Prints the ` --remote-control '<name>'` the running claude was started with, in the form claude-pane-loop parses.
+remote_control_flag() {
+    local -a args
+    local i value=""
+    mapfile -d '' -t args < "/proc/$1/cmdline"
+    for ((i = 1; i < ${#args[@]}; i++)); do
+        case ${args[i]} in
+            --remote-control) printf ' --remote-control'; value=${args[i+1]:-} ;;
+            --remote-control=*) printf ' --remote-control'; value=${args[i]#*=} ;;
+            *) continue ;;
+        esac
+        [[ -z $value || $value == -* ]] || printf " '%s'" "${value//\'/\'\\\'\'}"
+        return 0
+    done
+}
+
 pid_file="$config_dir/sessions/$claude_pid.json"
 [[ -r $pid_file ]] || { echo "claude-reload: $pid_file not found" >&2; exit 1; }
 session_id=$(jq -er .sessionId "$pid_file")
@@ -40,7 +56,7 @@ fi
 args=("$@")
 (( ${#args[@]} )) || args=(-rx standard)
 
-resume_line="cd '${dir//\'/\'\\\'\'}' && claude --resume $session_id"
+resume_line="cd '${dir//\'/\'\\\'\'}' && claude$(remote_control_flag "$claude_pid") --resume $session_id"
 buffer="claude-reload-$claude_pid"
 # The line travels in a tmux buffer, so the watcher shell below never sees the directory.
 tmux set-buffer -b "$buffer" -- "$resume_line"
