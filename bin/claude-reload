@@ -23,7 +23,12 @@ dir=$(jq -er .cwd "$pid_file")
 args=("$@")
 (( ${#args[@]} )) || args=(-rx standard)
 
+resume_line="cd '${dir//\'/\'\\\'\'}' && claude --resume $session_id"
+buffer="claude-reload-$claude_pid"
+# The line travels in a tmux buffer, so the watcher shell below never sees the directory.
+tmux set-buffer -b "$buffer" -- "$resume_line"
+
 # Runs under the tmux server, outside the pane's systemd scope, so it outlives the pane process tree.
-tmux run-shell -b "while kill -0 $claude_pid 2>/dev/null; do sleep 1; done; sleep 2; tmux send-keys -t $TMUX_PANE \"cd '$dir' && claude --resume $session_id\" Enter"
+tmux run-shell -b "while kill -0 $claude_pid 2>/dev/null; do sleep 1; done; sleep 2; tmux paste-buffer -d -b $buffer -t $TMUX_PANE; tmux send-keys -t $TMUX_PANE Enter"
 
 exec cozempic reload --session "$session_id" "${args[@]}"
