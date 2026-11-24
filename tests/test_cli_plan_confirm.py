@@ -1,4 +1,5 @@
 import io
+import shutil
 
 import pytest
 from cli_support import _save_applied, machine
@@ -134,6 +135,8 @@ def _legacy_overlay(monkeypatch, worktree=False):
         overlay, "find_overlay_root",
         lambda: next((r for r in (overlay.DEFAULT_OVERLAY_ROOT, overlay.LEGACY_OVERLAY_ROOT) if r.exists()), None),
     )
+    real_which = shutil.which
+    monkeypatch.setattr("dotfiles_setup.step_plans.shutil.which", lambda name: "/usr/bin/stow" if name == "stow" else real_which(name))
     overlay.LEGACY_OVERLAY_ROOT.mkdir()
     (overlay.LEGACY_OVERLAY_ROOT / "marker").write_text("kept")
     if worktree:

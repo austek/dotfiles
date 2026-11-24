@@ -51,6 +51,8 @@ def converged(monkeypatch):
     monkeypatch.setattr("dotfiles_setup.system_check.pending_releases", lambda ctx: [])
     monkeypatch.setattr("dotfiles_setup.secrets_env.pending", lambda home: ())
     monkeypatch.setattr("dotfiles_setup.terminfo.pending", lambda t: ())
+    monkeypatch.setattr("dotfiles_setup.system_check.snapd_reason", lambda installed: None)
+    monkeypatch.setattr("dotfiles_setup.system_steps.docker_group_pending", lambda ctx: False)
     monkeypatch.setattr("dotfiles_setup.zsh_cache.pending", lambda home: False)
 
 
