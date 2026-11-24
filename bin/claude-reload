@@ -14,11 +14,26 @@ pane_pid=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}')
 claude_pid=$(pgrep -P "$pane_pid" -f claude | head -n 1 || true)
 [[ -n $claude_pid ]] || { echo "claude-reload: no claude process under pane $TMUX_PANE" >&2; exit 1; }
 
-# Claude records its own pid -> session id, so other sessions in the same directory cannot be mistaken for it.
+# Claude keeps its live session's `.../<session id>/tasks` directory open; the pid file's sessionId stays at the
+# pre-/clear value, so the open directory wins and the pid file is only the fallback.
+live_session_id() {
+    local fd target
+    for fd in "/proc/$1"/fd/*; do
+        target=$(readlink "$fd" 2>/dev/null || true)
+        [[ $target =~ /([0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12})/tasks$ ]] && { echo "${BASH_REMATCH[1]}"; return 0; }
+    done
+    return 1
+}
+
 pid_file="$config_dir/sessions/$claude_pid.json"
 [[ -r $pid_file ]] || { echo "claude-reload: $pid_file not found" >&2; exit 1; }
 session_id=$(jq -er .sessionId "$pid_file")
 dir=$(jq -er .cwd "$pid_file")
+
+if live_id=$(live_session_id "$claude_pid") && [[ $live_id != "$session_id" ]]; then
+    echo "claude-reload: $pid_file names $session_id but claude has $live_id open; using $live_id" >&2
+    session_id=$live_id
+fi
 
 [[ -d $dir ]] || { echo "claude-reload: session directory $dir no longer exists; claude-pane-loop would reject the resume" >&2; exit 1; }
 
@@ -30,11 +45,13 @@ buffer="claude-reload-$claude_pid"
 # The line travels in a tmux buffer, so the watcher shell below never sees the directory.
 tmux set-buffer -b "$buffer" -- "$resume_line"
 
-# Runs under the tmux server, outside the pane's systemd scope, so it outlives the pane process tree.
-tmux run-shell -b "while kill -0 $claude_pid 2>/dev/null; do sleep 1; done; sleep 2; tmux paste-buffer -d -b $buffer -t $TMUX_PANE && tmux send-keys -t $TMUX_PANE Enter"
-
-# A failed reload leaves Claude running; deleting the buffer makes the watcher paste nothing when Claude exits later.
 status=0
 cozempic reload --session "$session_id" "${args[@]}" || status=$?
-(( status == 0 )) || tmux delete-buffer -b "$buffer" 2>/dev/null || true
-exit "$status"
+if (( status != 0 )); then
+    tmux delete-buffer -b "$buffer" 2>/dev/null || true
+    exit "$status"
+fi
+
+# Started only after the reload saved the pruned transcript. Runs under the tmux server, outside the pane's
+# systemd scope, so it outlives the pane process tree.
+tmux run-shell -b "while kill -0 $claude_pid 2>/dev/null; do sleep 1; done; sleep 2; tmux paste-buffer -d -b $buffer -t $TMUX_PANE && tmux send-keys -t $TMUX_PANE Enter"
