@@ -9,7 +9,7 @@ from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.tooling import Tooling
 
-IGNORE_TEXT = "# comment\n  # indented comment\n\\.tmp$ # trailing # more\ncachedir\nfoo#bar\n  spaced  \n"
+IGNORE_TEXT = "# comment\n  # indented comment\n\\.tmp$ # trailing # more\ncachedir\nfoo#bar\n  spaced  \n^/cache$\n"
 FILES = [
     ".zshrc",
     "README.md",
@@ -23,6 +23,10 @@ FILES = [
     ".config/cachedir/x",
     ".config/cachedir/deep/y",
     ".config/other/README.md",
+    "cache/item",
+    "cache/deep/item",
+    "cache2/item",
+    "sibling/item",
 ]
 
 

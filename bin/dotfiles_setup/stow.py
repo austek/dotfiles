@@ -192,10 +192,11 @@ def _local_ignores(package_dir: Path, home: Path) -> list[str] | None:
 
 
 def _matches_local(pattern: str, rel: Path) -> bool:
-    """A pattern with a slash matches at path-component boundaries; any other must fully match one component."""
+    """A pattern with a slash matches a path or any of its parent directories at component boundaries, as stow tests each directory it descends into; any other must fully match one component."""
     try:
         if "/" in pattern:
-            return re.search(rf"(?:^|/)(?:{pattern})(?:/|$)", "/" + rel.as_posix()) is not None
+            wrapped = rf"(?:^|/)(?:{pattern})(?:/|$)"
+            return any(re.search(wrapped, "/" + "/".join(rel.parts[:n])) for n in range(1, len(rel.parts) + 1))
         return any(re.fullmatch(pattern, part) for part in rel.parts)
     except re.error:
         return False
