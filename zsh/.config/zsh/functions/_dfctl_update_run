@@ -16,16 +16,19 @@ _dfctl_update_run() {
     _dfctl_update_stamp $3
     return 0
   fi
+  local -a apply_flags
   if [[ $1 == auto ]]; then
     print -r -- "[dfctl] running dfctl apply --upgrade ($days days since the last apply or reminder)"
     reply=y
+    # Auto mode is hands-off, so --yes stops apply's plan prompt; --prune uninstalls without asking, so it is never passed.
+    apply_flags=(--yes)
   else
     print -n -r -- "[dfctl] It has been $days days since the last dfctl apply or reminder. Run dfctl apply --upgrade now? [y/N] "
     read -r -k 1 reply
     print
   fi
   if [[ $reply == [yY] ]]; then
-    _dfctl_update_apply
+    _dfctl_update_apply $apply_flags
   else
     print -r -- 'Run dfctl apply --upgrade when ready'
   fi

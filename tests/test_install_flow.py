@@ -7,6 +7,8 @@ from dotfiles_setup import install_flow as flow
 from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 
+pytestmark = pytest.mark.usefixtures("no_core_packages")
+
 
 def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n", system="always", upgrade=False, run=None, removals=()):
     home = tmp_path / "home"
@@ -66,7 +68,7 @@ def test_steps_run_in_the_order_the_shell_installer_used(tmp_path):
     steps = flow.build_steps(inputs(tmp_path), frozenset(), RollbackLog(tmp_path / "log"))
     assert [name for name, _ in steps] == [
         "install_core_deps", "disable_snapd", "strip_snap_from_system_path", "configure_apt_sources",
-        "install_tools", "install_user_binaries", "link_user_tools", "install_system_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
+        "install_tools", "install_user_binaries", "link_user_tools", "install_ghostty_terminfo", "install_system_tools", "install_packages", "report_upgradable", "install_flatpaks", "remove_flatpaks", "remove_apt_packages",
         "report_unremoved", "report_skipped_sources", "install_post_apt_tools",
         "enable_gpaste_extension",
         "install_github_bins", "configure_docker_group", "configure_dotfiles", "refresh_zsh_completion_cache", "ensure_secrets_env", "retire_claude_profile",
@@ -259,7 +261,7 @@ def test_antigravity_is_not_a_user_stage_tool():
 
 def test_install_user_binaries_is_a_user_stage_step():
     assert "install_user_binaries" not in flow.SYSTEM_STEPS
-    assert {"link_user_tools", "report_stale_copies"}.isdisjoint(flow.SYSTEM_STEPS)
+    assert {"link_user_tools", "install_ghostty_terminfo", "report_stale_copies"}.isdisjoint(flow.SYSTEM_STEPS)
     assert "install_tools" not in flow.SYSTEM_STEPS
 
 

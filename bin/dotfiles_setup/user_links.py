@@ -30,6 +30,16 @@ def _already_linked(real: Path, link: Path) -> bool:
     return link.is_symlink() and link.resolve() == real.resolve()
 
 
+def pending(t: Tooling, package_names: Collection[str]) -> tuple[str, ...]:
+    """The links `link_user_tools` would create or replace: wanted, installed tools whose link is missing or a stale symlink. A regular file at the link name is kept, so it is not listed."""
+    links = ((user_bin_dir(t) / name, locate(t.home)) for package, name, locate in USER_LINKS if package in package_names)
+    return tuple(f"link {link}" for link, real in links if real.is_file() and _needs_link(real, link))
+
+
+def _needs_link(real: Path, link: Path) -> bool:
+    return (link.is_symlink() or not link.exists()) and not _already_linked(real, link)
+
+
 def _link_one(t: Tooling, name: str, real: Path, changes: RollbackLog | None) -> None:
     link = user_bin_dir(t) / name
     if _already_linked(real, link):

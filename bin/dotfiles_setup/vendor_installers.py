@@ -107,8 +107,11 @@ def install_ruff(t: Tooling) -> None:
         t.logger.error("Failed to install ruff via pipx. Install it manually: pipx install ruff")
 
 
-VENDOR_INSTALLERS: tuple[tuple[str, Installer], ...] = (
-    ("coderabbit", lambda t: install_vendor(t, CODERABBIT)),
-    ("sonarqube-cli", lambda t: install_vendor(t, SONARQUBE_CLI)),
-    ("uv", lambda t: install_vendor(t, UV)),
+VENDOR_SPECS: tuple[tuple[str, VendorSpec], ...] = (
+    ("coderabbit", CODERABBIT),
+    ("sonarqube-cli", SONARQUBE_CLI),
+    ("uv", UV),
+)
+VENDOR_INSTALLERS: tuple[tuple[str, Installer], ...] = tuple(
+    (name, lambda t, spec=spec: install_vendor(t, spec)) for name, spec in VENDOR_SPECS
 )

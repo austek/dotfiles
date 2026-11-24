@@ -45,6 +45,10 @@ def test_sdkman_needs_unzip_and_zip_before_the_package_step(tmp_path):
     assert {"unzip", "zip"} <= set(ss.CORE_PACKAGES)
 
 
+def test_the_coderabbit_installer_needs_openssl_before_the_package_step():
+    assert "openssl" in ss.CORE_PACKAGES
+
+
 def test_the_ppa_steps_get_add_apt_repository_from_the_core_packages(tmp_path):
     assert "software-properties-common" in ss.CORE_PACKAGES
 

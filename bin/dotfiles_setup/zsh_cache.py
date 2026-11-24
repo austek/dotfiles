@@ -40,6 +40,11 @@ def _remembered(store: Path) -> str:
         return ""
 
 
+def pending(home: Path) -> bool:
+    """True when the completers changed since the fingerprint was recorded, or none was."""
+    return _remembered(home / FINGERPRINT_FILE) != fingerprint(home)
+
+
 def _remove_dumps(t: Tooling) -> int | None:
     """Returns how many dump files it removed, or None after a failure."""
     removed = 0

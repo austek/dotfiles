@@ -20,14 +20,17 @@ from dotfiles_setup import (
     stale_copies,
     stow,
     system_steps,
+    terminfo,
     tools,
     user_links,
     zsh_cache,
 )
 from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.log import Logger
+from dotfiles_setup.plan_types import StepPlan, row
 from dotfiles_setup.release_installers import user_bin_dir
 from dotfiles_setup.rollback import RollbackLog
+from dotfiles_setup.step_plans import STEP_ROWS
 from dotfiles_setup.system_check import system_stage_reasons
 from dotfiles_setup.system_steps import SudoSession, SystemContext
 from dotfiles_setup.tooling import Tooling
@@ -56,6 +59,7 @@ class FlowInputs:
     removals: tuple[str, ...] = ()
     removed: list[str] = field(default_factory=list)
     interactive: bool = False
+    plans: tuple[StepPlan, ...] = ()
 
 
 def _announce(t: Tooling, kind: str, names: tuple[str, ...]) -> None:
@@ -112,6 +116,12 @@ def _warn_skipped_apt_removals(inputs: FlowInputs) -> None:
         inputs.t.logger.warn("apt removals skipped: system stage not run (use --system)")
 
 
+def _planned(inputs: FlowInputs, step: str) -> tuple[str, ...] | None:
+    """The install list the plan holds for `step`, or None when there is no plan and the step checks for itself."""
+    found = row(inputs.plans, step)
+    return found.install if found is not None and found.known else None
+
+
 def _upgrade_steps(inputs: FlowInputs, ctx: SystemContext) -> list[Step]:
     if inputs.upgrade:
         return [("upgrade_packages", lambda: apt_packages.upgrade_packages(ctx))]
@@ -134,17 +144,19 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("install_tools", lambda: tools.install_tools(t, packages)),
         ("install_user_binaries", lambda: tools.install_user_binaries(t, packages, changes, inputs.upgrade)),
         ("link_user_tools", lambda: user_links.link_user_tools(t, packages, changes)),
+        ("install_ghostty_terminfo", lambda: terminfo.install_ghostty_terminfo(t, inputs.dotfiles_dir / terminfo.SOURCE_RELATIVE, changes)),
         ("install_system_tools", lambda: tools.install_system_tools(t, packages, inputs.upgrade)),
-        ("install_packages", lambda: apt_packages.install_packages(ctx)),
+        ("install_packages", lambda: apt_packages.install_packages(ctx, install=_planned(inputs, "apt"))),
         *_upgrade_steps(inputs, ctx),
-        ("install_flatpaks", lambda: failed.extend(flatpak.install_flatpaks(t, packages, inputs.upgrade))),
+        ("install_flatpaks", lambda: failed.extend(
+            flatpak.install_flatpaks(t, packages, inputs.upgrade, only=_planned(inputs, "flatpak")))),
         ("remove_flatpaks", lambda: _remove_flatpak_apps(inputs, changes, failed)),
         ("remove_apt_packages", lambda: _remove_apt_packages(inputs, ctx, failed)),
         ("report_unremoved", lambda: _report_unremoved(inputs)),
         ("report_skipped_sources", lambda: _report_skipped_sources(ctx)),
         ("install_post_apt_tools", lambda: tools.install_post_apt_tools(t, packages)),
         ("enable_gpaste_extension", lambda: system_steps.enable_gpaste_extension(ctx)),
-        ("install_github_bins", lambda: apt_packages.install_github_bins(ctx)),
+        ("install_github_bins", lambda: apt_packages.install_github_bins(ctx, only=_planned(inputs, "github debs"))),
         ("configure_docker_group", lambda: system_steps.configure_docker_group(ctx)),
         ("configure_dotfiles", lambda: stow.configure_dotfiles(stow_plan)),
         ("refresh_zsh_completion_cache", lambda: zsh_cache.refresh_zsh_completion_cache(t)),
@@ -156,6 +168,14 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("set_default_terminal", lambda: desktop_defaults.set_default_terminal(t)),
         ("disable_ibus_unicode_hotkey", lambda: desktop_defaults.disable_ibus_unicode_hotkey(t)),
     ]
+
+
+def _dry_run_steps(inputs: FlowInputs, steps: list[Step]) -> list[Step]:
+    """With a plan, a dry run lets only the steps the plan could not check print their 'Would ...' lines."""
+    if not (inputs.t.logger.dry_run and inputs.plans):
+        return steps
+    unknown = {plan.step for plan in inputs.plans if not plan.known}
+    return [step for step in steps if STEP_ROWS.get(step[0]) in unknown]
 
 
 def _run_steps(steps: list[Step], logger: Logger, log: RollbackLog) -> InstallResult:
@@ -196,7 +216,7 @@ def _system_stage_wanted(inputs: FlowInputs, ctx: SystemContext) -> bool:
     if inputs.upgrade:
         logger.info("System stage needed: --upgrade was requested.")
         return True
-    reasons = system_stage_reasons(ctx)
+    reasons = system_stage_reasons(ctx, plans=inputs.plans) if inputs.plans else system_stage_reasons(ctx)
     if reasons:
         logger.info(f"System stage needed: {'; '.join(reasons)}.")
         return True
@@ -226,6 +246,7 @@ def run_install(inputs: FlowInputs) -> InstallResult:
         if system and not session.start():
             return InstallResult(False, 1, "Could not obtain sudo credentials.")
         steps = [step for step in build_steps(inputs, packages, log) if system or step[0] not in SYSTEM_STEPS]
+        steps = _dry_run_steps(inputs, steps)
         with _user_bin_on_path(inputs.t):
             return _run_steps(steps, logger, log)
     except KeyboardInterrupt:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 from dotfiles_setup import checksums, flatpak
@@ -43,12 +44,20 @@ def _remove_superseded_lists(ctx: SystemContext, sources_dir: Path) -> None:
             ctx.t.run(["sudo", "rm", "-f", str(legacy)])
 
 
-def install_packages(ctx: SystemContext, sources_dir: Path = Path("/etc/apt/sources.list.d")) -> bool:
+def _to_install(ctx: SystemContext, install: Sequence[str] | None) -> list[str]:
+    names = ctx.packages if install is None else install
+    return sorted(p for p in names if is_apt_package(p) and p not in ctx.skipped)
+
+
+def install_packages(
+    ctx: SystemContext, sources_dir: Path = Path("/etc/apt/sources.list.d"), install: Sequence[str] | None = None,
+) -> bool:
+    """Installs `install` when given (the plan's list, not checked again), else every wanted package."""
     logger = ctx.t.logger
     logger.step("Step 4: Installing packages...")
-    apt_packages = sorted(p for p in ctx.packages if is_apt_package(p) and p not in ctx.skipped)
+    apt_packages = _to_install(ctx, install)
     if not apt_packages:
-        logger.warn("No apt packages to install.")
+        (logger.warn if install is None else logger.info)("No apt packages to install.")
         return True
     if dry_run_all(ctx.t, "Would update package lists",
                    f"Would install {len(apt_packages)} apt packages: {' '.join(apt_packages)}"):
@@ -152,7 +161,14 @@ def _install_deb(ctx: SystemContext, repo: str, version: str, filename: str, tem
         ctx.quiet("sudo", "apt-get", "-y", "--fix-broken", "install")
 
 
-def install_github_bins(ctx: SystemContext) -> None:
+def _should_install(ctx: SystemContext, filename: str, version: str, only: Collection[str] | None) -> str | None:
+    """None to install; otherwise the reason to leave it. With `only` (the plan's list) a file outside it is left, and one inside it is still checked so an install made after planning is never downgraded."""
+    if only is not None and filename not in only:
+        return f"{filename} is not in the plan; leaving it."
+    return _leave_reason(ctx, filename, version)
+
+
+def install_github_bins(ctx: SystemContext, only: Collection[str] | None = None) -> None:
     logger = ctx.t.logger
     logger.step("Step 5: Installing .deb packages from GitHub...")
     listing = ctx.dotfiles_dir / "packages" / "github_bins.txt"
@@ -169,19 +185,25 @@ def install_github_bins(ctx: SystemContext) -> None:
         for line, repo, version, filename in entries:
             if not (repo and version and filename):
                 logger.error(f"Invalid line in github_bins.txt: '{line}'")
-            elif (reason := _leave_reason(ctx, filename, version)) is not None:
+            elif (reason := _should_install(ctx, filename, version, only)) is not None:
                 logger.info(reason)
             else:
                 _install_deb(ctx, repo, version, filename, Path(temp_dir))
 
 
-def upgradable_count(ctx: SystemContext) -> int | None:
-    """Packages a dist-upgrade would change, from a simulated run; None when the simulation fails."""
+def upgradable_names(ctx: SystemContext) -> tuple[str, ...] | None:
+    """Packages a dist-upgrade would change, from a simulated run against the local apt cache; None when it fails."""
     result = ctx.t.run(["apt-get", "-s", "dist-upgrade"], capture_output=True, text=True)
     if result.returncode != 0:
         ctx.t.logger.warn(f"Could not check for apt upgrades: {(result.stderr or '').strip() or 'apt-get -s failed'}")
         return None
-    return sum(1 for line in (result.stdout or "").splitlines() if line.startswith("Inst "))
+    lines = (result.stdout or "").splitlines()
+    return tuple(line.split()[1] for line in lines if line.startswith("Inst ") and len(line.split()) > 1)
+
+
+def upgradable_count(ctx: SystemContext) -> int | None:
+    names = upgradable_names(ctx)
+    return None if names is None else len(names)
 
 
 def report_upgradable(ctx: SystemContext) -> None:

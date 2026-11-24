@@ -84,6 +84,15 @@ def _add_install_flags(install_p: argparse.ArgumentParser) -> None:
             "without asking for confirmation. apt removals run only in the system stage."
         ),
     )
+    install_p.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help=(
+            "Apply without asking to continue after the plan is shown. Needed when there is no terminal. "
+            "Does not approve removals; pass --prune for those."
+        ),
+    )
     install_p.set_defaults(system="auto")
 
 

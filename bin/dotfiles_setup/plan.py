@@ -24,13 +24,17 @@ from dotfiles_setup.presets import Preset
 from dotfiles_setup.result import Result
 
 
-def _prepare_checkout(args: argparse.Namespace, logger: Logger, dotfiles_dir: Path) -> Path | None:
+def _prepare_checkout(logger: Logger, dotfiles_dir: Path) -> Path | None:
     update.pull_if_behind(dotfiles_dir, logger)
     overlay_root = overlay.find_overlay_root()
     update.pull_overlay_if_git(overlay_root, logger)
+    return overlay_root
+
+
+def ensure_identity(args: argparse.Namespace, logger: Logger, overlay_root: Path | None) -> None:
+    """Runs after the plan is confirmed: the prompt can write ~/.gitconfig.local."""
     if not logger.dry_run_notice("Would ensure git identity (~/.gitconfig.local)."):
         identity.ensure_git_identity(force=args.reconfigure, overlay_root=overlay_root)
-    return overlay_root
 
 
 def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | None, logger: Logger) -> str | None:
@@ -43,9 +47,9 @@ def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | N
 
 
 def _build_plan(
-    args: argparse.Namespace, logger: Logger, env: Env, preset_name: str, prior: state.MachineState | None
+    logger: Logger, env: Env, preset_name: str, prior: state.MachineState | None
 ) -> Result[_Install]:
-    overlay_root = _prepare_checkout(args, logger, env.dotfiles_dir)
+    overlay_root = _prepare_checkout(logger, env.dotfiles_dir)
     loaded = presets.load_preset(env.dotfiles_dir / "presets", preset_name)
     return loaded.and_then(
         lambda preset: presets.resolve_packages(env.dotfiles_dir / "packages", preset).map(

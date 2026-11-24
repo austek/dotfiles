@@ -17,6 +17,26 @@ def secrets_path(home: Path) -> Path:
     return home / ".config/dotfiles/secrets.env"
 
 
+def _loose_directory(directory: Path) -> tuple[str, ...]:
+    try:
+        info = directory.lstat()
+    except OSError:
+        return ()
+    loose = stat.S_ISDIR(info.st_mode) and stat.S_IMODE(info.st_mode) & GROUP_OTHER
+    return (f"restrict {directory} to 700",) if loose else ()
+
+
+def pending(home: Path) -> tuple[str, ...]:
+    """What `ensure_secrets_env` would create or tighten, from stat alone; changes nothing."""
+    path = secrets_path(home)
+    try:
+        info = path.stat()
+    except OSError:
+        return (f"create {path}", *_loose_directory(path.parent))
+    loose = (f"restrict {path} to 0600",) if stat.S_IMODE(info.st_mode) & GROUP_OTHER else ()
+    return (*_loose_directory(path.parent), *loose)
+
+
 def _create_empty(path: Path) -> None:
     os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, OWNER_ONLY))
 
