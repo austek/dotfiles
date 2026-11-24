@@ -179,13 +179,13 @@ def test_a_folded_package_skips_a_file_the_overlay_overrides(tmp_path):
     assert stow.pending_links(plan) == ()
 
 
-def test_a_dangling_package_symlink_stays_pending_because_stow_relinks_it_every_run(tmp_path):
+def test_a_dangling_package_symlink_that_is_linked_is_not_pending_because_stow_reverts_its_relink(tmp_path):
     plan = _stow_plan(tmp_path)
     (plan.dotfiles_dir / ".stow-packages").write_text("zsh\n")
     (plan.dotfiles_dir / "zsh").mkdir()
     (plan.dotfiles_dir / "zsh" / "dangling").symlink_to("missing")
     _link(plan, "zsh", "dangling")
-    assert stow.pending_links(plan) == ("link zsh",)
+    assert stow.pending_links(plan) == ()
 
 
 def test_a_dangling_package_symlink_that_is_not_linked_is_pending(tmp_path):

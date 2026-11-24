@@ -160,6 +160,7 @@ def _regular_files(directory: Path) -> list[Path]:
 
 
 _STOW_CHANGES = ("LINK:", "UNLINK:", "MV:")
+_REVERTS = "(reverts previous action)"
 
 
 def _stow_would_change(plan: StowPlan, root: Path, pkg: str, flags: Sequence[str]) -> bool:
@@ -170,8 +171,15 @@ def _stow_would_change(plan: StowPlan, root: Path, pkg: str, flags: Sequence[str
     done = plan.t.run(argv, capture_output=True, text=True, cwd=root)
     if done.returncode == COMMAND_NOT_FOUND:
         return False
-    lines = f"{done.stdout or ''}\n{done.stderr or ''}".splitlines()
-    return done.returncode != 0 or any(line.startswith(_STOW_CHANGES) for line in lines)
+    return done.returncode != 0 or bool(_net_changes(f"{done.stdout or ''}\n{done.stderr or ''}".splitlines()))
+
+
+def _net_changes(lines: Sequence[str]) -> list[str]:
+    """Stow's action lines minus the `(reverts previous action)` pairs, which cancel an earlier UNLINK of the same path."""
+    changes = [line for line in lines if line.startswith(_STOW_CHANGES)]
+    reverts = [line for line in changes if line.endswith(_REVERTS)]
+    undone = {line.partition(":")[2].partition("=>")[0].strip() for line in reverts}
+    return [line for line in changes if line not in reverts and line.partition(":")[2].strip() not in undone]
 
 
 def pending_links(plan: StowPlan) -> tuple[str, ...]:
