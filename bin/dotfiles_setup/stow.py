@@ -167,7 +167,7 @@ def _stow_would_change(plan: StowPlan, root: Path, pkg: str, flags: Sequence[str
     if not (root / pkg).is_dir():
         return False
     argv = ["stow", "-n", VERBOSE_FLAG, *flags, f"--dir={root}", f"--target={plan.t.home}", pkg]
-    done = plan.t.run(argv, capture_output=True, text=True)
+    done = plan.t.run(argv, capture_output=True, text=True, cwd=root)
     if done.returncode == COMMAND_NOT_FOUND:
         return False
     lines = f"{done.stdout or ''}\n{done.stderr or ''}".splitlines()

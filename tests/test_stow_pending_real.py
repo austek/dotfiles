@@ -29,7 +29,7 @@ def _world(tmp_path: Path, files=FILES) -> stow.StowPlan:
 def _apply(plan: stow.StowPlan) -> None:
     env = {**os.environ, "HOME": str(plan.t.home)}
     cmd = ["stow", "--restow", "--no-folding", f"--target={plan.t.home}", f"--dir={plan.dotfiles_dir}", "p"]
-    subprocess.run(cmd, check=True, capture_output=True, env=env)
+    subprocess.run(cmd, check=True, capture_output=True, env=env, cwd=plan.dotfiles_dir)
 
 
 def test_a_package_stow_has_not_linked_is_pending(tmp_path, monkeypatch):
@@ -53,3 +53,12 @@ def test_a_file_added_after_the_apply_is_pending_and_an_ignored_one_is_not(tmp_p
     assert stow.pending_links(plan) == ()
     (plan.dotfiles_dir / "p" / "later").write_text("")
     assert stow.pending_links(plan) == ("link p",)
+
+
+def test_a_stowrc_in_the_package_root_applies_to_the_dry_run_as_to_the_apply(tmp_path, monkeypatch):
+    plan = _world(tmp_path, files=[".zshrc", "secret"])
+    monkeypatch.setenv("HOME", str(plan.t.home))
+    monkeypatch.chdir(tmp_path)
+    (plan.dotfiles_dir / ".stowrc").write_text("--ignore=secret\n")
+    _apply(plan)
+    assert stow.pending_links(plan) == ()
