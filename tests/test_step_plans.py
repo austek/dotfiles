@@ -5,6 +5,7 @@ from dotfiles_setup.log import Logger
 from dotfiles_setup.step_plans import STEP_ROWS, UNKNOWN_ROWS, build_step_plans
 from dotfiles_setup.tooling import Tooling
 
+pytestmark = pytest.mark.usefixtures("no_core_packages")
 WRITE_VERBS = {"sudo", "apt-get", "dpkg", "rm", "mv", "cp", "ln", "tee", "mkdir", "touch", "stow", "chmod"}
 READ_ONLY_APT_GET = ("apt-get", "-s")
 
@@ -44,6 +45,21 @@ def test_apt_lists_the_wanted_packages_that_are_not_installed(tmp_path, monkeypa
     plan = _plans(tmp_path, {"zsh", "curl", "jq"})["apt"]
     assert plan.install == ("curl", "jq")
     assert (plan.wanted, plan.installed) == (3, 1)
+
+
+def test_apt_lists_a_missing_core_dependency_that_no_wanted_name_covers(tmp_path, monkeypatch):
+    monkeypatch.setattr("dotfiles_setup.system_steps.CORE_PACKAGES", ("curl", "openssl"))
+    _machine(monkeypatch, apt=("curl",))
+    plan = _plans(tmp_path, set())["apt"]
+    assert plan.install == ("openssl",)
+    assert plan.needs_sudo
+
+
+def test_apt_counts_a_core_dependency_that_is_also_wanted_once(tmp_path, monkeypatch):
+    monkeypatch.setattr("dotfiles_setup.system_steps.CORE_PACKAGES", ("curl",))
+    _machine(monkeypatch, apt=("curl",))
+    plan = _plans(tmp_path, {"curl"})["apt"]
+    assert (plan.wanted, plan.installed, plan.install) == (1, 1, ())
 
 
 def test_apt_ignores_flatpak_and_pin_entries(tmp_path, monkeypatch):
@@ -230,15 +246,30 @@ def test_no_upgrade_means_no_upgrade_change(tmp_path, monkeypatch):
     assert _plans(tmp_path, {"zsh"})["apt"].change == ()
 
 
-def test_a_pending_overlay_move_is_not_a_change_while_stow_is_missing(tmp_path, monkeypatch):
+def _legacy_overlay_with_packages(overlay):
+    overlay.LEGACY_OVERLAY_ROOT.mkdir()
+    (overlay.LEGACY_OVERLAY_ROOT / ".stow-packages").write_text("git\n")
+    (overlay.LEGACY_OVERLAY_ROOT / "git").mkdir()
+
+
+def test_a_pending_overlay_move_is_not_a_change_while_stow_is_missing_and_packages_are_stowed(tmp_path, monkeypatch):
+    from dotfiles_setup import overlay
+
+    _machine(monkeypatch)
+    _legacy_overlay_with_packages(overlay)
+    monkeypatch.setattr("dotfiles_setup.step_plans.shutil.which", lambda name: None)
+    plan = _plans(tmp_path, set())["overlay"]
+    assert plan.change == ()
+    assert "stow" in plan.note
+
+
+def test_a_pending_overlay_move_with_no_stow_packages_is_a_change_even_without_stow(tmp_path, monkeypatch):
     from dotfiles_setup import overlay
 
     _machine(monkeypatch)
     overlay.LEGACY_OVERLAY_ROOT.mkdir()
     monkeypatch.setattr("dotfiles_setup.step_plans.shutil.which", lambda name: None)
-    plan = _plans(tmp_path, set())["overlay"]
-    assert plan.change == ()
-    assert "stow" in plan.note
+    assert _plans(tmp_path, set())["overlay"].change
 
 
 def test_a_pending_overlay_move_is_a_change_when_stow_is_installed(tmp_path, monkeypatch):

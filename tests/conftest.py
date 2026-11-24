@@ -44,6 +44,12 @@ def no_network_tool_fetch(monkeypatch):
 
 
 @pytest.fixture
+def no_core_packages(monkeypatch):
+    """Tests of the package plan name their own packages; the core list would add host-dependent ones."""
+    monkeypatch.setattr("dotfiles_setup.system_steps.CORE_PACKAGES", ())
+
+
+@pytest.fixture
 def converged(monkeypatch):
     """Pins every host-dependent plan predicate to 'nothing to do', so a plan is empty unless a test adds work."""
     monkeypatch.setattr("dotfiles_setup.desktop_defaults.shell_change_pending", lambda: False)
@@ -114,6 +120,7 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
     monkeypatch.setattr("dotfiles_setup.env._claude_home", lambda: tmp_path / "claude-home")
     monkeypatch.setattr(state, "state_dir", lambda: tmp_path / "state")
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: None)
+    monkeypatch.setattr("dotfiles_setup.system_steps.CORE_PACKAGES", ())
     monkeypatch.setattr("dotfiles_setup.install_cmd.confirm_plan", lambda *a, **kw: None)
     monkeypatch.setattr("dotfiles_setup.update.pull_if_behind", lambda *a, **kw: False)
     monkeypatch.setattr("dotfiles_setup.identity.ensure_git_identity", lambda **kw: tmp_path / "gitconfig.local")

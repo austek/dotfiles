@@ -54,6 +54,11 @@ def _stow_packages(root: Path) -> list[str]:
     return sorted(name for name in names if Path(name).name == name and (root / name).is_dir())
 
 
+def needs_stow(root: Path) -> bool:
+    """Whether moving `root` unstows and restows packages; an overlay that names no existing package directory moves without stow."""
+    return bool(_stow_packages(root))
+
+
 def _unstow(t: Tooling, root: Path, packages: list[str]) -> int:
     """Returns stow's exit status, 0 when there is nothing to unstow."""
     argv = ["stow", "--delete", f"--target={t.home}", stow.VERBOSE_FLAG, *packages]

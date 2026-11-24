@@ -7,6 +7,8 @@ from dotfiles_setup import install_flow as flow
 from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 
+pytestmark = pytest.mark.usefixtures("no_core_packages")
+
 
 def inputs(tmp_path, dry_run=False, euid=1000, packages="vim\n", system="always", upgrade=False, run=None, removals=()):
     home = tmp_path / "home"

@@ -74,7 +74,7 @@ def user_rows(
     return (
         _tools_row(t, packages, upgrade),
         StepPlan("user links", 0, 0, change=user_links.pending(t, packages)),
-        StepPlan("terminfo", 0, 0, change=terminfo.pending(t)),
+        StepPlan("terminfo", 0, 0, change=tuple(terminfo.pending(t))),
         StepPlan("dotfiles links", 0, 0, change=links),
         StepPlan("zsh completion cache", 0, 0, change=("drop the completion dump",) if zsh_cache.pending(t.home) else ()),
         StepPlan("secrets.env", 0, 0, change=secrets_env.pending(t.home)),

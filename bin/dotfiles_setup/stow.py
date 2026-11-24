@@ -2,6 +2,7 @@
 With force, files that block stow are first moved to a timestamped backup."""
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import tempfile
@@ -138,7 +139,7 @@ def _package_files(package_dir: Path) -> list[Path]:
 
 
 def _links_to(link: Path, source: Path) -> bool:
-    return link.exists() and link.resolve() == source.resolve()
+    return os.path.lexists(link) and os.path.realpath(link) == os.path.realpath(source)
 
 
 def stow_pkg_is_linked(root: Path, pkg: str, target: Path) -> bool:
@@ -168,9 +169,17 @@ LOCAL_IGNORE_FILE = ".stow-local-ignore"
 GLOBAL_IGNORE_FILE = ".stow-global-ignore"
 
 
+def _strip_comment(line: str) -> str:
+    """Stow's `s/\\s+#.+//` in linear time: cut at the first `#` that follows whitespace and precedes more text."""
+    for i, char in enumerate(line):
+        if char == "#" and 0 < i < len(line) - 1 and line[i - 1].isspace():
+            return line[:i].rstrip()
+    return line
+
+
 def _ignore_patterns(path: Path) -> list[str]:
     """Stow's reading of an ignore file: no blank or comment lines, no trailing ` # comment`, `\\#` is a literal `#`."""
-    lines = (re.sub(r"\s+#.+", "", line.strip()) for line in path.read_text().splitlines())
+    lines = (_strip_comment(line.strip()) for line in path.read_text().splitlines())
     return [line.replace("\\#", "#") for line in lines if line and not line.startswith("#")]
 
 
@@ -201,23 +210,24 @@ def _stow_ignores(rel: Path, local: list[str] | None = None) -> bool:
     return any(_IGNORED_ANYWHERE.fullmatch(part) for part in rel.parts) or bool(_IGNORED_TOP_LEVEL.fullmatch(rel.parts[0]))
 
 
-def _entry_lacks_link(entry: Path, dest: Path, rel: Path, local: list[str] | None) -> bool:
+def _entry_lacks_link(entry: Path, dest: Path, rel: Path, local: list[str] | None, skip: set[Path]) -> bool:
     """One entry is linked whole; below a real directory stow links the children, so descend there only."""
-    if _stow_ignores(rel, local) or _links_to(dest, entry):
+    if rel in skip or _stow_ignores(rel, local) or _links_to(dest, entry):
         return False
     if entry.is_dir() and not entry.is_symlink() and dest.is_dir() and not dest.is_symlink():
-        return any(_entry_lacks_link(c, dest / c.name, rel / c.name, local) for c in sorted(entry.iterdir()))
+        return any(_entry_lacks_link(c, dest / c.name, rel / c.name, local, skip) for c in sorted(entry.iterdir()))
     return True
 
 
-def _lacks_folded_links(root: Path, pkg: str, target: Path, local: list[str] | None) -> bool:
-    return any(_entry_lacks_link(e, target / e.name, Path(e.name), local) for e in sorted((root / pkg).iterdir()))
+def _lacks_folded_links(root: Path, pkg: str, target: Path, local: list[str] | None, skip: set[Path]) -> bool:
+    entries = sorted((root / pkg).iterdir())
+    return any(_entry_lacks_link(e, target / e.name, Path(e.name), local, skip) for e in entries)
 
 
 def _lacks_links(root: Path, pkg: str, target: Path, skip: set[Path]) -> bool:
     local = _local_ignores(root / pkg, target)
     if pkg in FOLD_PACKAGES and (root / pkg).is_dir():
-        return _lacks_folded_links(root, pkg, target, local)
+        return _lacks_folded_links(root, pkg, target, local, skip)
     for file in _package_files(root / pkg):
         rel = file.relative_to(root / pkg)
         if rel not in skip and not _stow_ignores(rel, local) and not _links_to(target / rel, file):

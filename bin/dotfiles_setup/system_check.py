@@ -51,7 +51,7 @@ def pending_releases(ctx: SystemContext) -> list[str]:
 
 
 def _missing_apt_packages(ctx: SystemContext, installed: set[str]) -> str | None:
-    wanted = {p for p in ctx.packages if apt_packages.is_apt_package(p)}
+    wanted = {p for p in ctx.packages if apt_packages.is_apt_package(p)} | set(system_steps.CORE_PACKAGES)
     return apt_reason(sorted(wanted - installed))
 
 

@@ -121,8 +121,9 @@ def test_an_interrupt_propagates():
     def ask(prompt):
         raise KeyboardInterrupt
 
+    plans = (_plan(install=("htop",)),)
     with pytest.raises(KeyboardInterrupt):
-        _confirm((_plan(install=("htop",)),), ask=ask)
+        _confirm(plans, ask=ask)
 
 
 def test_yes_skips_the_prompt():

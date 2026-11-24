@@ -16,11 +16,11 @@ def _resolves(t: Tooling) -> bool:
     return t.run(["infocmp", "-x", ENTRY], capture_output=True, text=True).returncode == 0
 
 
-def pending(t: Tooling) -> tuple[str, ...]:
+def pending(t: Tooling) -> list[str]:
     """What the step would do: compile the entry when it does not resolve and `tic` is available. Read-only."""
     if shutil.which("tic") is None or _resolves(t):
-        return ()
-    return (f"install {ENTRY} terminfo into {t.home / '.terminfo'}",)
+        return []
+    return [f"install {ENTRY} terminfo into {t.home / '.terminfo'}"]
 
 
 def _track_install(changes: RollbackLog, installed: Path, made: list[Path]) -> None:
@@ -46,11 +46,10 @@ def _compile(t: Tooling, source: Path, changes: RollbackLog | None) -> None:
         t.logger.info(f"Installed the {ENTRY} terminfo entry into {target}.")
 
 
-def install_ghostty_terminfo(t: Tooling, source: Path, changes: RollbackLog | None = None) -> bool:
+def install_ghostty_terminfo(t: Tooling, source: Path, changes: RollbackLog | None = None) -> None:
     """Compiles `source` into `~/.terminfo` only when `infocmp` cannot resolve the entry; never fails the step."""
     if _resolves(t):
-        return True
+        return
     if dry_run_all(t, f"Would install the {ENTRY} terminfo entry into {t.home / '.terminfo'}"):
-        return True
+        return
     _compile(t, source, changes)
-    return True

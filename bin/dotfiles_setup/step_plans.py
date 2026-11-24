@@ -14,6 +14,7 @@ from dotfiles_setup import (
     overlay_migrate,
     removals,
     system_check,
+    system_steps,
 )
 from dotfiles_setup.plan_types import StepPlan, unknown_step
 from dotfiles_setup.rollback import RollbackLog
@@ -25,25 +26,29 @@ OVERLAY_DEFER_NOTE = "the legacy overlay stays where it is until stow is install
 UPGRADE_CHANGE = "apt dist-upgrade and flatpak update (package list is from the local apt cache)"
 FLATPAK_UPDATE_CHANGE = "update all Flatpak apps"
 SKIP_FLATPAK_NOTE = f"skipped: {flatpak.SKIP_ENV} is set"
+APT_SOURCES = "apt sources"
+POST_APT_TOOLS = "post-apt tools"
+CLAUDE_TOOLS = "claude tools"
+GITHUB_DEBS = "github debs"
 UNKNOWN_ROWS = {
-    "apt sources": "keys, PPAs and source files",
-    "post-apt tools": "auditr, cargo crates and the GPaste extension",
-    "claude tools": "tool and plugin installs, and the stale-copy report",
+    APT_SOURCES: "keys, PPAs and source files",
+    POST_APT_TOOLS: "auditr, cargo crates and the GPaste extension",
+    CLAUDE_TOOLS: "tool and plugin installs, and the stale-copy report",
     "default terminal": "alternatives, xdg lists and gsettings",
 }
 # Every step in install_flow.build_steps needs an entry here, or a plan-guided dry run drops it.
 STEP_ROWS = {
     "install_core_deps": "apt", "disable_snapd": "snapd", "strip_snap_from_system_path": "snapd",
-    "configure_apt_sources": "apt sources", "install_tools": "user tools", "install_user_binaries": "user tools",
-    "link_user_tools": "user links", "install_ghostty_terminfo": "terminfo", "install_system_tools": "system releases", "install_packages": "apt",
-    "upgrade_packages": "apt", "report_upgradable": "apt", "install_flatpaks": "flatpak",
+    "configure_apt_sources": APT_SOURCES, "install_tools": "user tools", "install_user_binaries": "user tools",
+    "link_user_tools": "user links", "install_ghostty_terminfo": "terminfo", "install_system_tools": "system releases",
+    "install_packages": "apt", "upgrade_packages": "apt", "report_upgradable": "apt", "install_flatpaks": "flatpak",
     "remove_flatpaks": "removals", "remove_apt_packages": "removals", "report_unremoved": "removals",
-    "report_skipped_sources": "apt sources", "install_post_apt_tools": "post-apt tools",
-    "enable_gpaste_extension": "post-apt tools", "install_github_bins": "github debs",
+    "report_skipped_sources": APT_SOURCES, "install_post_apt_tools": POST_APT_TOOLS,
+    "enable_gpaste_extension": POST_APT_TOOLS, "install_github_bins": GITHUB_DEBS,
     "configure_docker_group": "docker group", "configure_dotfiles": "dotfiles links",
     "refresh_zsh_completion_cache": "zsh completion cache", "ensure_secrets_env": "secrets.env",
-    "retire_claude_profile": "claude profile", "configure_claude_tools": "claude tools",
-    "report_stale_copies": "claude tools", "change_shell": "login shell",
+    "retire_claude_profile": "claude profile", "configure_claude_tools": CLAUDE_TOOLS,
+    "report_stale_copies": CLAUDE_TOOLS, "change_shell": "login shell",
     "set_default_terminal": "default terminal", "disable_ibus_unicode_hotkey": "ibus hotkey",
 }
 
@@ -53,7 +58,7 @@ def _context(t: Tooling, dotfiles_dir: Path, wanted: Collection[str]) -> SystemC
 
 
 def _apt_plan(ctx: SystemContext, installed: set[str], system: str, upgrade: bool) -> StepPlan:
-    wanted = sorted(p for p in ctx.packages if apt_packages.is_apt_package(p))
+    wanted = sorted({*(p for p in ctx.packages if apt_packages.is_apt_package(p)), *system_steps.CORE_PACKAGES})
     if system == "never":
         return StepPlan("apt", len(wanted), 0, note=NO_SYSTEM_NOTE)
     missing = tuple(p for p in wanted if p not in installed)
@@ -76,10 +81,10 @@ def _flatpak_plan(t: Tooling, packages: Collection[str], upgrade: bool) -> StepP
 def _debs_plan(ctx: SystemContext, system: str) -> StepPlan:
     wanted = sum(1 for p in ctx.packages if p.startswith(apt_packages.PIN_PREFIX))
     if system == "never":
-        return StepPlan("github debs", wanted, 0, note=NO_SYSTEM_NOTE)
+        return StepPlan(GITHUB_DEBS, wanted, 0, note=NO_SYSTEM_NOTE)
     pending = tuple(apt_packages.pending_github_bins(ctx))
     return StepPlan(
-        "github debs", wanted, wanted - len(pending), install=pending,
+        GITHUB_DEBS, wanted, wanted - len(pending), install=pending,
         needs_sudo=True, reason=system_check.debs_reason(pending),
     )
 
@@ -100,7 +105,7 @@ def _removals_plan(pending: Sequence[str], system: str, prune: bool) -> StepPlan
 def _overlay_plan() -> StepPlan | None:
     legacy, new = overlay.LEGACY_OVERLAY_ROOT, overlay.DEFAULT_OVERLAY_ROOT
     match overlay_migrate.pending_migration():
-        case overlay_migrate.Migration.MOVE if shutil.which("stow") is None:
+        case overlay_migrate.Migration.MOVE if shutil.which("stow") is None and overlay_migrate.needs_stow(legacy):
             return StepPlan("overlay", 0, 0, note=OVERLAY_DEFER_NOTE)
         case overlay_migrate.Migration.MOVE:
             return StepPlan("overlay", 0, 0, change=(f"move {legacy} to {new}",))

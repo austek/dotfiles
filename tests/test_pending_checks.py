@@ -170,6 +170,48 @@ def test_a_file_in_a_real_directory_of_a_folded_package_is_checked(tmp_path):
     assert stow.pending_links(plan) == ("link gradle",)
 
 
+def test_a_folded_package_skips_a_file_the_overlay_overrides(tmp_path):
+    plan = _stow_plan(tmp_path, overlay=True)
+    (plan.dotfiles_dir / ".stow-packages").write_text("gradle\n")
+    (plan.overlay_root / ".stow-packages").write_text("gradle\n")
+    _package(plan.dotfiles_dir, "gradle", [".gradle/gradle.properties", ".gradle/keep"])
+    _package(plan.overlay_root, "gradle", [".gradle/gradle.properties"])
+    (plan.t.home / ".gradle").mkdir()
+    _link(plan, "gradle", ".gradle/keep")
+    _link(plan, "gradle", ".gradle/gradle.properties", plan.overlay_root)
+    assert stow.pending_links(plan) == ()
+
+
+def test_a_dangling_package_symlink_that_is_linked_is_not_pending(tmp_path):
+    plan = _stow_plan(tmp_path)
+    (plan.dotfiles_dir / ".stow-packages").write_text("zsh\n")
+    (plan.dotfiles_dir / "zsh").mkdir()
+    (plan.dotfiles_dir / "zsh" / "dangling").symlink_to(tmp_path / "missing")
+    (plan.t.home / "dangling").symlink_to(plan.dotfiles_dir / "zsh" / "dangling")
+    assert stow.pending_links(plan) == ()
+
+
+def test_a_dangling_package_symlink_that_is_not_linked_is_pending(tmp_path):
+    plan = _stow_plan(tmp_path)
+    (plan.dotfiles_dir / ".stow-packages").write_text("zsh\n")
+    (plan.dotfiles_dir / "zsh").mkdir()
+    (plan.dotfiles_dir / "zsh" / "dangling").symlink_to(tmp_path / "missing")
+    assert stow.pending_links(plan) == ("link zsh",)
+
+
+def test_ignore_pattern_parsing_is_linear_on_long_whitespace_runs():
+    text = "a" + " " * 200000 + "b\n"
+    assert stow._strip_comment(text.strip()) == text.strip()
+
+
+@pytest.mark.parametrize(
+    "line,expected",
+    [("a # b # c", "a"), ("a #", "a #"), ("a#b", "a#b"), ("a # ", "a #"), ("a #  # x", "a"), ("a \\#b", "a \\#b")],
+)
+def test_strip_comment_matches_stows_regex(line, expected):
+    assert stow._strip_comment(line.strip()) == expected
+
+
 def test_a_trailing_comment_in_a_local_ignore_line_is_not_part_of_the_pattern(tmp_path):
     plan = _ignoring_plan(tmp_path, "cache # generated files\n", ["a/cache", "keep"])
     _link(plan, "claude", "keep")

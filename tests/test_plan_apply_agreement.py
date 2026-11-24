@@ -1,11 +1,14 @@
 from types import SimpleNamespace
 
+import pytest
 from dotfiles_setup import apt_packages, flatpak
 from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.step_plans import build_step_plans
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import Tooling
+
+pytestmark = pytest.mark.usefixtures("no_core_packages")
 
 
 def _machine(monkeypatch, apt=(), flatpaks=(), dpkg_listing=""):

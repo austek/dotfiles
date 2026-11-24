@@ -1,5 +1,6 @@
-#	Generated with `infocmp -x xterm-ghostty` from the ghostty package.
-xterm-ghostty|ghostty|Ghostty,
+#	Generated with `infocmp -x xterm-ghostty` from the ghostty package, then edited: the `ghostty` alias is dropped so that
+#	`tic` creates one file and rollback can remove everything the step installed.
+xterm-ghostty|Ghostty,
 	am, bce, ccc, hs, km, mc5i, mir, msgr, npc, xenl, AX, Su, Tc, XT, fullkbd,
 	colors#0x100, cols#80, it#8, lines#24, pairs#0x7fff,
 	acsc=++\,\,--..00``aaffgghhiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~,

@@ -47,30 +47,30 @@ def tooling(home, machine, dry_run=False):
 def test_a_missing_entry_is_pending_when_tic_exists_and_nothing_runs(tmp_path, monkeypatch):
     monkeypatch.setattr("dotfiles_setup.terminfo.shutil.which", lambda name: "/usr/bin/tic")
     machine = Machine(tmp_path)
-    assert terminfo.pending(tooling(tmp_path, machine)) == (f"install xterm-ghostty terminfo into {tmp_path / '.terminfo'}",)
+    assert terminfo.pending(tooling(tmp_path, machine)) == [f"install xterm-ghostty terminfo into {tmp_path / '.terminfo'}"]
     assert machine.tic_calls() == []
 
 
 def test_a_resolving_entry_is_not_pending(tmp_path, monkeypatch):
     monkeypatch.setattr("dotfiles_setup.terminfo.shutil.which", lambda name: "/usr/bin/tic")
-    assert terminfo.pending(tooling(tmp_path, Machine(tmp_path, present=True))) == ()
+    assert terminfo.pending(tooling(tmp_path, Machine(tmp_path, present=True))) == []
 
 
 def test_nothing_is_pending_without_tic_because_the_step_could_not_act(tmp_path, monkeypatch):
     monkeypatch.setattr("dotfiles_setup.terminfo.shutil.which", lambda name: None)
-    assert terminfo.pending(tooling(tmp_path, Machine(tmp_path))) == ()
+    assert terminfo.pending(tooling(tmp_path, Machine(tmp_path))) == []
 
 
 def test_an_entry_that_already_resolves_is_left_alone(tmp_path):
     machine, tracker = Machine(tmp_path, present=True), Tracker()
-    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine), SOURCE, tracker) is True
+    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine), SOURCE, tracker) is None
     assert machine.tic_calls() == []
     assert tracker.entries == []
 
 
 def test_a_missing_entry_is_compiled_into_the_user_terminfo_dir_and_recorded(tmp_path):
     machine, tracker = Machine(tmp_path), Tracker()
-    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine), SOURCE, tracker) is True
+    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine), SOURCE, tracker) is None
     assert machine.tic_calls() == [["tic", "-x", "-o", str(tmp_path / ".terminfo"), str(SOURCE)]]
     installed = tmp_path / ".terminfo/x/xterm-ghostty"
     digest = hashlib.sha256(b"compiled").hexdigest()
@@ -90,21 +90,21 @@ def test_an_existing_terminfo_dir_is_not_recorded_as_created(tmp_path):
 
 def test_a_missing_tic_warns_and_does_not_fail(tmp_path, capsys):
     machine, tracker = Machine(tmp_path, tic_status=127), Tracker()
-    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine), SOURCE, tracker) is True
+    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine), SOURCE, tracker) is None
     assert tracker.entries == []
     assert "tic" in capsys.readouterr().out
 
 
 def test_a_failing_tic_warns_and_does_not_fail(tmp_path, capsys):
     machine, tracker = Machine(tmp_path, tic_status=1), Tracker()
-    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine), SOURCE, tracker) is True
+    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine), SOURCE, tracker) is None
     assert tracker.entries == []
     assert "xterm-ghostty" in capsys.readouterr().out
 
 
 def test_a_dry_run_compiles_nothing(tmp_path, capsys):
     machine, tracker = Machine(tmp_path), Tracker()
-    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine, dry_run=True), SOURCE, tracker) is True
+    assert terminfo.install_ghostty_terminfo(tooling(tmp_path, machine, dry_run=True), SOURCE, tracker) is None
     assert machine.tic_calls() == []
     assert tracker.entries == []
     assert "Would install" in capsys.readouterr().out
@@ -140,6 +140,14 @@ def test_rollback_keeps_a_file_that_changed_since_the_install(tmp_path, capsys):
     rollback.perform_rollback(ctx)
     assert installed.read_bytes() == b"edited by hand"
     assert f"Kept {installed}" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(shutil.which("tic") is None or shutil.which("infocmp") is None, reason="ncurses tools missing")
+def test_the_shipped_source_creates_one_entry_and_no_alias_for_rollback_to_miss(tmp_path):
+    subprocess.run(["tic", "-x", "-o", str(tmp_path), str(SOURCE)], check=True)
+    created = [p for p in tmp_path.rglob("*") if not p.is_dir()]
+    assert [p.name for p in created] == ["xterm-ghostty"]
+    assert not any(p.is_symlink() for p in created)
 
 
 @pytest.mark.skipif(shutil.which("tic") is None or shutil.which("infocmp") is None, reason="ncurses tools missing")

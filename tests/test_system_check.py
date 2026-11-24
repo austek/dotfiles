@@ -8,6 +8,8 @@ from dotfiles_setup.log import Logger
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.system_steps import SystemContext
 
+pytestmark = pytest.mark.usefixtures("no_core_packages")
+
 
 class Machine:
     def __init__(self, installed=(), docker_ok=True, debs=""):
