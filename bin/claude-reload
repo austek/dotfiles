@@ -20,6 +20,8 @@ pid_file="$config_dir/sessions/$claude_pid.json"
 session_id=$(jq -er .sessionId "$pid_file")
 dir=$(jq -er .cwd "$pid_file")
 
+[[ -d $dir ]] || { echo "claude-reload: session directory $dir no longer exists; claude-pane-loop would reject the resume" >&2; exit 1; }
+
 args=("$@")
 (( ${#args[@]} )) || args=(-rx standard)
 
@@ -29,6 +31,10 @@ buffer="claude-reload-$claude_pid"
 tmux set-buffer -b "$buffer" -- "$resume_line"
 
 # Runs under the tmux server, outside the pane's systemd scope, so it outlives the pane process tree.
-tmux run-shell -b "while kill -0 $claude_pid 2>/dev/null; do sleep 1; done; sleep 2; tmux paste-buffer -d -b $buffer -t $TMUX_PANE; tmux send-keys -t $TMUX_PANE Enter"
+tmux run-shell -b "while kill -0 $claude_pid 2>/dev/null; do sleep 1; done; sleep 2; tmux paste-buffer -d -b $buffer -t $TMUX_PANE && tmux send-keys -t $TMUX_PANE Enter"
 
-exec cozempic reload --session "$session_id" "${args[@]}"
+# A failed reload leaves Claude running; deleting the buffer makes the watcher paste nothing when Claude exits later.
+status=0
+cozempic reload --session "$session_id" "${args[@]}" || status=$?
+(( status == 0 )) || tmux delete-buffer -b "$buffer" 2>/dev/null || true
+exit "$status"
