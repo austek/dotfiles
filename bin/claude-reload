@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Manual Cozempic reload for a claude-pane-loop tmux pane. `cozempic reload` only opens gnome-terminal/xterm
+# to resume, which this host lacks, so the pane would close. This runs the prune, then types the resume
+# line that claude-pane-loop accepts once Claude exits.
+# Usage: claude-reload [extra cozempic reload args, default: -rx standard]
+set -euo pipefail
+
+[[ -n ${TMUX_PANE:-} ]] || { echo "claude-reload: run inside a tmux pane" >&2; exit 1; }
+
+config_dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+dir=$PWD
+
+pane_pid=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}')
+claude_pid=$(pgrep -P "$pane_pid" -f claude | head -n 1 || true)
+[[ -n $claude_pid ]] || { echo "claude-reload: no claude process under pane $TMUX_PANE" >&2; exit 1; }
+
+# Claude records its own pid -> session id, so other sessions in the same directory cannot be mistaken for it.
+pid_file="$config_dir/sessions/$claude_pid.json"
+[[ -r $pid_file ]] || { echo "claude-reload: $pid_file not found" >&2; exit 1; }
+session_id=$(jq -er .sessionId "$pid_file")
+dir=$(jq -er .cwd "$pid_file")
+
+args=("$@")
+(( ${#args[@]} )) || args=(-rx standard)
+
+# Runs under the tmux server, outside the pane's systemd scope, so it outlives the pane process tree.
+tmux run-shell -b "while kill -0 $claude_pid 2>/dev/null; do sleep 1; done; sleep 2; tmux send-keys -t $TMUX_PANE \"cd '$dir' && claude --resume $session_id\" Enter"
+
+exec cozempic reload --session "$session_id" "${args[@]}"
