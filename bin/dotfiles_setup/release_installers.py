@@ -460,11 +460,25 @@ def upgrade_user_binaries(t: Tooling, package_names: Collection[str]) -> None:
             upgrade_release(t, spec, _binary_version(t, managed.name))
 
 
-def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[str]:
-    """Names of wanted sudo-installed releases that are absent; empty on an unsupported architecture."""
+def _pending(t: Tooling, package_names: Collection[str], specs: tuple[tuple[str, ReleaseSpec], ...]) -> list[str]:
     if platform.machine() != SUPPORTED_ARCH:
         return []
-    return [p for p, spec in SYSTEM_SPECS if p in package_names and not spec.is_installed(t)]
+    return [p for p, spec in specs if p in package_names and not spec.is_installed(t)]
+
+
+def pending_system_releases(t: Tooling, package_names: Collection[str]) -> list[str]:
+    """Names of wanted sudo-installed releases that are absent; empty on an unsupported architecture."""
+    return _pending(t, package_names, SYSTEM_SPECS)
+
+
+def pending_user_binaries(t: Tooling, package_names: Collection[str]) -> list[str]:
+    """Names of wanted pinned binaries that are not executable files in `~/.local/bin`; empty on an unsupported architecture."""
+    return _pending(t, package_names, USER_BINARY_SPECS)
+
+
+def pending_user_releases(t: Tooling, package_names: Collection[str]) -> list[str]:
+    """Names of wanted user-level release installs that are absent; empty on an unsupported architecture."""
+    return _pending(t, package_names, USER_SPECS)
 
 
 def upgrade_vendor_debs(t: Tooling, package_names: Collection[str]) -> None:

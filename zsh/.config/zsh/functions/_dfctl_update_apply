@@ -1,4 +1,4 @@
-# Fast-forwards ~/.dotfiles when it is on main, then runs `dfctl apply --upgrade`. A failed pull stops before apply.
+# Fast-forwards ~/.dotfiles when it is on main, then runs `dfctl apply --upgrade` with the given extra flags. A failed pull stops before apply.
 _dfctl_update_apply() {
   emulate -L zsh
   local repo=$HOME/.dotfiles dfctl=dfctl
@@ -11,7 +11,7 @@ _dfctl_update_apply() {
       return 1
     fi
   fi
-  $dfctl apply --upgrade && return 0
+  $dfctl apply --upgrade $@ && return 0
   rc=$?
   print -r -- "[dfctl] dfctl apply --upgrade exited with $rc; run it again to retry"
   return $rc

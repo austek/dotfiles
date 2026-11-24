@@ -38,8 +38,13 @@ def make(tmp_path, machine, dry_run=False):
     return tools.Tooling(Logger(dry_run=dry_run, verbosity=1), tmp_path, run=machine)
 
 
+def passwd_shell(monkeypatch, shell):
+    monkeypatch.setattr("dotfiles_setup.desktop_defaults.pwd.getpwuid", lambda uid: SimpleNamespace(pw_shell=shell))
+
+
 def test_the_shell_is_switched_with_usermod(tmp_path, on_path, monkeypatch):
     on_path["zsh"] = "/usr/bin/zsh"
+    passwd_shell(monkeypatch, "/bin/bash")
     monkeypatch.setattr("getpass.getuser", lambda: "ali")
     machine = Machine()
     dd.change_shell(make(tmp_path, machine))
@@ -48,7 +53,16 @@ def test_the_shell_is_switched_with_usermod(tmp_path, on_path, monkeypatch):
 
 def test_a_shell_that_is_already_zsh_is_left_alone(tmp_path, on_path, monkeypatch):
     on_path["zsh"] = "/usr/bin/zsh"
-    monkeypatch.setenv("SHELL", "/usr/bin/zsh")
+    passwd_shell(monkeypatch, "/usr/bin/zsh")
+    machine = Machine()
+    dd.change_shell(make(tmp_path, machine))
+    assert machine.commands == []
+
+
+def test_a_passwd_entry_changed_before_the_next_login_is_not_changed_again(tmp_path, on_path, monkeypatch):
+    on_path["zsh"] = "/usr/bin/zsh"
+    passwd_shell(monkeypatch, "/usr/bin/zsh")
+    monkeypatch.setenv("SHELL", "/bin/bash")
     machine = Machine()
     dd.change_shell(make(tmp_path, machine))
     assert machine.commands == []
@@ -191,3 +205,21 @@ def test_a_failed_alternative_install_does_not_stop_the_xdg_update(tmp_path, on_
     dd.set_default_terminal(make(tmp_path, machine))
     assert not machine.ran("sudo", "update-alternatives", "--set")
     assert (tmp_path / "config/xdg-terminals.list").is_file()
+
+
+def test_a_passwd_shell_that_resolves_to_zsh_is_not_a_pending_change(tmp_path, monkeypatch):
+    real = tmp_path / "usr-bin-zsh"
+    real.write_text("")
+    alias = tmp_path / "bin-zsh"
+    alias.symlink_to(real)
+    monkeypatch.setattr("dotfiles_setup.desktop_defaults.pwd.getpwuid", lambda uid: SimpleNamespace(pw_shell=str(alias)))
+    monkeypatch.setattr("dotfiles_setup.desktop_defaults.shutil.which", lambda name: str(real))
+    assert not dd.shell_change_pending()
+
+
+def test_a_passwd_shell_that_is_not_zsh_is_pending(tmp_path, monkeypatch):
+    real = tmp_path / "zsh"
+    real.write_text("")
+    monkeypatch.setattr("dotfiles_setup.desktop_defaults.pwd.getpwuid", lambda uid: SimpleNamespace(pw_shell="/bin/bash"))
+    monkeypatch.setattr("dotfiles_setup.desktop_defaults.shutil.which", lambda name: str(real))
+    assert dd.shell_change_pending()

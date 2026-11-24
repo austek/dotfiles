@@ -131,4 +131,4 @@ Dropping a name from a list uninstalls it after confirmation, but only for some 
 - A GitHub `.deb` is removed through dpkg, and its undo only warns to reinstall by hand. zoom, which is `.deb`-backed, is removed the same way when dpkg reports it installed.
 - Every other vendor-script entry is reported once and never removed.
 
-`--prune` approves removals without a prompt, and `--dry-run` only lists them. Keep these rules intact in any change that touches package planning.
+`--prune` approves removals without a prompt, `--yes` never approves them, and `--dry-run` only lists them. The plan shows pending removals either way. Keep these rules intact in any change that touches package planning.

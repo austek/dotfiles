@@ -57,6 +57,10 @@ class Logger:
         if self.verbosity >= 1:
             print(f"{_CYAN}[INFO] {message}{_RESET}")
 
+    def say(self, message: str) -> None:
+        self.record(message)
+        print(message)
+
     def success(self, message: str) -> None:
         self.record(message)
         if self.verbosity >= 1:

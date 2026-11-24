@@ -18,8 +18,19 @@ def _generated_files(home: Path) -> tuple[tuple[Path, str], ...]:
     )
 
 
+def _is_generated(path: Path, marker: str) -> bool:
+    return path.is_file() and marker in path.read_text(encoding="utf-8", errors="replace")
+
+
+def pending_files(home: Path) -> tuple[Path, ...]:
+    """The retired generated files `retire_claude_profile` would remove; changes nothing."""
+    profile_dir = home / ".config/dotfiles/claude-profiles"
+    generated = tuple(path for path, marker in _generated_files(home) if _is_generated(path, marker))
+    return (*generated, *(profile_dir / name for name in GENERATED_PROFILES if (profile_dir / name).is_file()))
+
+
 def _remove_if_generated(path: Path, marker: str) -> bool:
-    if not path.is_file() or marker not in path.read_text(encoding="utf-8", errors="replace"):
+    if not _is_generated(path, marker):
         return False
     path.unlink()
     return True

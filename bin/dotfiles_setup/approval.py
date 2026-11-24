@@ -78,6 +78,6 @@ def _approved_removals(args: argparse.Namespace, t: tooling.Tooling, plan: _Inst
         _print_pending(t.logger, candidates)
         return ()
     confirmed = confirm_removals(
-        t.logger, candidates, prune=args.prune, interactive=sys.stdin.isatty(),
+        t.logger, candidates, prune=args.prune, interactive=sys.stdin.isatty() and not args.yes,
     )
     return candidates if confirmed else ()

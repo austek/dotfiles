@@ -124,6 +124,16 @@ SYSTEM_TOOL_INSTALLERS: tuple[tuple[str, Installer], ...] = (
 )
 
 
+HOME_MARKERS = {"oh-my-zsh": ".oh-my-zsh", "sdkman": ".sdkman", "nvm": ".nvm"}
+
+
+def pending_tools(t: Tooling, package_names: Collection[str]) -> list[str]:
+    """Wanted `install_tools` entries whose marker is absent; each installer's own presence check, nothing fetched."""
+    scripts = [name for name, marker in HOME_MARKERS.items() if name in package_names and not (t.home / marker).is_dir()]
+    vendors = [name for name, spec in vendor_installers.VENDOR_SPECS if name in package_names and not spec.is_installed(t)]
+    return [*scripts, *release_installers.pending_user_releases(t, package_names), *vendors]
+
+
 def _run_installers(t: Tooling, table: tuple[tuple[str, Installer], ...], package_names: Collection[str]) -> bool:
     for name, installer in table:
         if name in package_names and installer(t) is False:

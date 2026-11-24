@@ -56,6 +56,46 @@ def packages_of(call) -> list[str]:
     return [arg for arg in call[0][3:] if not arg.startswith("-")]
 
 
+def test_pending_is_none_without_a_legacy_overlay(env):
+    assert overlay_migrate.pending_migration() is overlay_migrate.Migration.NONE
+
+
+def test_pending_is_move_when_only_the_legacy_overlay_exists(env):
+    _, legacy, _ = env
+    legacy.mkdir()
+    assert overlay_migrate.pending_migration() is overlay_migrate.Migration.MOVE
+
+
+def test_pending_is_leftover_when_both_exist(env):
+    _, legacy, new = env
+    legacy.mkdir()
+    new.mkdir()
+    assert overlay_migrate.pending_migration() is overlay_migrate.Migration.LEFTOVER
+
+
+def test_pending_is_leftover_when_the_new_path_is_a_dangling_symlink(env):
+    _, legacy, new = env
+    legacy.mkdir()
+    new.symlink_to(legacy.parent / "missing")
+    assert overlay_migrate.pending_migration() is overlay_migrate.Migration.LEFTOVER
+
+
+def test_pending_is_refuse_for_a_linked_worktree(env):
+    _, legacy, _ = env
+    legacy.mkdir()
+    (legacy / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt")
+    assert overlay_migrate.pending_migration() is overlay_migrate.Migration.REFUSE_WORKTREE
+
+
+@pytest.mark.parametrize("variable", ["DOTFILES_OVERLAY_ROOT", "DOTFILES_PRIVATE_ROOT"])
+def test_pending_is_none_when_an_override_variable_is_set(env, monkeypatch, variable, capsys):
+    _, legacy, _ = env
+    legacy.mkdir()
+    monkeypatch.setenv(variable, str(legacy))
+    assert overlay_migrate.pending_migration() is overlay_migrate.Migration.NONE
+    assert capsys.readouterr().out == ""
+
+
 def test_nothing_happens_without_a_legacy_overlay(env):
     home, _, new = env
     recorder = Recorder()

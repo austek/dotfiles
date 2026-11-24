@@ -19,14 +19,32 @@ class Relocation(Enum):
     FAILED = "failed"
 
 
+class Migration(Enum):
+    NONE = "none"
+    MOVE = "move"
+    LEFTOVER = "leftover"
+    REFUSE_WORKTREE = "refuse_worktree"
+
+
+def _override_set() -> bool:
+    return bool(os.environ.get(overlay.OVERLAY_ROOT_VARIABLE) or os.environ.get(overlay.LEGACY_ROOT_VARIABLE))
+
+
 def _overridden(t: Tooling) -> bool:
     """An override variable pins the overlay's location, so nothing is moved; the legacy one is reported."""
-    if os.environ.get(overlay.OVERLAY_ROOT_VARIABLE):
-        return True
-    if os.environ.get(overlay.LEGACY_ROOT_VARIABLE):
+    if not os.environ.get(overlay.OVERLAY_ROOT_VARIABLE) and os.environ.get(overlay.LEGACY_ROOT_VARIABLE):
         t.logger.warn(f"{overlay.LEGACY_ROOT_VARIABLE} is deprecated; set {overlay.OVERLAY_ROOT_VARIABLE} instead.")
-        return True
-    return False
+    return _override_set()
+
+
+def pending_migration() -> Migration:
+    """What `migrate_legacy_overlay` would do, from the two variables and the filesystem alone; changes nothing."""
+    legacy, new = overlay.LEGACY_OVERLAY_ROOT, overlay.DEFAULT_OVERLAY_ROOT
+    if _override_set() or not legacy.is_dir():
+        return Migration.NONE
+    if new.exists() or new.is_symlink():
+        return Migration.LEFTOVER
+    return Migration.REFUSE_WORKTREE if worktree.is_linked_worktree(legacy) else Migration.MOVE
 
 
 def _stow_packages(root: Path) -> list[str]:
@@ -108,7 +126,8 @@ def _release_leftover(t: Tooling, legacy: Path, new: Path) -> None:
         t.logger.warn(f"Could not unstow {legacy}; apply may report stow conflicts until its links are removed.")
 
 
-def _refuse_worktree(t: Tooling, legacy: Path, new: Path) -> bool:
+def refuse_worktree(t: Tooling) -> bool:
+    legacy, new = overlay.LEGACY_OVERLAY_ROOT, overlay.DEFAULT_OVERLAY_ROOT
     if dry_run_all(t, f"Would refuse to move {legacy}: it is a linked worktree"):
         return True
     t.logger.error(f"{legacy} is a linked worktree; move the main overlay checkout to {new} instead.")
@@ -118,13 +137,16 @@ def _refuse_worktree(t: Tooling, legacy: Path, new: Path) -> bool:
 def migrate_legacy_overlay(t: Tooling, changes: RollbackLog) -> bool:
     """Returns False when the worktree check, the unstow or the move fails; the install then stops."""
     legacy, new = overlay.LEGACY_OVERLAY_ROOT, overlay.DEFAULT_OVERLAY_ROOT
-    if _overridden(t) or not legacy.is_dir():
+    if _overridden(t):
         return True
-    if new.exists() or new.is_symlink():
-        _release_leftover(t, legacy, new)
-        return True
-    if worktree.is_linked_worktree(legacy):
-        return _refuse_worktree(t, legacy, new)
+    match pending_migration():
+        case Migration.NONE:
+            return True
+        case Migration.LEFTOVER:
+            _release_leftover(t, legacy, new)
+            return True
+        case Migration.REFUSE_WORKTREE:
+            return refuse_worktree(t)
     if dry_run_all(t, f"Would unstow the packages of {legacy}, move it to {new} and restow them"):
         return True
     match relocate(t, legacy, new):

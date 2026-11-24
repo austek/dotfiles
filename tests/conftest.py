@@ -44,6 +44,17 @@ def no_network_tool_fetch(monkeypatch):
 
 
 @pytest.fixture
+def converged(monkeypatch):
+    """Pins every host-dependent plan predicate to 'nothing to do', so a plan is empty unless a test adds work."""
+    monkeypatch.setattr("dotfiles_setup.desktop_defaults.shell_change_pending", lambda: False)
+    monkeypatch.setattr("dotfiles_setup.desktop_defaults.ibus_hotkey_pending", lambda t: False)
+    monkeypatch.setattr("dotfiles_setup.system_check.pending_releases", lambda ctx: [])
+    monkeypatch.setattr("dotfiles_setup.secrets_env.pending", lambda home: ())
+    monkeypatch.setattr("dotfiles_setup.terminfo.pending", lambda t: ())
+    monkeypatch.setattr("dotfiles_setup.zsh_cache.pending", lambda home: False)
+
+
+@pytest.fixture
 def plugin_updates(monkeypatch):
     calls = []
     monkeypatch.setattr("dotfiles_setup.claude_plugins.update_claude_plugins", lambda logger, settings: calls.append(logger))
@@ -101,6 +112,7 @@ def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothol
     monkeypatch.setattr("dotfiles_setup.env._claude_home", lambda: tmp_path / "claude-home")
     monkeypatch.setattr(state, "state_dir", lambda: tmp_path / "state")
     monkeypatch.setattr(overlay, "find_overlay_root", lambda: None)
+    monkeypatch.setattr("dotfiles_setup.install_cmd.confirm_plan", lambda *a, **kw: None)
     monkeypatch.setattr("dotfiles_setup.update.pull_if_behind", lambda *a, **kw: False)
     monkeypatch.setattr("dotfiles_setup.identity.ensure_git_identity", lambda **kw: tmp_path / "gitconfig.local")
     stub_subprocess(monkeypatch)

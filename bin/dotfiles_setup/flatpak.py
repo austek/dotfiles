@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 
 from dotfiles_setup.tooling import Tooling, dry_run_all
 
@@ -24,12 +24,17 @@ def _installed(t: Tooling, app_id: str) -> bool:
     return t.run(["flatpak", "info", "--user", app_id], capture_output=True).returncode == 0
 
 
+def missing_ids(t: Tooling, package_names: Collection[str]) -> tuple[str, ...]:
+    """The wanted app ids that are not installed yet; read-only."""
+    return tuple(app_id for app_id in app_ids(package_names) if not _installed(t, app_id))
+
+
 def _flatpak(t: Tooling, *argv: str) -> bool:
     return t.logger.quiet_run(["flatpak", *argv], run=t.run).returncode == 0
 
 
-def _install_one(t: Tooling, app_id: str) -> bool:
-    if _installed(t, app_id):
+def _install_one(t: Tooling, app_id: str, check: bool = True) -> bool:
+    if check and _installed(t, app_id):
         t.logger.info(f"{app_id} is already installed. Skipping.")
         return True
     if _flatpak(t, "install", "--user", "-y", "--noninteractive", "flathub", app_id):
@@ -39,8 +44,8 @@ def _install_one(t: Tooling, app_id: str) -> bool:
     return False
 
 
-def _install_missing(t: Tooling, ids: list[str]) -> tuple[str, ...]:
-    return tuple(app_id for app_id in ids if not _install_one(t, app_id))
+def _install_missing(t: Tooling, ids: list[str], check: bool = True) -> tuple[str, ...]:
+    return tuple(app_id for app_id in ids if not _install_one(t, app_id, check))
 
 
 def _ready(t: Tooling, ids: list[str]) -> bool:
@@ -54,9 +59,11 @@ def _ready(t: Tooling, ids: list[str]) -> bool:
     return True
 
 
-def install_flatpaks(t: Tooling, package_names: Collection[str], upgrade: bool = False) -> tuple[str, ...]:
-    """Installs the listed apps and, on upgrade, updates every Flatpak app. Returns the app ids that failed to install, all of them when Flatpak is unusable. Failures are logged and never stop the install."""
-    ids = app_ids(package_names)
+def install_flatpaks(
+    t: Tooling, package_names: Collection[str], upgrade: bool = False, only: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    """Installs the wanted app ids (exactly `only`, unchecked, when given) and, on upgrade, updates every app. Returns the ids that failed, all of them when Flatpak is unusable; any failure skips all removals."""
+    ids = app_ids(package_names) if only is None else list(only)
     if not ids and not upgrade:
         return ()
     if os.environ.get(SKIP_ENV):
@@ -68,7 +75,7 @@ def install_flatpaks(t: Tooling, package_names: Collection[str], upgrade: bool =
         return ()
     if not _ready(t, ids):
         return tuple(ids)
-    failed = _install_missing(t, ids)
+    failed = _install_missing(t, ids, check=only is None)
     if upgrade and not _flatpak(t, "update", "--user", "-y", "--noninteractive"):
         t.logger.error("flatpak update failed.")
     return failed

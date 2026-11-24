@@ -164,6 +164,25 @@ def test_the_linked_tools_are_jetbrains_toolbox_and_sonar():
     ]
 
 
+def test_an_installed_tool_without_a_link_is_pending(tmp_path):
+    real_tool(tmp_path, SONAR)
+    assert user_links.pending(tooling(tmp_path), {"sonarqube-cli"}) == (f"link {user_bin(tmp_path) / 'sonar'}",)
+
+
+def test_a_regular_file_at_the_link_name_is_not_pending_because_apply_keeps_it(tmp_path):
+    real_tool(tmp_path, SONAR)
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "sonar").write_text("mine")
+    assert user_links.pending(tooling(tmp_path), {"sonarqube-cli"}) == ()
+
+
+def test_a_stale_symlink_at_the_link_name_is_pending(tmp_path):
+    real_tool(tmp_path, SONAR)
+    user_bin(tmp_path).mkdir(parents=True)
+    (user_bin(tmp_path) / "sonar").symlink_to(tmp_path / "gone")
+    assert user_links.pending(tooling(tmp_path), {"sonarqube-cli"})
+
+
 def test_the_links_land_where_the_release_installer_resolver_says(tmp_path):
     real_tool(tmp_path, SONAR)
     user_links.link_user_tools(tooling(tmp_path), {"sonarqube-cli"})

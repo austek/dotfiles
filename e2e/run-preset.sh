@@ -25,7 +25,7 @@ copy_repo() {
 install_preset() {
     local log
     log=$(mktemp)
-    "$dest/bin/dfctl" apply --preset "$preset" --force -v "$@" < /dev/null 2>&1 | tee "$log"
+    "$dest/bin/dfctl" apply --preset "$preset" --force --yes -v "$@" < /dev/null 2>&1 | tee "$log"
     # Tool installers log an error and carry on, so the exit status alone hides a failed install.
     if grep -qF '[ERROR]' "$log"; then
         echo "e2e[$preset]: install logged errors:" >&2

@@ -317,6 +317,7 @@ _UNDO_HANDLERS: dict[str, Callable[[RollbackContext, str], None]] = {
     "FILE_CREATED": _file_created,
     "DIR_CREATED": _dir_created,
     "BIN_INSTALLED": _binary_installed,
+    "TERMINFO_INSTALLED": _binary_installed,
     "TREE_INSTALLED": _tree_installed,
     "LINK_INSTALLED": _link_only_installed,
     "APT_REMOVED": _apt_removed,

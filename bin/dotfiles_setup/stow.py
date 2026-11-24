@@ -158,6 +158,93 @@ def _regular_files(directory: Path) -> list[Path]:
     return sorted(p for p in directory.rglob("*") if p.is_file() and not p.is_symlink())
 
 
+_IGNORED_ANYWHERE = re.compile(r"RCS|.+,v|CVS|\.#.+|\.cvsignore|\.svn|_darcs|\.hg|\.git|\.gitignore|\.gitmodules|.+~|\#.*\#")
+_IGNORED_TOP_LEVEL = re.compile(r"README.*|LICENSE.*|COPYING")
+
+
+LOCAL_IGNORE_FILE = ".stow-local-ignore"
+
+
+GLOBAL_IGNORE_FILE = ".stow-global-ignore"
+
+
+def _ignore_patterns(path: Path) -> list[str]:
+    """Stow's reading of an ignore file: no blank or comment lines, no trailing ` # comment`, `\\#` is a literal `#`."""
+    lines = (re.sub(r"\s+#.+", "", line.strip()) for line in path.read_text().splitlines())
+    return [line.replace("\\#", "#") for line in lines if line and not line.startswith("#")]
+
+
+def _local_ignores(package_dir: Path, home: Path) -> list[str] | None:
+    """The package's `.stow-local-ignore`, else `~/.stow-global-ignore`; either replaces stow's default list."""
+    for path in (package_dir / LOCAL_IGNORE_FILE, home / GLOBAL_IGNORE_FILE):
+        if path.is_file():
+            return _ignore_patterns(path)
+    return None
+
+
+def _matches_local(pattern: str, rel: Path) -> bool:
+    """A pattern with a slash matches at path-component boundaries; any other must fully match one component."""
+    try:
+        if "/" in pattern:
+            return re.search(rf"(?:^|/)(?:{pattern})(?:/|$)", "/" + rel.as_posix()) is not None
+        return any(re.fullmatch(pattern, part) for part in rel.parts)
+    except re.error:
+        return False
+
+
+def _stow_ignores(rel: Path, local: list[str] | None = None) -> bool:
+    """Whether stow never links `rel`: its default ignore list, or the package's own list when it has one."""
+    if rel.name == LOCAL_IGNORE_FILE:
+        return True
+    if local is not None:
+        return any(_matches_local(pattern, rel) for pattern in local)
+    return any(_IGNORED_ANYWHERE.fullmatch(part) for part in rel.parts) or bool(_IGNORED_TOP_LEVEL.fullmatch(rel.parts[0]))
+
+
+def _entry_lacks_link(entry: Path, dest: Path, rel: Path, local: list[str] | None) -> bool:
+    """One entry is linked whole; below a real directory stow links the children, so descend there only."""
+    if _stow_ignores(rel, local) or _links_to(dest, entry):
+        return False
+    if entry.is_dir() and not entry.is_symlink() and dest.is_dir() and not dest.is_symlink():
+        return any(_entry_lacks_link(c, dest / c.name, rel / c.name, local) for c in sorted(entry.iterdir()))
+    return True
+
+
+def _lacks_folded_links(root: Path, pkg: str, target: Path, local: list[str] | None) -> bool:
+    return any(_entry_lacks_link(e, target / e.name, Path(e.name), local) for e in sorted((root / pkg).iterdir()))
+
+
+def _lacks_links(root: Path, pkg: str, target: Path, skip: set[Path]) -> bool:
+    local = _local_ignores(root / pkg, target)
+    if pkg in FOLD_PACKAGES and (root / pkg).is_dir():
+        return _lacks_folded_links(root, pkg, target, local)
+    for file in _package_files(root / pkg):
+        rel = file.relative_to(root / pkg)
+        if rel not in skip and not _stow_ignores(rel, local) and not _links_to(target / rel, file):
+            return True
+    return False
+
+
+def _overridden_files(plan: StowPlan, pkg: str) -> set[Path]:
+    """Package-relative paths of the files the overlay replaces; the public stow ignores them, so the plan skips them too."""
+    if plan.overlay_root is None or pkg not in overlay_packages(plan):
+        return set()
+    own = _regular_files(plan.overlay_root / pkg)
+    rels = {file.relative_to(plan.overlay_root / pkg) for file in own}
+    return {rel for rel in rels if (plan.dotfiles_dir / pkg / rel).is_file()}
+
+
+def pending_links(plan: StowPlan) -> tuple[str, ...]:
+    """What `configure_dotfiles` would link or unlink, from the files on disk alone; changes nothing."""
+    home, stow_file = plan.t.home, plan.dotfiles_dir / STOW_PACKAGES_FILE
+    public = package_lines(stow_file) if stow_file.is_file() else []
+    return (
+        *(f"link {p}" for p in public if _lacks_links(plan.dotfiles_dir, p, home, _overridden_files(plan, p))),
+        *(f"link {p} (overlay)" for p in overlay_packages(plan) if _lacks_links(plan.overlay_root, p, home, set())),
+        *(f"unlink {p}" for p in other_preset_packages(plan) if stow_pkg_has_links(plan.overlay_root, p, home)),
+    )
+
+
 def overlay_override_ignores(plan: StowPlan) -> list[str]:
     """Paths the overlay overrides must be excluded from the public stow, or the two fight over them every rerun."""
     ignores = []

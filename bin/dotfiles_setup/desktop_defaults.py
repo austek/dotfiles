@@ -30,13 +30,13 @@ def _config_dir(home: Path) -> Path:
 
 def shell_change_pending() -> bool:
     """Reads the passwd entry, which `usermod -s` updates at once; $SHELL only changes at the next login."""
-    return pwd.getpwuid(os.getuid()).pw_shell != (shutil.which("zsh") or "/usr/bin/zsh")
+    return os.path.realpath(pwd.getpwuid(os.getuid()).pw_shell) != os.path.realpath(shutil.which("zsh") or "/usr/bin/zsh")
 
 
 def change_shell(t: Tooling) -> None:
     t.logger.step("Step 8: Changing default shell to Zsh...")
     zsh = shutil.which("zsh") or "/usr/bin/zsh"
-    if os.environ.get("SHELL") == zsh:
+    if not shell_change_pending():
         t.logger.info(f"Default shell is already {zsh}. Skipping.")
     elif not dry_run_all(
         t, f"Would change default shell to {zsh} using chsh", "Would require logout/login for changes to take effect",
@@ -134,6 +134,13 @@ def _ibus_bindings(t: Tooling) -> list[str] | None:
 
 def _bindings_literal(bindings: list[str]) -> str:
     return repr(bindings) if bindings else EMPTY_STRING_ARRAY
+
+
+def ibus_hotkey_pending(t: Tooling) -> bool:
+    """True when the IBus Unicode hotkey is bound to Ctrl+Shift+U; reads one gsettings key."""
+    if shutil.which("gsettings") is None:
+        return False
+    return any(_is_ctrl_shift_u(binding) for binding in _ibus_bindings(t) or [])
 
 
 def disable_ibus_unicode_hotkey(t: Tooling) -> None:
