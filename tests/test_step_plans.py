@@ -10,12 +10,14 @@ WRITE_VERBS = {"sudo", "apt-get", "dpkg", "rm", "mv", "cp", "ln", "tee", "mkdir"
 READ_ONLY_APT_GET = ("apt-get", "-s")
 
 
-def _machine(monkeypatch, apt=(), flatpaks=(), upgradable=()):
+def _machine(monkeypatch, apt=(), flatpaks=(), upgradable=(), stow_out=""):
     calls = []
 
     def run(argv, **kwargs):
         calls.append(list(argv))
-        if argv[0] == "dpkg-query":
+        if argv[0] == "stow":
+            out = stow_out
+        elif argv[0] == "dpkg-query":
             out = "".join(f"ii  {name} 1.0\n" for name in apt)
         elif argv[:3] == ["apt-get", "-s", "dist-upgrade"]:
             out = "".join(f"Inst {name} [1.0] (2.0 x)\n" for name in upgradable)
@@ -193,7 +195,7 @@ def test_the_secrets_row_asks_for_the_missing_file(tmp_path, monkeypatch):
 
 
 def test_the_dotfiles_row_lists_unlinked_packages(tmp_path, monkeypatch):
-    _machine(monkeypatch)
+    _machine(monkeypatch, stow_out="LINK: .zshrc => ../dotfiles/zsh/.zshrc\n")
     (tmp_path / "dotfiles" / "zsh").mkdir(parents=True)
     (tmp_path / "dotfiles" / "zsh" / ".zshrc").write_text("")
     (tmp_path / "dotfiles" / ".stow-packages").write_text("zsh\n")
@@ -223,7 +225,7 @@ def test_planning_is_read_only(tmp_path, monkeypatch):
     _plans(tmp_path, {"zsh", "curl", "flatpak:org.a.A"}, pending=("htop",), upgrade=True)
     after = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*") if "dotfiles" not in p.parts)
     assert before == after
-    writes = [c for c in calls if c[0] in WRITE_VERBS and tuple(c[:2]) != READ_ONLY_APT_GET]
+    writes = [c for c in calls if c[0] in WRITE_VERBS and tuple(c[:2]) not in (READ_ONLY_APT_GET, ("stow", "-n"))]
     writes += [c for c in calls if c[0] == "flatpak" and c[:3] != ["flatpak", "info", "--user"]]
     assert writes == []
 
