@@ -47,7 +47,7 @@ def _resolve_preset_name(args: argparse.Namespace, prior: state.MachineState | N
 
 
 def _build_plan(
-    args: argparse.Namespace, logger: Logger, env: Env, preset_name: str, prior: state.MachineState | None
+    logger: Logger, env: Env, preset_name: str, prior: state.MachineState | None
 ) -> Result[_Install]:
     overlay_root = _prepare_checkout(logger, env.dotfiles_dir)
     loaded = presets.load_preset(env.dotfiles_dir / "presets", preset_name)
