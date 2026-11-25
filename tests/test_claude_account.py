@@ -332,6 +332,35 @@ def test_rename_refuses_when_the_recorded_account_matches(tmp_path):
     assert _run(tmp_path, "claude-account rename team renamed").returncode == 1
 
 
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ("--account= work", "accounts=work with=- rest=-"),
+        ("--account work", "accounts=work with=- rest=-"),
+        ("--account=work", "accounts=work with=- rest=-"),
+        ("--with= alpha,beta", "accounts=- with=alpha,beta rest=-"),
+        ("--with alpha", "accounts=- with=alpha rest=-"),
+        ("--with=alpha", "accounts=- with=alpha rest=-"),
+        ("--with= -x", "accounts=- with=- rest=-x"),
+        ("--with=", "accounts=- with=- rest=-"),
+    ],
+)
+def test_an_empty_inline_value_takes_the_next_word_unless_it_is_a_flag_for_with(tmp_path, args, expected):
+    script = (
+        f"local -a accounts=() with_names=() rest=(); _claude_parse_args {args}; "
+        "print -r -- accounts=${(j:,:)accounts:--} with=${(j:,:)with_names:--} rest=${(j:,:)rest:--}"
+    )
+    result = _run(tmp_path, f"f() {{ {script} }}; f")
+    assert (result.returncode, result.stdout.strip()) == (0, expected)
+
+
+def test_an_empty_account_before_the_delimiter_does_not_swallow_it(tmp_path):
+    script = "local -a accounts=() with_names=() rest=(); _claude_parse_args --account= -- --burst"
+    result = _run(tmp_path, f"f() {{ {script} }}; f")
+    assert result.returncode == 2
+    assert "needs a name" in result.stderr
+
+
 @pytest.mark.parametrize("args", ["--account=", "--account ''"])
 def test_an_empty_account_name_is_rejected(tmp_path, args):
     script = f"local -a accounts=() with_names=() rest=(); _claude_parse_args {args}"
