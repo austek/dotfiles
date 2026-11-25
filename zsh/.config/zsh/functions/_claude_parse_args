@@ -5,10 +5,16 @@ _claude_parse_args() {
     case $1 in
       --) rest+=("$@"); return ;;
       --burst) accounts+=(burst) ;;
-      --account=*) [[ -n ${1#--account=} ]] || { print -ru2 -- "claude: --account needs a name"; return 2 }; accounts+=(${1#--account=}) ;;
-      --account) (( $# > 1 )) && [[ -n $2 ]] || { print -ru2 -- "claude: --account needs a name"; return 2 }; accounts+=($2); shift ;;
-      --with=*) with_names+=(${(s:,:)${1#--with=}}) ;;
-      --with) if (( $# > 1 )) && [[ $2 != -* ]]; then with_names+=(${(s:,:)2}); shift; else with_bare=1; fi ;;
+      # An empty `--account=` or `--with=` takes the next word, but never a literal `--`, and for `--with` never a word starting with `-`.
+      --account|--account=*)
+        local name=${${1#--account}#=}
+        if [[ -z $name ]] && (( $# > 1 )) && [[ $2 != -- ]]; then name=$2; shift; fi
+        [[ -n $name ]] || { print -ru2 -- "claude: --account needs a name"; return 2 }
+        accounts+=($name) ;;
+      --with|--with=*)
+        local val=${${1#--with}#=}
+        if [[ -z $val ]] && (( $# > 1 )) && [[ $2 != -* ]]; then val=$2; shift; fi
+        if [[ -n $val ]]; then with_names+=(${(s:,:)val}); elif [[ $1 == --with ]]; then with_bare=1; fi ;;
       *) rest+=("$1") ;;
     esac
     shift
