@@ -65,60 +65,25 @@ def test_rtk_dry_run_downloads_nothing(tmp_path, on_path):
     assert downloads == []
 
 
-def test_cozempic_is_installed_through_pipx(tmp_path, on_path):
-    on_path.add("pipx")
+def test_dfctl_no_longer_installs_or_configures_cozempic():
+    assert not hasattr(ct, "configure_cozempic_cli")
+    assert not hasattr(ct, "_report_cozempic")
+    assert not hasattr(ct, "_tool_env")
+
+
+def test_the_base_settings_carry_no_cozempic_entries():
+    settings = json.loads((Path(__file__).resolve().parent.parent / "claude/.claude/settings.json").read_text())
+    assert [key for key in settings.get("env", {}) if key.startswith("COZEMPIC_")] == []
+    assert "cozempic@cozempic" not in settings["enabledPlugins"]
+    assert "cozempic" not in settings["extraKnownMarketplaces"]
+
+
+def test_version_checks_run_with_the_inherited_environment(tmp_path, on_path):
+    on_path.add("rtk")
     machine = Machine()
     t, _ = make(tmp_path, machine)
-    ct.configure_cozempic_cli(t)
-    assert machine.ran("pipx", "install", "--quiet", "cozempic")
-
-
-def test_cozempic_without_pipx_installs_nothing(tmp_path, on_path):
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_cozempic_cli(t)
-    assert machine.commands == []
-
-
-def test_cozempic_already_installed_is_left_alone(tmp_path, on_path):
-    on_path.update({"cozempic", "pipx"})
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_cozempic_cli(t)
-    assert not machine.ran("pipx")
-
-
-def test_the_cozempic_version_check_disables_global_init_and_keeps_the_environment(tmp_path, on_path, monkeypatch):
-    monkeypatch.setenv("COZEMPIC_TEST_MARKER", "kept")
-    on_path.update({"cozempic", "pipx"})
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_cozempic_cli(t)
-    env = machine.envs[machine.commands.index(["cozempic", "--version"])]
-    assert env["COZEMPIC_NO_GLOBAL_INIT"] == "1"
-    assert env["COZEMPIC_TEST_MARKER"] == "kept"
-
-
-def test_the_post_install_cozempic_report_disables_global_init(tmp_path, on_path):
-    on_path.add("cozempic")
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct._report_cozempic(t)
-    assert machine.envs[machine.commands.index(["/usr/bin/cozempic", "--version"])]["COZEMPIC_NO_GLOBAL_INIT"] == "1"
-
-
-def test_other_binaries_do_not_get_the_cozempic_variable(tmp_path, on_path):
-    on_path.update({"pipx", "rtk"})
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct._version_of(t, "pipx")
     ct._version_of(t, "rtk")
-    assert all("COZEMPIC_NO_GLOBAL_INIT" not in (env or {}) for env in machine.envs)
-
-
-def test_the_base_settings_disable_cozempic_global_init():
-    settings = Path(__file__).resolve().parent.parent / "claude/.claude/settings.json"
-    assert json.loads(settings.read_text())["env"]["COZEMPIC_NO_GLOBAL_INIT"] == "1"
+    assert machine.envs == [None]
 
 
 def make_nvm_node(tmp_path, *versions):
@@ -184,7 +149,7 @@ def test_a_failed_caveman_npm_install_stops(tmp_path, on_path):
 def test_the_claude_tools_run_in_order(tmp_path, monkeypatch):
     order = []
     t, _ = make(tmp_path, Machine())
-    for name in ("configure_rtk_cli", "configure_cozempic_cli", "configure_caveman_proxy"):
+    for name in ("configure_rtk_cli", "configure_caveman_proxy"):
         monkeypatch.setattr(ct, name, lambda t, name=name: order.append(name))
     ct.configure_claude_tools(t)
-    assert order == ["configure_rtk_cli", "configure_cozempic_cli", "configure_caveman_proxy"]
+    assert order == ["configure_rtk_cli", "configure_caveman_proxy"]

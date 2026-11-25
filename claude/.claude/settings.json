@@ -1,9 +1,4 @@
 {
-  "env": {
-    "COZEMPIC_NO_AUTO_INIT": "1",
-    "COZEMPIC_NO_AUTO_UPDATE": "1",
-    "COZEMPIC_NO_GLOBAL_INIT": "1"
-  },
   "permissions": {
     "additionalDirectories": [
       "/tmp",
@@ -153,7 +148,6 @@
     "code-craftsmanship@wondelai-skills": true,
     "code-modernization@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
-    "cozempic@cozempic": true,
     "dev-utilities@ustekai-skills": true,
     "feature-dev@claude-plugins-official": true,
     "language-personas@ustekai-skills": true,
@@ -165,12 +159,6 @@
     "superpowers@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "cozempic": {
-      "source": {
-        "source": "github",
-        "repo": "Ruya-AI/cozempic"
-      }
-    },
     "wondelai-skills": {
       "source": {
         "source": "github",

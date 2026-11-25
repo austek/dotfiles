@@ -1,2 +1,3 @@
 # Tools dfctl no longer installs; `dfctl apply --prune` removes them. Each name should be in uninstallers.REGISTRY; unknown names only warn.
 serena
+cozempic

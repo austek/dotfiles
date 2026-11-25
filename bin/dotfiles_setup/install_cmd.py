@@ -154,7 +154,6 @@ def _approve_and_run(
             logger.error(message)
             return install_flow.INTERRUPTED_EXIT_CODE
         case Ok(value=approved):
-            # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
             _write_claude_settings(logger, claude_settings, env)
             inputs = _flow_inputs(t, env, plan, args, approved, plans)
             return _run_flow(args, env, plan, claude_settings, path_entries, inputs)

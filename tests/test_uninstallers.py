@@ -203,7 +203,7 @@ def test_remove_returns_false_when_a_command_fails_and_still_tries_the_rest(tmp_
 def test_the_shipped_uninstall_file_lists_only_registered_names():
     repo = Path(__file__).resolve().parent.parent
     names = un.load(repo, None).value
-    assert "serena" in names
+    assert {"serena", "cozempic"} <= set(names)
     assert un.unknown(names) == ()
 
 

@@ -13,7 +13,7 @@ from dotfiles_setup.log import Logger
 Settings = dict[str, Any]
 RunFn = Callable[..., Any]
 
-LEGACY_MARKETPLACES = frozenset({"claude-skills"})
+LEGACY_MARKETPLACES = frozenset({"claude-skills", "cozempic"})
 UPDATE_WORKERS = 4
 
 

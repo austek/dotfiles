@@ -46,6 +46,12 @@ def _mutations(calls):
     return [c for c in calls if c[0] in MUTATING or c[:2] in (("marketplace", "add"), ("marketplace", "remove"), ("marketplace", "update"))]
 
 
+def test_cozempic_is_a_legacy_marketplace_whose_plugins_are_uninstalled_and_which_is_removed():
+    labels = _labels(SETTINGS, {"cozempic"}, ["cozempic@cozempic"])
+    assert "uninstall cozempic@cozempic" in labels
+    assert "remove marketplace cozempic" in labels
+
+
 def test_plan_orders_uninstall_remove_add_refresh_install_update():
     assert _labels(SETTINGS, {"m", "claude-skills"}, ["a@m", "b@m", "x@claude-skills"]) == [
         "uninstall b@m",
