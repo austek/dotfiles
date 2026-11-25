@@ -90,7 +90,8 @@ def test_the_resume_line_is_buffered_and_pasted_into_the_pane_once_claude_exits(
     assert buffered.endswith(f"-- cd '{pane.work}' && claude --resume {SESSION}")
     watcher = next(c for c in calls if c.startswith("run-shell -b "))
     assert f"kill -0 {pane.claude.pid}" in watcher
-    assert "paste-buffer -d -b claude-reload-" in watcher and "-t %1" in watcher
+    assert "paste-buffer -d -b claude-reload-" in watcher
+    assert "-t %1" in watcher
 
 
 def test_a_failed_reload_keeps_its_status_and_starts_no_watcher(pane):
