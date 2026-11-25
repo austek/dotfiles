@@ -15,7 +15,7 @@ claude_pid=$(pgrep -P "$pane_pid" -f claude | head -n 1 || true)
 [[ -n $claude_pid ]] || { echo "claude-reload: no claude process under pane $TMUX_PANE" >&2; exit 1; }
 
 # Claude keeps its live session's `.../<session id>/tasks` directory open; the pid file's sessionId stays at the
-# pre-/clear value, so the open directory wins and the pid file is only the fallback.
+# pre-/clear value, so the open directory is the only trusted source and a missing one stops the reload.
 live_session_id() {
     local fd target
     for fd in "/proc/$1"/fd/*; do
@@ -46,7 +46,11 @@ pid_file="$config_dir/sessions/$claude_pid.json"
 session_id=$(jq -er .sessionId "$pid_file")
 dir=$(jq -er .cwd "$pid_file")
 
-if live_id=$(live_session_id "$claude_pid") && [[ $live_id != "$session_id" ]]; then
+live_id=$(live_session_id "$claude_pid") || {
+    echo "claude-reload: claude $claude_pid holds no session tasks directory open; $pid_file names $session_id, which /clear leaves stale" >&2
+    exit 1
+}
+if [[ $live_id != "$session_id" ]]; then
     echo "claude-reload: $pid_file names $session_id but claude has $live_id open; using $live_id" >&2
     session_id=$live_id
 fi
