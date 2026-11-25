@@ -61,7 +61,7 @@ args=("$@")
 (( ${#args[@]} )) || args=(-rx standard)
 
 resume_line="cd '${dir//\'/\'\\\'\'}' && claude$(remote_control_flag "$claude_pid") --resume $session_id"
-buffer="claude-reload-$claude_pid"
+buffer="claude-reload-$claude_pid-$$"
 # The line travels in a tmux buffer, so the watcher shell below never sees the directory.
 tmux set-buffer -b "$buffer" -- "$resume_line"
 
