@@ -50,7 +50,6 @@
       "Read",
       "mcp__claude-in-chrome__*",
       "mcp__idea__*",
-      "mcp__serena__*",
       "mcp__sonarqube__*"
     ],
     "ask": [
@@ -116,26 +115,6 @@
           {
             "type": "command",
             "command": "python3 \"$HOME/.claude/hooks/block-dangerous-rm.py\""
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "serena-hooks remind 2>/dev/null || true"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "serena-hooks activate 2>/dev/null || true"
           }
         ]
       }

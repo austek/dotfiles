@@ -34,14 +34,13 @@
 - **Java**: `Optional`, `List.of()`, `Stream`. `sealed interface` + `switch` > `instanceof`. Records > POJOs. `Either` (Vavr) or checked exceptions. No raw types/casts.
 - **Scala**: No `var`, `null`, `return`. `map`/`fold` > loops. `Either`/`IO` > exceptions.
 
-# Code Exploration & Navigation (Serena First)
-- **LSP / AST Navigation**: Always query Serena MCP tools (`find_symbol`, `find_referencing_symbols`, `get_symbols_in_file`) before falling back to `Grep`, `rg`, or `Read` when locating classes, methods, or call graphs.
-- **Surgical Inspection**: Never dump whole files to inspect definitions. Use Serena's semantic lookup or targeted `Read` with `offset` and `limit`.
-- **Resolve Before Use**: Never guess a path or pass a placeholder symbol name. Locate the symbol with `find_symbol` (or the file with `find`) first, then call `find_referencing_symbols` or `Read` with the resolved result. Pass this to subagents.
+# Code Exploration & Navigation
+- **Surgical Inspection**: Never dump whole files to inspect definitions. Use `Grep`/`rg` to locate, then a targeted `Read` with `offset` and `limit`.
+- **Resolve Before Use**: Never guess a path or pass a placeholder symbol name. Locate the symbol or file with `Grep`, `rg` or `fd` first, then `Read` the resolved result. Pass this to subagents.
 
 # Token Efficiency & Output Bounds
 - **Targeted Reads**: Never use `Read` on an entire file >100 lines if inspecting or editing a specific function or block; specify `offset` and `limit`.
-- **Search Before Reading**: Pinpoint exact lines with Serena, `Grep`, or `rg` prior to opening a file.
+- **Search Before Reading**: Pinpoint exact lines with `Grep` or `rg` prior to opening a file.
 - **Noisy Files**: Never run `Read` or `cat` on lockfiles (`package-lock.json`, `pnpm-lock.yaml`), compiled artifacts, generated schemas, or huge test fixture datasets; inspect JSON structure with `jq 'keys'` instead.
 - **Binary Documents**: Convert PDF, DOCX, PPTX, XLSX with `markitdown <file>` before reading; never read the raw file.
 - **Bounded CLI Queries**:

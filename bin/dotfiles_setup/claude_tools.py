@@ -12,11 +12,6 @@ from dotfiles_setup.tooling import Tooling, dry_run_all
 from dotfiles_setup.vendor_installers import run_vendor_script
 
 RTK_INSTALL_URL = "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh"
-SERENA_INSTALL = ["pipx", "install", "--python", "3.14", "--fetch-missing-python", "serena-agent", "--pip-args=--pre"]
-SERENA_INSTALL_TEXT = 'pipx install --python 3.14 --fetch-missing-python serena-agent --pip-args="--pre"'
-PIPX_FETCH_MISSING_PYTHON_MIN = (1, 5)
-JDTLS_ENABLED = '"annotationProcessing": {"enabled": True}'
-JDTLS_DISABLED = '"annotationProcessing": {"enabled": False}'
 CAVEMAN_INSTALL = ["npm", "install", "-g", "--ignore-scripts", "@caveman-ai/cli"]
 
 
@@ -87,93 +82,6 @@ def _report_cozempic(t: Tooling) -> None:
         t.logger.success(f"cozempic CLI installed ({_version_of(t, found)}).")
 
 
-def _serena_install_argv(t: Tooling) -> list[str]:
-    """pipx rejects --fetch-missing-python before 1.5; an unreadable version keeps the flag."""
-    out = t.run(["pipx", "--version"], capture_output=True, text=True).stdout or ""
-    version = re.match(r"(\d+)\.(\d+)", out.strip())
-    if version and (int(version[1]), int(version[2])) < PIPX_FETCH_MISSING_PYTHON_MIN:
-        return [arg for arg in SERENA_INSTALL if arg != "--fetch-missing-python"]
-    return SERENA_INSTALL
-
-
-def _ensure_serena_cli(t: Tooling) -> bool:
-    if shutil.which("serena") is not None:
-        t.logger.success(f"Serena CLI already installed ({_version_of(t, 'serena', first_line=True)}).")
-    elif shutil.which("pipx") is None:
-        t.logger.error(f"pipx not found; can't install Serena. Add 'pipx' to packages/apt_common.txt and re-run, or install manually: {SERENA_INSTALL_TEXT}")
-        return False
-    elif not dry_run_all(t, f"Would install Serena via: {SERENA_INSTALL_TEXT}"):
-        t.logger.info("Serena CLI not found; installing...")
-        if t.run(_serena_install_argv(t)).returncode != 0:
-            t.logger.error(f"Failed to install serena-agent via pipx. Install it manually: {SERENA_INSTALL_TEXT}")
-            return False
-        t.logger.success("Serena CLI installed.")
-    return True
-
-
-def _ensure_serena_init(t: Tooling) -> None:
-    config = t.home / ".serena/serena_config.yml"
-    if config.is_file():
-        t.logger.success(f"Serena already initialised ({config} exists).")
-    elif not dry_run_all(t, "Would run 'serena init'."):
-        t.run(["serena", "init"])
-
-
-def _ensure_serena_mcp(t: Tooling) -> None:
-    add = ["claude", "mcp", "add", "--scope", "user", "serena", "--", "serena", "start-mcp-server", "--context", "claude-code", "--project-from-cwd"]
-    claude = shutil.which("claude")
-    if claude is not None and t.run(["claude", "mcp", "get", "serena"], capture_output=True).returncode == 0:
-        t.logger.success("Serena already registered as a Claude Code MCP server.")
-    elif dry_run_all(t, f"Would run: {' '.join(add)}"):
-        return
-    elif claude is None:
-        t.logger.warn("claude CLI not found; skipping Serena MCP registration.")
-    else:
-        t.run(add)
-
-
-def _find_jdtls(venv: Path) -> Path | None:
-    root = os.path.realpath(venv) + os.sep
-    resolved = (os.path.realpath(candidate) for candidate in sorted(venv.glob("**/solidlsp/language_servers/eclipse_jdtls.py")))
-    return next((Path(path) for path in resolved if path.startswith(root)), None)
-
-
-def _serena_venvs(t: Tooling) -> list[Path]:
-    """The venv behind the `serena` executable when it has a `pyvenv.cfg` (pipx, uv tool), then pipx's default location."""
-    exe = shutil.which("serena")
-    venv = Path(os.path.realpath(exe)).parent.parent if exe else None
-    from_exe = [venv] if venv is not None and (venv / "pyvenv.cfg").is_file() else []
-    return [*from_exe, t.home / ".local/share/pipx/venvs/serena-agent"]
-
-
-def _patch_jdtls(t: Tooling) -> None:
-    found = next(filter(None, map(_find_jdtls, _serena_venvs(t))), None)
-    if found is None:
-        t.logger.warn("eclipse_jdtls.py not found in the Serena venv; skipping the Gradle 9 annotation-processing patch.")
-        return
-    source = found.read_text()
-    if JDTLS_DISABLED in source:
-        t.logger.success(f"Gradle 9 annotation-processing patch already applied to {found}.")
-    elif not dry_run_all(t, f"Would patch {found}: annotationProcessing enabled True -> False (Gradle 9 workaround, see serena#1510)."):
-        found.with_name(found.name + ".bak").write_text(source)
-        found.write_text(source.replace(JDTLS_ENABLED, JDTLS_DISABLED))
-        if JDTLS_DISABLED in found.read_text():
-            t.logger.success(f"Applied the Gradle 9 annotation-processing patch to {found}.")
-        else:
-            t.logger.error(f"Failed to patch {found}. Check it manually against serena#1510.")
-
-
-def configure_serena(t: Tooling, preset_name: str) -> None:
-    """The jdtls patch lives inside Serena's venv, so an upgrade wipes it; re-applying is idempotent."""
-    t.logger.step("Step 7e: Verifying Serena MCP is installed and configured...")
-    if preset_name == "homelab":
-        t.logger.success("Serena not needed on the homelab profile; skipping.")
-    elif _ensure_serena_cli(t):
-        _ensure_serena_init(t)
-        _ensure_serena_mcp(t)
-        _patch_jdtls(t)
-
-
 def _caveman_version(t: Tooling, caveman: str, env: dict[str, str]) -> str:
     out = t.run([caveman, "version"], capture_output=True, text=True, env=env).stdout or ""
     match = re.search(r'"version": "([^"]*)"', out)
@@ -223,8 +131,7 @@ def configure_caveman_proxy(t: Tooling) -> None:
         _install_caveman_engine(t, caveman, env)
 
 
-def configure_claude_tools(t: Tooling, preset_name: str) -> None:
+def configure_claude_tools(t: Tooling) -> None:
     configure_rtk_cli(t)
     configure_cozempic_cli(t)
-    configure_serena(t, preset_name)
     configure_caveman_proxy(t)

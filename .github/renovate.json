@@ -212,18 +212,6 @@
     },
     {
       "customType": "regex",
-      "description": "Python interpreter pipx installs serena-agent with (command and the manual-install hint)",
-      "managerFilePatterns": ["/^bin/dotfiles_setup/claude_tools\\.py$/"],
-      "matchStrings": [
-        "\"--python\", \"(?<currentValue>\\d+\\.\\d+)\"",
-        "--python (?<currentValue>\\d+\\.\\d+) (?:--fetch-missing-python )?serena"
-      ],
-      "depNameTemplate": "python",
-      "datasourceTemplate": "python-version",
-      "versioningTemplate": "python"
-    },
-    {
-      "customType": "regex",
       "description": "Antigravity IDE pinned build, version-executionId; its checksums.txt URL and digest need a manual follow-up",
       "managerFilePatterns": ["/^bin/dotfiles_setup/antigravity\\.py$/"],
       "matchStrings": ["PINNED_BUILD = \"(?<currentValue>[^\"]+)\""],

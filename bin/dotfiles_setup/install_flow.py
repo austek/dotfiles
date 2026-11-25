@@ -162,7 +162,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("refresh_zsh_completion_cache", lambda: zsh_cache.refresh_zsh_completion_cache(t)),
         ("ensure_secrets_env", lambda: secrets_env.ensure_secrets_env(t, changes)),
         ("retire_claude_profile", lambda: claude_profile.retire_claude_profile(t)),
-        ("configure_claude_tools", lambda: claude_tools.configure_claude_tools(t, inputs.preset_name)),
+        ("configure_claude_tools", lambda: claude_tools.configure_claude_tools(t)),
         ("report_stale_copies", lambda: stale_copies.report_stale_copies(t, stale_copies.managed_names(packages))),
         ("change_shell", lambda: desktop_defaults.change_shell(t)),
         ("set_default_terminal", lambda: desktop_defaults.set_default_terminal(t)),
