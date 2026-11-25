@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 from dotfiles_setup.log import Logger
@@ -58,6 +59,20 @@ def pull_if_behind(repo: Path, logger: Logger, run=subprocess.run, label: str = 
         return False
     logger.info(f"Pulled {behind} new {label} commit(s).")
     return True
+
+
+RESTARTED_VAR = "DFCTL_RESTARTED_AFTER_PULL"
+_ENTRY_NAMES = ("dfctl", "dotfiles-setup")
+
+
+def restart_if_updated(pulled: bool, logger: Logger, argv: list[str] | None = None, execv=os.execv) -> None:
+    """Re-runs the same command after a pull so the new code runs, not the modules already imported."""
+    args = sys.argv if argv is None else argv
+    if not pulled or os.environ.get(RESTARTED_VAR) or Path(args[0]).name not in _ENTRY_NAMES:
+        return
+    logger.info("Restarting dfctl to run the pulled code.")
+    os.environ[RESTARTED_VAR] = "1"
+    execv(sys.executable, [sys.executable, *args])
 
 
 def pull_overlay_if_git(overlay_root: Path | None, logger: Logger, run=subprocess.run) -> bool:

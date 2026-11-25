@@ -116,3 +116,31 @@ def test_missing_upstream_command_quotes_the_branch(tmp_path, capsys):
     run, _ = _fake_run({"rev-list": (128, ""), "symbolic-ref": (0, "feat;id\n")})
     pull_if_behind(tmp_path, Logger(dry_run=False), run=run)
     assert "git push -u origin 'feat;id'" in capsys.readouterr().out
+
+
+def _restart(monkeypatch, pulled, argv, marker=None):
+    from dotfiles_setup import update
+
+    monkeypatch.delenv(update.RESTARTED_VAR, raising=False)
+    if marker:
+        monkeypatch.setenv(update.RESTARTED_VAR, marker)
+    seen = []
+    update.restart_if_updated(pulled, Logger(dry_run=False), argv=argv, execv=lambda *a: seen.append(a))
+    return seen
+
+
+def test_restarts_dfctl_after_pull(monkeypatch):
+    seen = _restart(monkeypatch, True, ["/x/bin/dfctl", "apply", "--yes"])
+    assert len(seen) == 1 and seen[0][1][1:] == ["/x/bin/dfctl", "apply", "--yes"]
+
+
+def test_no_restart_without_pull(monkeypatch):
+    assert _restart(monkeypatch, False, ["/x/bin/dfctl", "apply"]) == []
+
+
+def test_no_restart_twice(monkeypatch):
+    assert _restart(monkeypatch, True, ["/x/bin/dfctl", "apply"], marker="1") == []
+
+
+def test_no_restart_outside_dfctl(monkeypatch):
+    assert _restart(monkeypatch, True, ["/usr/bin/pytest"]) == []

@@ -25,7 +25,7 @@ from dotfiles_setup.result import Result
 
 
 def _prepare_checkout(logger: Logger, dotfiles_dir: Path) -> Path | None:
-    update.pull_if_behind(dotfiles_dir, logger)
+    update.restart_if_updated(update.pull_if_behind(dotfiles_dir, logger), logger)
     overlay_root = overlay.find_overlay_root()
     update.pull_overlay_if_git(overlay_root, logger)
     return overlay_root
