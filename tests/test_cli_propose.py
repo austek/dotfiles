@@ -9,16 +9,18 @@ def test_propose_dispatches_to_run_propose(monkeypatch):
 
 
 def test_propose_help_says_main_checkout_only(capsys):
+    parser = build_arg_parser()
     with pytest.raises(SystemExit):
-        build_arg_parser().parse_args(["propose", "-h"])
+        parser.parse_args(["propose", "-h"])
     out = capsys.readouterr().out.replace("\n", " ")
     assert "main checkout" in out
     assert "open a PR" in out
 
 
 def test_top_level_help_lists_propose(capsys):
+    parser = build_arg_parser()
     with pytest.raises(SystemExit):
-        build_arg_parser().parse_args(["-h"])
+        parser.parse_args(["-h"])
     out = capsys.readouterr().out
     assert "propose" in out
     assert "dfctl propose" in out

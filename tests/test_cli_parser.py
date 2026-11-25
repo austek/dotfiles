@@ -63,8 +63,9 @@ def test_top_level_help_lists_apply_subcommand_and_examples(capsys):
 
 
 def test_help_hides_install_alias(capsys):
+    parser = build_arg_parser()
     with pytest.raises(SystemExit):
-        build_arg_parser().parse_args(["-h"])
+        parser.parse_args(["-h"])
     command_lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("    ")]
     assert not any(line.split()[0] == "install" for line in command_lines if line.split())
 
