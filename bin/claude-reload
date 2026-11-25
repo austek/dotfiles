@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Manual Cozempic reload for a claude-pane-loop tmux pane. `cozempic reload` only opens gnome-terminal/xterm
-# to resume, which this host lacks, so the pane would close. This runs the prune, then types the resume
-# line that claude-pane-loop accepts once Claude exits.
+# Manual Cozempic reload for a claude-pane-loop tmux pane. `cozempic reload` resumes by opening gnome-terminal
+# or xterm in a new window, never in the pane. This runs the prune with no-op copies of both first on PATH, so
+# no window opens, then types the resume line that claude-pane-loop accepts once Claude exits.
 # Usage: claude-reload [extra cozempic reload args, default: -rx standard]
 set -euo pipefail
 
 [[ -n ${TMUX_PANE:-} ]] || { echo "claude-reload: run inside a tmux pane" >&2; exit 1; }
+
+shims=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/claude-reload-shims
+[[ -x $shims/gnome-terminal && -x $shims/xterm ]] || { echo "claude-reload: $shims is missing, so cozempic would open a terminal window" >&2; exit 1; }
 
 config_dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 dir=$PWD
@@ -66,7 +69,7 @@ buffer="claude-reload-$claude_pid-$$"
 tmux set-buffer -b "$buffer" -- "$resume_line"
 
 status=0
-cozempic reload --session "$session_id" "${args[@]}" || status=$?
+PATH="$shims:$PATH" cozempic reload --session "$session_id" "${args[@]}" || status=$?
 if (( status != 0 )); then
     tmux delete-buffer -b "$buffer" 2>/dev/null || true
     exit "$status"
