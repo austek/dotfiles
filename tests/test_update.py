@@ -131,7 +131,8 @@ def _restart(monkeypatch, pulled, argv, marker=None):
 
 def test_restarts_dfctl_after_pull(monkeypatch):
     seen = _restart(monkeypatch, True, ["/x/bin/dfctl", "apply", "--yes"])
-    assert len(seen) == 1 and seen[0][1][1:] == ["/x/bin/dfctl", "apply", "--yes"]
+    assert len(seen) == 1
+    assert seen[0][1][1:] == ["/x/bin/dfctl", "apply", "--yes"]
 
 
 def test_no_restart_without_pull(monkeypatch):
