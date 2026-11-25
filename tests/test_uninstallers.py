@@ -51,9 +51,9 @@ def test_load_errs_on_an_unreadable_file(tmp_path):
 
 
 @pytest.mark.parametrize("relative", ["", "/etc", "../x", "a/../b"])
-def test_home_dir_rejects_empty_absolute_and_parent_paths(relative):
+def test_home_path_rejects_empty_absolute_and_parent_paths(relative):
     with pytest.raises(ValueError):
-        un.HomeDir(relative)
+        un.HomePath(relative)
 
 
 def test_uv_tool_is_present_when_uv_tool_list_names_it(tmp_path):
@@ -104,18 +104,18 @@ def test_a_symlinked_parent_never_redirects_a_deletion(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     (home / "a").symlink_to(outside)
-    assert un.remove_action(make(home), un.HomeDir("a/b")) is False
+    assert un.remove_action(make(home), un.HomePath("a/b")) is False
     assert (outside / "b").is_dir()
 
 
-def test_home_dir_is_present_for_a_directory_and_for_a_symlink(tmp_path):
+def test_home_path_is_present_for_a_directory_and_for_a_symlink(tmp_path):
     t = make(tmp_path)
-    assert not un.is_present(t, un.HomeDir(".serena"))
+    assert not un.is_present(t, un.HomePath(".serena"))
     (tmp_path / ".serena").mkdir()
-    assert un.is_present(t, un.HomeDir(".serena"))
+    assert un.is_present(t, un.HomePath(".serena"))
     (tmp_path / ".serena").rmdir()
     (tmp_path / ".serena").symlink_to(tmp_path / "missing")
-    assert un.is_present(t, un.HomeDir(".serena"))
+    assert un.is_present(t, un.HomePath(".serena"))
 
 
 def test_pending_lists_only_registered_names_with_something_present(tmp_path):
@@ -145,6 +145,33 @@ def test_remove_deletes_the_directory_tree_under_home(tmp_path):
     (tmp_path / ".serena/language_servers/x").write_text("x")
     assert un.remove(make(tmp_path), "serena") is True
     assert not (tmp_path / ".serena").exists()
+
+
+def test_home_path_is_present_for_a_regular_file_and_remove_deletes_it(tmp_path):
+    t = make(tmp_path)
+    assert not un.is_present(t, un.HomePath(".claude/cozempic-sessions.json"))
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude/cozempic-sessions.json").write_text("{}")
+    assert un.is_present(t, un.HomePath(".claude/cozempic-sessions.json"))
+    assert un.remove_action(t, un.HomePath(".claude/cozempic-sessions.json")) is True
+    assert not (tmp_path / ".claude/cozempic-sessions.json").exists()
+    assert (tmp_path / ".claude").is_dir()
+
+
+def test_remove_cozempic_deletes_its_cli_and_data_and_nothing_else(tmp_path):
+    claude = tmp_path / ".claude"
+    (tmp_path / ".cozempic").mkdir()
+    (tmp_path / ".cozempic/behavioral-digest.json").write_text("{}")
+    (claude / "cozempic-metrics").mkdir(parents=True)
+    for name in ("cozempic-sessions.json", "cozempic-sessions.json.lock", "cozempic-active-sessions.json",
+                 "cozempic-active-sessions.json.lock", "settings.json", "projects.txt"):
+        (claude / name).write_text("x")
+    machine = Machine({("uv", "tool", "list"): (0, "cozempic v1.8.39\n- cozempic\n"), ("pipx", "list", "--short"): (0, "cozempic 1.8\n")})
+    assert un.remove(make(tmp_path, machine), "cozempic") is True
+    assert machine.ran("uv", "tool", "uninstall", "cozempic")
+    assert machine.ran("pipx", "uninstall", "cozempic")
+    assert sorted(p.name for p in claude.iterdir()) == ["projects.txt", "settings.json"]
+    assert not (tmp_path / ".cozempic").exists()
 
 
 def test_remove_unlinks_a_symlinked_dir_without_touching_its_target(tmp_path):
@@ -182,5 +209,5 @@ def test_the_shipped_uninstall_file_lists_only_registered_names():
 
 def test_the_registry_covers_serena_with_all_three_actions():
     assert un.REGISTRY["serena"] == (
-        un.UvTool("serena-agent"), un.PipxTool("serena-agent"), un.ClaudeMcp("serena"), un.HomeDir(".serena"),
+        un.UvTool("serena-agent"), un.PipxTool("serena-agent"), un.ClaudeMcp("serena"), un.HomePath(".serena"),
     )

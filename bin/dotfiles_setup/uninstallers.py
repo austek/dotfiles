@@ -30,19 +30,24 @@ class ClaudeMcp:
 
 
 @dataclass(frozen=True)
-class HomeDir:
+class HomePath:
     relative: str
 
     def __post_init__(self) -> None:
         path = PurePosixPath(self.relative)
         if not path.parts or path.is_absolute() or ".." in path.parts:
-            raise ValueError(f"HomeDir needs a relative path without '..': {self.relative!r}")
+            raise ValueError(f"HomePath needs a non-empty relative path without '..': {self.relative!r}")
 
 
-type Action = UvTool | PipxTool | ClaudeMcp | HomeDir
+type Action = UvTool | PipxTool | ClaudeMcp | HomePath
 
 REGISTRY: dict[str, tuple[Action, ...]] = {
-    "serena": (UvTool("serena-agent"), PipxTool("serena-agent"), ClaudeMcp("serena"), HomeDir(".serena")),
+    "serena": (UvTool("serena-agent"), PipxTool("serena-agent"), ClaudeMcp("serena"), HomePath(".serena")),
+    "cozempic": (
+        UvTool("cozempic"), PipxTool("cozempic"), HomePath(".cozempic"), HomePath(".claude/cozempic-metrics"),
+        HomePath(".claude/cozempic-sessions.json"), HomePath(".claude/cozempic-sessions.json.lock"),
+        HomePath(".claude/cozempic-active-sessions.json"), HomePath(".claude/cozempic-active-sessions.json.lock"),
+    ),
 }
 
 
@@ -95,9 +100,9 @@ def is_present(t: Tooling, action: Action) -> bool:
             return name in _listed_names(t, ["pipx", "list", "--short"])
         case ClaudeMcp(name=name):
             return name in _mcp_names(t.home)
-        case HomeDir(relative=relative):
+        case HomePath(relative=relative):
             path = t.home / relative
-            return path.is_dir() or path.is_symlink()
+            return path.exists() or path.is_symlink()
 
 
 def pending(t: Tooling, names: Sequence[str]) -> tuple[str, ...]:
@@ -105,12 +110,12 @@ def pending(t: Tooling, names: Sequence[str]) -> tuple[str, ...]:
     return tuple(name for name in names if any(is_present(t, a) for a in REGISTRY.get(name, ())))
 
 
-def _remove_dir(home: Path, path: Path) -> bool:
-    """Refuses a path whose parent resolves outside `home`, so a symlinked parent cannot redirect the delete; False when the delete fails."""
+def _remove_path(home: Path, path: Path) -> bool:
+    """Deletes a file, a symlink (never its target) or a directory tree; refuses a path whose parent resolves outside `home`, so a symlinked parent cannot redirect the delete; False when the delete fails."""
     if not path.parent.resolve().is_relative_to(home.resolve()):
         return False
     try:
-        path.unlink() if path.is_symlink() else shutil.rmtree(path)
+        path.unlink() if path.is_symlink() or path.is_file() else shutil.rmtree(path)
     except OSError:
         return False
     return True
@@ -124,8 +129,8 @@ def remove_action(t: Tooling, action: Action) -> bool:
             return t.run(["pipx", "uninstall", name], capture_output=True).returncode == 0
         case ClaudeMcp(name=name):
             return t.run(["claude", "mcp", "remove", name, "--scope", "user"], capture_output=True).returncode == 0
-        case HomeDir(relative=relative):
-            return _remove_dir(t.home, t.home / relative)
+        case HomePath(relative=relative):
+            return _remove_path(t.home, t.home / relative)
 
 
 def remove(t: Tooling, name: str) -> bool:
