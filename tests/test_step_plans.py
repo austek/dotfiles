@@ -281,3 +281,45 @@ def test_a_pending_overlay_move_is_a_change_when_stow_is_installed(tmp_path, mon
     overlay.LEGACY_OVERLAY_ROOT.mkdir()
     monkeypatch.setattr("dotfiles_setup.step_plans.shutil.which", lambda name: "/usr/bin/" + name)
     assert _plans(tmp_path, set())["overlay"].change
+
+
+def _list_uninstall(tmp_path, text):
+    (tmp_path / "dotfiles/packages").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "dotfiles/packages/uninstall.txt").write_text(text)
+
+
+def test_uninstall_row_lists_pending_names_as_held_without_prune(tmp_path, monkeypatch):
+    from dotfiles_setup.plan_types import has_changes
+
+    _machine(monkeypatch)
+    _list_uninstall(tmp_path, "serena\n")
+    monkeypatch.setattr("dotfiles_setup.uninstallers.is_present", lambda t, action: True)
+    row = _plans(tmp_path, set())["uninstall"]
+    assert (row.held, row.remove) == (("serena",), ())
+    assert not has_changes(row)
+
+
+def test_uninstall_row_lists_pending_names_as_remove_with_prune(tmp_path, monkeypatch):
+    from dotfiles_setup.plan_types import has_changes
+
+    _machine(monkeypatch)
+    _list_uninstall(tmp_path, "serena\n")
+    monkeypatch.setattr("dotfiles_setup.uninstallers.is_present", lambda t, action: True)
+    row = _plans(tmp_path, set(), prune=True)["uninstall"]
+    assert (row.remove, row.held) == (("serena",), ())
+    assert has_changes(row)
+
+
+def test_uninstall_row_is_empty_when_nothing_is_installed_or_the_file_is_absent(tmp_path, monkeypatch):
+    _machine(monkeypatch)
+    assert not _plans(tmp_path, set(), prune=True)["uninstall"].remove
+    _list_uninstall(tmp_path, "serena\n")
+    monkeypatch.setattr("dotfiles_setup.uninstallers.is_present", lambda t, action: False)
+    row = _plans(tmp_path, set(), prune=True)["uninstall"]
+    assert (row.remove, row.held, row.note) == ((), (), None)
+
+
+def test_uninstall_row_notes_an_unknown_entry(tmp_path, monkeypatch):
+    _machine(monkeypatch)
+    _list_uninstall(tmp_path, "nope\n")
+    assert "nope" in _plans(tmp_path, set())["uninstall"].note

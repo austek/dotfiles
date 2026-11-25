@@ -98,3 +98,35 @@ def test_the_system_stage_runs_when_a_sudo_row_has_a_reason(tmp_path):
 def test_the_system_stage_is_skipped_when_no_sudo_row_has_a_reason(tmp_path, capsys):
     plans = (StepPlan("apt", 1, 1, needs_sudo=True), StepPlan("secrets.env", 0, 0, change=("create x",)))
     assert not _wanted(_inputs(tmp_path, plans), tmp_path)
+
+
+def _uninstall_inputs(tmp_path, listed, prune, commands):
+    def run(argv, **kwargs):
+        commands.append(list(argv))
+        out = "serena-agent v1\n" if argv[:3] == ["uv", "tool", "list"] else ""
+        return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    (tmp_path / "repo/packages").mkdir(parents=True)
+    (tmp_path / "repo/packages/uninstall.txt").write_text(listed)
+    return replace(_inputs(tmp_path, run=run), prune=prune)
+
+
+def test_the_uninstall_step_removes_nothing_without_prune(tmp_path):
+    commands = []
+    _steps(_uninstall_inputs(tmp_path, "serena\n", False, commands), tmp_path)["uninstall_tools"]()
+    assert not any(c[:3] == ["uv", "tool", "uninstall"] for c in commands)
+
+
+def test_the_uninstall_step_removes_pending_names_with_prune_and_says_data_cannot_be_restored(tmp_path, capsys):
+    commands = []
+    _steps(_uninstall_inputs(tmp_path, "serena\n", True, commands), tmp_path)["uninstall_tools"]()
+    assert ["uv", "tool", "uninstall", "serena-agent"] in commands
+    assert "cannot be restored" in capsys.readouterr().out
+
+
+def test_the_uninstall_step_warns_for_an_unknown_entry_and_never_fails(tmp_path, capsys):
+    commands = []
+    result = _steps(_uninstall_inputs(tmp_path, "nope\n", True, commands), tmp_path)["uninstall_tools"]()
+    assert result is None
+    assert "nope" in capsys.readouterr().out
+    assert not any(c[:3] == ["uv", "tool", "uninstall"] for c in commands)

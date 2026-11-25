@@ -113,7 +113,7 @@ def _flow_inputs(
     return install_flow.FlowInputs(
         t, plan.dotfiles_dir, plan.preset.name, plan.wanted, plan.overlay_root,
         args.force, plan.stamp, euid=env.euid(), system=args.system,
-        upgrade=args.upgrade, removals=approved, interactive=sys.stdin.isatty(), plans=plans,
+        upgrade=args.upgrade, removals=approved, interactive=sys.stdin.isatty(), plans=plans, prune=args.prune,
     )
 
 

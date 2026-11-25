@@ -22,6 +22,7 @@ from dotfiles_setup import (
     system_steps,
     terminfo,
     tools,
+    uninstallers,
     user_links,
     zsh_cache,
 )
@@ -29,11 +30,12 @@ from dotfiles_setup.backends import InstallResult
 from dotfiles_setup.log import Logger
 from dotfiles_setup.plan_types import StepPlan, row
 from dotfiles_setup.release_installers import user_bin_dir
+from dotfiles_setup.result import Err, Ok
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.step_plans import STEP_ROWS
 from dotfiles_setup.system_check import system_stage_reasons
 from dotfiles_setup.system_steps import SudoSession, SystemContext
-from dotfiles_setup.tooling import Tooling
+from dotfiles_setup.tooling import Tooling, dry_run_all
 
 Step = tuple[str, Callable[[], bool | None]]
 INTERRUPTED_EXIT_CODE = 130
@@ -60,6 +62,7 @@ class FlowInputs:
     removed: list[str] = field(default_factory=list)
     interactive: bool = False
     plans: tuple[StepPlan, ...] = ()
+    prune: bool = False
 
 
 def _announce(t: Tooling, kind: str, names: tuple[str, ...]) -> None:
@@ -102,6 +105,35 @@ def _report_unremoved(inputs: FlowInputs) -> None:
     left = [e for e in inputs.removals if e not in set(inputs.removed) and e not in manual]
     if left and not inputs.t.logger.dry_run:
         inputs.t.logger.warn(f"not removed: {', '.join(left)}; they will be offered again next run")
+
+
+def _uninstall_one(t: Tooling, name: str) -> None:
+    if dry_run_all(t, f"Would uninstall {name}"):
+        return
+    if uninstallers.remove(t, name):
+        t.logger.say(f"Removed {name}; deleted data cannot be restored by rollback.")
+    else:
+        t.logger.warn(f"Could not fully remove {name}; it is offered again next run.")
+
+
+def _run_uninstalls(inputs: FlowInputs, names: tuple[str, ...]) -> None:
+    t = inputs.t
+    for name in uninstallers.unknown(names):
+        t.logger.warn(f"uninstall entry '{name}' is not in the registry; nothing removed.")
+    found = uninstallers.pending(t, names)
+    if found and not inputs.prune:
+        t.logger.info(f"Uninstall held back (pass --prune to remove): {', '.join(found)}")
+        return
+    for name in found:
+        _uninstall_one(t, name)
+
+
+def _uninstall_tools(inputs: FlowInputs) -> None:
+    match uninstallers.load(inputs.dotfiles_dir, inputs.overlay_root):
+        case Err(error=message):
+            inputs.t.logger.warn(message)
+        case Ok(value=names):
+            _run_uninstalls(inputs, names)
 
 
 def _report_skipped_sources(ctx: SystemContext) -> None:
@@ -162,6 +194,7 @@ def build_steps(inputs: FlowInputs, packages: frozenset[str], changes: RollbackL
         ("refresh_zsh_completion_cache", lambda: zsh_cache.refresh_zsh_completion_cache(t)),
         ("ensure_secrets_env", lambda: secrets_env.ensure_secrets_env(t, changes)),
         ("retire_claude_profile", lambda: claude_profile.retire_claude_profile(t)),
+        ("uninstall_tools", lambda: _uninstall_tools(inputs)),
         ("configure_claude_tools", lambda: claude_tools.configure_claude_tools(t)),
         ("report_stale_copies", lambda: stale_copies.report_stale_copies(t, stale_copies.managed_names(packages))),
         ("change_shell", lambda: desktop_defaults.change_shell(t)),
