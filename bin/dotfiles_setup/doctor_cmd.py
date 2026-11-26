@@ -90,7 +90,8 @@ def _store(
     try:
         write_cache(cache_path(os.environ, env.home), results, env.clock(), merge=merge)
     except OSError as error:
-        (warn or logger.warn)(f"Could not write the doctor cache: {error}")
+        emit = warn or logger.warn
+        emit(f"Could not write the doctor cache: {error}")
 
 
 def _print_report(logger: Logger, report: Report, *, as_json: bool) -> None:
@@ -140,12 +141,19 @@ def _confirmed(logger: Logger, *, yes: bool, interactive: bool, ask: Callable[[s
     return DECLINED_EXIT_CODE
 
 
+def _failure_of(t: Tooling, argv: Sequence[str]) -> str | None:
+    try:
+        result = t.run(list(argv), capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    except OSError as error:
+        return str(error)
+    return None if result.returncode == 0 else (result.stderr or result.stdout or "").strip()
+
+
 def _run_fix(t: Tooling, finding: Finding) -> bool:
     for argv in finding.commands:
         t.logger.info(f"Running: {shlex.join(argv)}")
-        result = t.run(list(argv), capture_output=True, text=True, stdin=subprocess.DEVNULL)
-        if result.returncode != 0:
-            reason = (result.stderr or result.stdout or "").strip()
+        reason = _failure_of(t, argv)
+        if reason is not None:
             t.logger.warn(f"Could not run `{shlex.join(argv)}`: {reason}")
             return False
     return True

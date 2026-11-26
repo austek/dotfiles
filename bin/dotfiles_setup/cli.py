@@ -44,9 +44,19 @@ def _run_foothold_restart(args: argparse.Namespace, env: Env) -> int:
             return 0 if foothold.restart_footholds(logger, run=env.run, path_entries=path_entries) else 1
 
 
+def _parse(parser: argparse.ArgumentParser, argv: list[str] | None) -> argparse.Namespace:
+    args, extra = parser.parse_known_args(argv)
+    if not extra:
+        return args
+    if args.command == "doctor" and not any(word.startswith("-") for word in extra):
+        args.names = [*args.names, *extra]
+        return args
+    parser.error(f"unrecognized arguments: {' '.join(extra)}")
+
+
 def main(argv: list[str] | None = None, env: Env | None = None) -> int:
     parser = build_arg_parser()
-    args = parser.parse_args(argv)
+    args = _parse(parser, argv)
     env = env if env is not None else Env()
 
     if args.command is None:

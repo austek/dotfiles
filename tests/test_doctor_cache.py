@@ -65,6 +65,15 @@ def test_wrong_shaped_cache_is_treated_as_empty_on_merge(tmp_path, document):
     assert _stored(path)["findings"] == [{"check": "b", "text": "t"}]
 
 
+def test_retained_entries_keep_only_check_and_text(tmp_path):
+    path = tmp_path / "dotfiles" / "doctor.json"
+    path.parent.mkdir(parents=True)
+    extra = {"check": "keep", "text": "t", "commands": [["rm", "x"]], "advice": "y"}
+    path.write_text(json.dumps({"v": 1, "checkedAt": 0, "findings": [extra]}))
+    write_cache(path, {"b": ()}, NOW, merge=True)
+    assert _stored(path)["findings"] == [{"check": "keep", "text": "t"}]
+
+
 def test_missing_cache_is_treated_as_empty_on_merge(tmp_path):
     path = tmp_path / "dotfiles" / "doctor.json"
     write_cache(path, {"a": (Finding("a", "t"),)}, NOW, merge=True)

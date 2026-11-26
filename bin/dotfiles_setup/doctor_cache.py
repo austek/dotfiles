@@ -33,7 +33,8 @@ def _stored_findings(path: Path) -> list[dict[str, str]]:
 def write_cache(
     path: Path, results: Mapping[str, tuple[Finding, ...]], now: datetime, *, merge: bool
 ) -> None:
-    kept = [f for f in _stored_findings(path) if f.get("check") not in results] if merge else []
+    stored = _stored_findings(path) if merge else []
+    kept = [{"check": f["check"], "text": f["text"]} for f in stored if f["check"] not in results]
     fresh = [{"check": f.check, "text": f.text} for found in results.values() for f in found]
     document = {"v": CACHE_VERSION, "checkedAt": int(now.timestamp()), "findings": [*kept, *fresh]}
     path.parent.mkdir(mode=DIRECTORY_MODE, parents=True, exist_ok=True)

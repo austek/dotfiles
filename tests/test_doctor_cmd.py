@@ -122,7 +122,7 @@ def test_an_unwritable_cache_directory_warns_and_keeps_the_exit_code(tmp_path, c
     assert "Could not write the doctor cache" in capsys.readouterr().out
 
 
-def _fix_env(tmp_path, bad=("b@m",), fail=(), fixes=True):
+def _fix_env(tmp_path, bad=("b@m",), fail=(), fixes=True, raises=()):
     state = {"bad": list(bad), "gone": set()}
     calls = []
 
@@ -133,6 +133,8 @@ def _fix_env(tmp_path, bad=("b@m",), fail=(), fixes=True):
             shown = [i for i in state["bad"] if i not in state["gone"]]
             plugins = [{"id": i, "scope": "user", "errors": ["x"]} for i in shown] + HEALTHY
             return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(plugins), stderr="")
+        if (verb, argv[3]) in raises:
+            raise PermissionError("not executable")
         if (verb, argv[3]) in fail:
             return subprocess.CompletedProcess(argv, 1, stdout="", stderr="denied")
         if verb == "uninstall":
@@ -171,6 +173,28 @@ def test_fix_stops_one_findings_commands_at_the_first_failure_but_runs_the_other
     assert _fix(env, "-y") == 1
     assert ("claude", "plugin", "install", "b@m", "--scope", "user") not in calls
     assert ("claude", "plugin", "install", "c@m", "--scope", "user") in calls
+
+
+def test_a_command_that_cannot_launch_is_a_failed_fix_and_the_others_still_run(tmp_path, capsys):
+    env, calls = _fix_env(tmp_path, bad=("b@m", "c@m"), raises=(("uninstall", "b@m"),))
+    assert _fix(env, "-y") == 1
+    out = capsys.readouterr().out
+    assert "Could not run `claude plugin uninstall b@m --keep-data --scope user`: not executable" in out
+    assert ("claude", "plugin", "install", "c@m", "--scope", "user") in calls
+
+
+def test_options_may_sit_between_fix_and_the_check_names(tmp_path):
+    env, calls = _fix_env(tmp_path)
+    assert main(["doctor", "fix", "--dry-run", "plugin_load_errors"], env) == 0
+    assert _mutations(calls) == []
+
+
+@pytest.mark.parametrize("argv", [["doctor", "fix", "--bogus"], ["doctor", "--bogus"], ["propose", "stray"]])
+def test_other_unrecognized_arguments_still_exit_2(tmp_path, argv):
+    env, _ = _fix_env(tmp_path)
+    with pytest.raises(SystemExit) as raised:
+        main(argv, env)
+    assert raised.value.code == 2
 
 
 @pytest.mark.parametrize("flag", ["--json", "--list-checks"])
