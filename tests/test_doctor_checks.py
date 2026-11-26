@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -33,7 +34,7 @@ def test_plugin_with_errors_becomes_a_fixable_finding():
     assert "b@m has load errors: Path not found: /c (skills)" in f.text
     assert f.affects == ("b@m",)
     assert f.commands == (
-        ("claude", "plugin", "uninstall", "b@m", "--scope", "user"),
+        ("claude", "plugin", "uninstall", "b@m", "--keep-data", "--scope", "user"),
         ("claude", "plugin", "install", "b@m", "--scope", "user"),
     )
 
@@ -47,7 +48,7 @@ def test_a_non_user_scope_plugin_is_manual_and_names_its_project():
     assert user.fixable
     assert not project.fixable
     assert "/work/app" in project.text
-    assert "In /work/app: claude plugin uninstall b@m --scope project" in project.advice
+    assert "In /work/app: claude plugin uninstall b@m --keep-data --scope project" in project.advice
     assert "claude plugin install b@m --scope project" in project.advice
 
 
@@ -113,6 +114,14 @@ def test_shadowing_copy_is_a_manual_finding_naming_the_rm_path(tmp_path, monkeyp
     assert f"{copy} precedes {tmp_path / '.local/bin/sops'} on PATH and shadows it" in f.text
     assert f.advice == f"rm {copy}"
     assert not f.fixable
+
+
+def test_advice_quotes_a_path_with_spaces(tmp_path, monkeypatch):
+    home = tmp_path / "my home"
+    home.mkdir()
+    (f,) = check_stale_copies(_shadow_ctx(home, monkeypatch)).findings
+    assert f.advice == f"rm {shlex.quote(str(home / 'bin' / 'sops'))}"
+    assert f.advice.startswith("rm '")
 
 
 def test_copy_in_a_directory_the_user_cannot_write_says_it_needs_root(tmp_path, monkeypatch):

@@ -20,7 +20,7 @@ from dotfiles_setup.plan_confirm import DECLINED_EXIT_CODE, NEEDS_YES_EXIT_CODE,
 from dotfiles_setup.tooling import Tooling
 
 EXIT_FINDINGS = 1
-EXIT_UNKNOWN_CHECK = 2
+EXIT_USAGE = 2
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,8 @@ def _to_stderr(message: str) -> None:
 def _store(
     logger: Logger, env: Env, report: Report, *, merge: bool, warn: Callable[[str], None] | None = None
 ) -> None:
+    if logger.dry_run:
+        return
     results = {name: o.findings for name, o in report.outcomes.items() if o.skipped is None}
     try:
         write_cache(cache_path(os.environ, env.home), results, env.clock(), merge=merge)
@@ -112,7 +114,7 @@ def run_doctor(args: argparse.Namespace, env: Env) -> int:
         print("\n".join(CHECKS))
         return 0
     if _has_unknown(logger, args.names):
-        return EXIT_UNKNOWN_CHECK
+        return EXIT_USAGE
     report = run_checks(build_context(logger, env), args.names)
     _store(logger, env, report, merge=bool(args.names), warn=_to_stderr if args.json else None)
     _print_report(logger, report, as_json=args.json)
@@ -157,7 +159,7 @@ def _finish(logger: Logger, env: Env, report: Report, names: Sequence[str]) -> i
 
 
 def report_after_apply(t: Tooling, packages: Iterable[str], env: Env, *, dry_run: bool) -> None:
-    """Prints the findings as warnings with the hint line and refreshes the cache; never raises, so apply cannot fail on it."""
+    """Prints the findings as warnings with the hint line and refreshes the cache unless `dry_run`; never raises, so apply cannot fail on it."""
     report = run_checks(CheckContext(t, tuple(sorted(packages))), ())
     render(report, emit=t.logger.warn, emit_skipped=t.logger.info)
     hint = hint_line(report.findings)
@@ -197,8 +199,11 @@ def run_doctor_fix(
     args: argparse.Namespace, env: Env, *, interactive: bool, ask: Callable[[str], str] = input
 ) -> int:
     logger, names = Logger(dry_run=args.dry_run, verbosity=args.verbosity), args.names[1:]
+    if args.json or args.list_checks:
+        logger.error("`dfctl doctor fix` does not take --json or --list-checks.")
+        return EXIT_USAGE
     if _has_unknown(logger, names):
-        return EXIT_UNKNOWN_CHECK
+        return EXIT_USAGE
     ctx = build_context(logger, env)
     report = run_checks(ctx, names)
     fixable = [f for f in report.findings if f.fixable]

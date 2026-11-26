@@ -37,7 +37,7 @@ def test_doctor_prints_the_finding_and_its_fix_and_exits_1(tmp_path, capsys):
     assert main(["doctor"], env) == 1
     out = capsys.readouterr().out
     assert "! b@m has load errors: Path not found: /c (skills)" in out
-    assert "claude plugin uninstall b@m --scope user" in out
+    assert "claude plugin uninstall b@m --keep-data --scope user" in out
     assert "claude plugin install b@m --scope user" in out
     assert "1 problem found" in out
     assert "`dfctl doctor fix`" in out
@@ -160,7 +160,7 @@ def test_fix_runs_each_commands_in_order_then_rechecks(tmp_path):
     assert _fix(env, "-y") == 0
     assert calls == [
         ("claude", "plugin", "list", "--json"),
-        ("claude", "plugin", "uninstall", "b@m", "--scope", "user"),
+        ("claude", "plugin", "uninstall", "b@m", "--keep-data", "--scope", "user"),
         ("claude", "plugin", "install", "b@m", "--scope", "user"),
         ("claude", "plugin", "list", "--json"),
     ]
@@ -173,13 +173,32 @@ def test_fix_stops_one_findings_commands_at_the_first_failure_but_runs_the_other
     assert ("claude", "plugin", "install", "c@m", "--scope", "user") in calls
 
 
+@pytest.mark.parametrize("flag", ["--json", "--list-checks"])
+def test_fix_rejects_flags_that_only_apply_to_a_plain_run(tmp_path, flag):
+    env, calls = _fix_env(tmp_path)
+    assert _fix(env, flag, "-y") == 2
+    assert calls == []
+
+
+def test_fix_dry_run_with_nothing_to_fix_writes_no_cache(tmp_path, cache_file):
+    env, _ = _fix_env(tmp_path, bad=())
+    assert _fix(env, "--dry-run") == 0
+    assert not cache_file.exists()
+
+
+def test_a_plain_dry_run_writes_no_cache(tmp_path, cache_file):
+    env, _ = _env(tmp_path)
+    assert main(["doctor", "--dry-run"], env) == 0
+    assert not cache_file.exists()
+
+
 def test_fix_that_uninstalls_but_cannot_reinstall_exits_1_even_though_the_recheck_is_clean(tmp_path, capsys):
     env, calls = _fix_env(tmp_path, fail=(("install", "b@m"),))
     assert _fix(env, "-y") == 1
     out = capsys.readouterr().out
     assert "Could not run `claude plugin install b@m --scope user`: denied" in out
     assert "1 fix(es) did not finish" in out
-    assert ("claude", "plugin", "uninstall", "b@m", "--scope", "user") in calls
+    assert ("claude", "plugin", "uninstall", "b@m", "--keep-data", "--scope", "user") in calls
 
 
 def test_fix_never_runs_manual_findings_and_does_not_prompt(tmp_path, monkeypatch, capsys):

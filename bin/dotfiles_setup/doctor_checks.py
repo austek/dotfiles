@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,7 +28,10 @@ STALE_COPIES_CHECK = "stale_copies"
 
 
 def _project_plugin_finding(plugin_id: str, scope: str, project: str | None, errors: str) -> Finding:
-    reinstall = f"claude plugin uninstall {plugin_id} --scope {scope}, then claude plugin install {plugin_id} --scope {scope}"
+    reinstall = (
+        f"claude plugin uninstall {plugin_id} --keep-data --scope {scope}, "
+        f"then claude plugin install {plugin_id} --scope {scope}"
+    )
     return Finding(
         PLUGIN_CHECK,
         f"{plugin_id} ({scope} scope, {project or 'an unknown project'}) has load errors: {errors}",
@@ -45,7 +49,10 @@ def _plugin_finding(plugin: dict[str, Any]) -> Finding:
         PLUGIN_CHECK,
         f"{plugin_id} has load errors: {errors}",
         affects=(plugin_id,),
-        commands=((*claude, "uninstall", plugin_id, "--scope", scope), (*claude, "install", plugin_id, "--scope", scope)),
+        commands=(
+            (*claude, "uninstall", plugin_id, "--keep-data", "--scope", scope),
+            (*claude, "install", plugin_id, "--scope", scope),
+        ),
     )
 
 
@@ -78,7 +85,7 @@ def _shadow_finding(copy: Path, managed: Path) -> Finding:
         STALE_COPIES_CHECK,
         f"{copy} precedes {managed} on PATH and shadows it.",
         affects=(str(copy),),
-        advice=f"rm {copy}{root_note}",
+        advice=f"rm {shlex.quote(str(copy))}{root_note}",
     )
 
 

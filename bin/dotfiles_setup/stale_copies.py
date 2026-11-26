@@ -56,11 +56,14 @@ def _copies(t: Tooling, names: Iterable[str]) -> Iterator[tuple[Path, Path, bool
 
 def shadowing_copies(t: Tooling, names: Iterable[str]) -> tuple[tuple[Path, Path], ...]:
     """Pairs of (copy, managed binary) where the copy precedes `~/.local/bin` on `PATH`."""
-    return tuple((copy, managed) for copy, managed, shadows in _copies(t, names) if shadows)
+    return tuple(
+        (copy, managed) for copy, managed, shadows in _copies(t, names)
+        if shadows and release_installers.is_executable(copy)
+    )
 
 
 def report_stale_copies(t: Tooling, names: Iterable[str]) -> None:
-    """Logs one line per copy that `~/.local/bin` shadows, saying whether its directory is on `PATH`; copies that shadow it are the doctor's `stale_copies` check."""
+    """Logs one line per copy that comes after `~/.local/bin` on `PATH`, saying whether its directory is on `PATH`; copies ahead of it are `shadowing_copies`."""
     for copy, managed, shadows in _copies(t, names):
         if not shadows:
             t.logger.info(_message(copy, managed, _on_path(copy.parent)))

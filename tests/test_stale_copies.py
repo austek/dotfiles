@@ -75,6 +75,12 @@ def test_a_copy_that_precedes_the_user_bin_dir_is_a_shadowing_copy(tmp_path, sys
     assert stale_copies.shadowing_copies(tooling(tmp_path), ["sops"]) == ((stale, managed),)
 
 
+def test_a_non_executable_copy_ahead_of_the_user_bin_dir_does_not_shadow(tmp_path, system_dir):
+    put(tmp_path / ".local/bin", "sops", "new")
+    put(tmp_path / "bin", "sops", "old", mode=0o644)
+    assert stale_copies.shadowing_copies(tooling(tmp_path), ["sops"]) == ()
+
+
 def test_a_copy_after_the_user_bin_dir_is_not_a_shadowing_copy(tmp_path, system_dir):
     put(tmp_path / ".local/bin", "sops", "new")
     put(system_dir, "sops", "old")
