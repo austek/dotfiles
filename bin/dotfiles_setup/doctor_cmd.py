@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import shlex
+import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -14,6 +15,7 @@ from dotfiles_setup.doctor_checks import CHECKS, CheckContext
 from dotfiles_setup.env import Env
 from dotfiles_setup.findings import CheckOutcome, Finding
 from dotfiles_setup.log import Logger
+from dotfiles_setup.plan_confirm import DECLINED_EXIT_CODE, NEEDS_YES_EXIT_CODE, PROMPT
 from dotfiles_setup.tooling import Tooling
 
 EXIT_FINDINGS = 1
@@ -90,16 +92,84 @@ def _print_report(logger: Logger, report: Report, *, as_json: bool) -> None:
     logger.say(hint_line(report.findings) or "No problems found.")
 
 
+def _has_unknown(logger: Logger, names: Sequence[str]) -> bool:
+    unknown = [name for name in names if name not in CHECKS]
+    if unknown:
+        logger.error(f"No check named {', '.join(unknown)}; run `dfctl doctor --list-checks`.")
+    return bool(unknown)
+
+
 def run_doctor(args: argparse.Namespace, env: Env) -> int:
     logger = Logger(dry_run=args.dry_run, verbosity=args.verbosity)
     if args.list_checks:
         print("\n".join(CHECKS))
         return 0
-    unknown = [name for name in args.names if name not in CHECKS]
-    if unknown:
-        logger.error(f"No check named {', '.join(unknown)}; run `dfctl doctor --list-checks`.")
+    if _has_unknown(logger, args.names):
         return EXIT_UNKNOWN_CHECK
     report = run_checks(build_context(logger, env), args.names)
     _store(logger, env, report, merge=bool(args.names))
     _print_report(logger, report, as_json=args.json)
     return EXIT_FINDINGS if report.findings else 0
+
+
+def _said_yes(ask: Callable[[str], str]) -> bool:
+    try:
+        return ask(PROMPT).strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def _confirmed(logger: Logger, *, yes: bool, interactive: bool, ask: Callable[[str], str]) -> int | None:
+    if yes:
+        return None
+    if not interactive:
+        logger.warn("The fixes change this machine; pass --yes to run them.")
+        return NEEDS_YES_EXIT_CODE
+    if _said_yes(ask):
+        return None
+    logger.warn("Declined; no fix ran.")
+    return DECLINED_EXIT_CODE
+
+
+def _run_fix(t: Tooling, finding: Finding) -> None:
+    for argv in finding.commands:
+        t.logger.info(f"Running: {shlex.join(argv)}")
+        result = t.run(list(argv), capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        if result.returncode != 0:
+            reason = (result.stderr or result.stdout or "").strip()
+            t.logger.warn(f"Could not run `{shlex.join(argv)}`: {reason}")
+            return
+
+
+def _finish(logger: Logger, env: Env, report: Report, names: Sequence[str]) -> int:
+    _store(logger, env, report, merge=bool(names))
+    render(report, emit=logger.say, emit_skipped=logger.say)
+    logger.say(hint_line(report.findings) or "No problems found.")
+    return EXIT_FINDINGS if report.findings else 0
+
+
+def _fix_all(ctx: CheckContext, fixable: Sequence[Finding], stop: int | None) -> int | None:
+    if stop is None:
+        for finding in fixable:
+            _run_fix(ctx.t, finding)
+    return stop
+
+
+def run_doctor_fix(
+    args: argparse.Namespace, env: Env, *, interactive: bool, ask: Callable[[str], str] = input
+) -> int:
+    logger, names = Logger(dry_run=args.dry_run, verbosity=args.verbosity), args.names[1:]
+    if _has_unknown(logger, names):
+        return EXIT_UNKNOWN_CHECK
+    ctx = build_context(logger, env)
+    report = run_checks(ctx, names)
+    fixable = [f for f in report.findings if f.fixable]
+    if fixable:
+        render(report, emit=logger.say, emit_skipped=logger.say)
+        if logger.dry_run_notice(f"Would run {sum(len(f.commands) for f in fixable)} fix command(s)."):
+            return 0
+        stop = _fix_all(ctx, fixable, _confirmed(logger, yes=args.yes, interactive=interactive, ask=ask))
+        if stop is not None:
+            return stop
+        report = run_checks(ctx, names)
+    return _finish(logger, env, report, names)

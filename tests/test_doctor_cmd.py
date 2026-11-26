@@ -6,8 +6,8 @@ import pytest
 from dotfiles_setup import doctor_checks
 from dotfiles_setup.cli import Env, build_arg_parser, main
 from dotfiles_setup.doctor_cache import write_cache
-from dotfiles_setup.doctor_cmd import hint_line
-from dotfiles_setup.findings import Finding
+from dotfiles_setup.doctor_cmd import hint_line, run_doctor_fix
+from dotfiles_setup.findings import CheckOutcome, Finding
 
 NOW = datetime(2026, 11, 26, 12, 0, tzinfo=UTC)
 BAD = [{"id": "b@m", "scope": "user", "errors": ["Path not found: /c (skills)"]}]
@@ -118,6 +118,114 @@ def test_an_unwritable_cache_directory_warns_and_keeps_the_exit_code(tmp_path, c
     env, _ = _env(tmp_path)
     assert main(["doctor"], env) == 0
     assert "Could not write the doctor cache" in capsys.readouterr().out
+
+
+def _fix_env(tmp_path, bad=("b@m",), fail=(), fixes=True):
+    state = {"bad": list(bad)}
+    calls = []
+
+    def run(argv, **_):
+        calls.append(tuple(argv))
+        verb = argv[2]
+        if verb == "list":
+            plugins = [{"id": i, "scope": "user", "errors": ["x"]} for i in state["bad"]] + HEALTHY
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(plugins), stderr="")
+        if (verb, argv[3]) in fail:
+            return subprocess.CompletedProcess(argv, 1, stdout="", stderr="denied")
+        if verb == "install" and fixes:
+            state["bad"].remove(argv[3])
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    return Env(run=run, clock=lambda: NOW, home=tmp_path, state_dir=tmp_path / "cfg"), calls
+
+
+def _fix(env, *flags, interactive=False, ask=input):
+    args = build_arg_parser().parse_args(["doctor", "fix", *flags])
+    return run_doctor_fix(args, env, interactive=interactive, ask=ask)
+
+
+def _mutations(calls):
+    return [c for c in calls if c[2] != "list"]
+
+
+def test_fix_runs_each_commands_in_order_then_rechecks(tmp_path):
+    env, calls = _fix_env(tmp_path)
+    assert _fix(env, "-y") == 0
+    assert calls == [
+        ("claude", "plugin", "list", "--json"),
+        ("claude", "plugin", "uninstall", "b@m", "--scope", "user"),
+        ("claude", "plugin", "install", "b@m", "--scope", "user"),
+        ("claude", "plugin", "list", "--json"),
+    ]
+
+
+def test_fix_stops_one_findings_commands_at_the_first_failure_but_runs_the_others(tmp_path):
+    env, calls = _fix_env(tmp_path, bad=("b@m", "c@m"), fail=(("uninstall", "b@m"),))
+    assert _fix(env, "-y") == 1
+    assert ("claude", "plugin", "install", "b@m", "--scope", "user") not in calls
+    assert ("claude", "plugin", "install", "c@m", "--scope", "user") in calls
+
+
+def test_fix_never_runs_manual_findings_and_does_not_prompt(tmp_path, monkeypatch, capsys):
+    monkeypatch.setitem(doctor_checks.CHECKS, "stale_copies", lambda _c: CheckOutcome((Finding("stale_copies", "shadow", advice="rm /x"),)))
+    env, calls = _fix_env(tmp_path, bad=())
+    assert _fix(env, interactive=False) == 1
+    assert _mutations(calls) == []
+    out = capsys.readouterr().out
+    assert "rm /x" in out
+    assert "none fixable" in out
+
+
+def test_fix_without_a_terminal_or_yes_runs_nothing_and_exits_5(tmp_path):
+    env, calls = _fix_env(tmp_path)
+    assert _fix(env, interactive=False) == 5
+    assert _mutations(calls) == []
+
+
+def test_fix_declined_exits_6_and_runs_nothing(tmp_path):
+    env, calls = _fix_env(tmp_path)
+    assert _fix(env, interactive=True, ask=lambda _p: "n") == 6
+    assert _mutations(calls) == []
+
+
+def test_fix_confirmed_at_the_prompt_runs_the_commands(tmp_path):
+    env, calls = _fix_env(tmp_path)
+    assert _fix(env, interactive=True, ask=lambda _p: "y") == 0
+    assert len(_mutations(calls)) == 2
+
+
+def test_fix_yes_never_asks(tmp_path):
+    def ask(_prompt):
+        raise AssertionError("asked")
+
+    env, _ = _fix_env(tmp_path)
+    assert _fix(env, "-y", interactive=True, ask=ask) == 0
+
+
+def test_fix_dry_run_prints_the_commands_and_runs_nothing(tmp_path, capsys):
+    env, calls = _fix_env(tmp_path)
+    assert _fix(env, "--dry-run") == 0
+    assert _mutations(calls) == []
+    assert "claude plugin install b@m --scope user" in capsys.readouterr().out
+
+
+def test_fix_that_leaves_the_error_in_place_exits_1(tmp_path, capsys):
+    env, _ = _fix_env(tmp_path, fixes=False)
+    assert _fix(env, "-y") == 1
+    assert "b@m has load errors" in capsys.readouterr().out
+
+
+def test_fix_on_a_clean_machine_exits_0(tmp_path, capsys):
+    env, calls = _fix_env(tmp_path, bad=())
+    assert _fix(env) == 0
+    assert "No problems found." in capsys.readouterr().out
+    assert _mutations(calls) == []
+
+
+def test_fix_with_an_unknown_check_exits_2(tmp_path):
+    env, calls = _fix_env(tmp_path)
+    assert _fix(env, "nope", "-y") == 2
+    assert calls == []
 
 
 def test_the_parser_reads_fix_as_the_first_name():
