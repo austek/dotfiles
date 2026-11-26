@@ -71,6 +71,16 @@ def plugin_updates(monkeypatch):
 
 
 @pytest.fixture
+def doctor_reports(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "dotfiles_setup.doctor_cmd.report_after_apply",
+        lambda t, packages, env, *, dry_run: calls.append((tuple(sorted(packages)), dry_run)),
+    )
+    return calls
+
+
+@pytest.fixture
 def foothold_syncs(monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -94,7 +104,7 @@ def flow_calls(monkeypatch):
 
 
 @pytest.fixture
-def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothold_syncs):
+def isolated_dotfiles(tmp_path, monkeypatch, flow_calls, plugin_updates, foothold_syncs, doctor_reports):
     """A minimal fake dotfiles_dir with one preset + its package files, plus
     state/overlay redirected into tmp_path so tests never touch the real
     machine's ~/.config/dotfiles or ~/.dotfiles-private."""

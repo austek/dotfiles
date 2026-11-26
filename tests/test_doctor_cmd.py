@@ -6,8 +6,10 @@ import pytest
 from dotfiles_setup import doctor_checks
 from dotfiles_setup.cli import Env, build_arg_parser, main
 from dotfiles_setup.doctor_cache import write_cache
-from dotfiles_setup.doctor_cmd import hint_line, run_doctor_fix
+from dotfiles_setup.doctor_cmd import hint_line, report_after_apply, run_doctor_fix
 from dotfiles_setup.findings import CheckOutcome, Finding
+from dotfiles_setup.log import Logger
+from dotfiles_setup.tooling import Tooling
 
 NOW = datetime(2026, 11, 26, 12, 0, tzinfo=UTC)
 BAD = [{"id": "b@m", "scope": "user", "errors": ["Path not found: /c (skills)"]}]
@@ -226,6 +228,58 @@ def test_fix_with_an_unknown_check_exits_2(tmp_path):
     env, calls = _fix_env(tmp_path)
     assert _fix(env, "nope", "-y") == 2
     assert calls == []
+
+
+def _apply_tooling(env, verbosity=0):
+    return Tooling(Logger(dry_run=False, verbosity=verbosity), env.home, run=env.run)
+
+
+def test_apply_warns_on_findings_prints_the_hint_and_writes_the_cache(tmp_path, capsys, cache_file):
+    env, _ = _env(tmp_path, BAD)
+    report_after_apply(_apply_tooling(env), ["sops"], env, dry_run=False)
+    out = capsys.readouterr().out
+    assert "[WARNING] ! b@m has load errors" in out
+    assert "1 problem found" in out
+    assert [f["check"] for f in json.loads(cache_file.read_text())["findings"]] == ["plugin_load_errors"]
+
+
+def test_apply_on_a_clean_machine_prints_no_hint_and_clears_the_cache(tmp_path, capsys, cache_file):
+    write_cache(cache_file, {"plugin_load_errors": (Finding("plugin_load_errors", "old"),)}, NOW, merge=False)
+    env, _ = _env(tmp_path)
+    report_after_apply(_apply_tooling(env), ["sops"], env, dry_run=False)
+    assert "problem" not in capsys.readouterr().out
+    assert json.loads(cache_file.read_text())["findings"] == []
+
+
+def test_apply_dry_run_prints_the_hint_but_writes_no_cache(tmp_path, capsys, cache_file):
+    env, _ = _env(tmp_path, BAD)
+    report_after_apply(_apply_tooling(env), ["sops"], env, dry_run=True)
+    assert "1 problem found" in capsys.readouterr().out
+    assert not cache_file.exists()
+
+
+def test_apply_shows_a_skipped_check_only_when_verbose(tmp_path, capsys):
+    env = Env(run=lambda argv, **_: subprocess.CompletedProcess(argv, 127, stdout="", stderr=""),
+              clock=lambda: NOW, home=tmp_path, state_dir=tmp_path / "cfg")
+    report_after_apply(_apply_tooling(env), ["sops"], env, dry_run=False)
+    assert "skipped" not in capsys.readouterr().out
+    report_after_apply(_apply_tooling(env, verbosity=1), ["sops"], env, dry_run=False)
+    assert "skipped plugin_load_errors: claude is not installed" in capsys.readouterr().out
+
+
+def test_apply_survives_a_crashing_check_and_an_unwritable_cache(tmp_path, capsys, monkeypatch):
+    def boom(_ctx):
+        raise RuntimeError("kaput")
+
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file, not a directory")
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocker))
+    monkeypatch.setitem(doctor_checks.CHECKS, "plugin_load_errors", boom)
+    env, _ = _env(tmp_path)
+    report_after_apply(_apply_tooling(env), ["sops"], env, dry_run=False)
+    out = capsys.readouterr().out
+    assert "check plugin_load_errors crashed" in out
+    assert "Could not write the doctor cache" in out
 
 
 def test_the_parser_reads_fix_as_the_first_name():

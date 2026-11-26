@@ -8,6 +8,7 @@ from typing import Any
 
 from dotfiles_setup import (
     claude_plugins,
+    doctor_cmd,
     foothold,
     install_flow,
     overlay,
@@ -220,6 +221,7 @@ def _finish_install(
     path_entries: tuple[str, ...], inputs: install_flow.FlowInputs,
 ) -> int:
     claude_plugins.update_claude_plugins(logger, claude_settings)
+    doctor_cmd.report_after_apply(inputs.t, inputs.packages, env, dry_run=args.dry_run)
     _sync_foothold(logger, plan.preset, path_entries)
     if not (args.dry_run or _persist(logger, env, plan, inputs)):
         return PERSIST_FAILED_EXIT_CODE

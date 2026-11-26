@@ -64,12 +64,12 @@ def check_plugin_load_errors(ctx: CheckContext) -> CheckOutcome:
 
 
 def _shadow_finding(copy: Path, managed: Path) -> Finding:
-    sudo = "" if os.access(copy.parent, os.W_OK) else "sudo "
+    root_note = "" if os.access(copy.parent, os.W_OK) else f" (as root: {copy.parent} is not writable)"
     return Finding(
         STALE_COPIES_CHECK,
         f"{copy} precedes {managed} on PATH and shadows it.",
         affects=(str(copy),),
-        advice=f"{sudo}rm {copy}",
+        advice=f"rm {copy}{root_note}",
     )
 
 

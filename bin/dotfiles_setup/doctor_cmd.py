@@ -6,7 +6,7 @@ import json
 import os
 import shlex
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from dotfiles_setup import state
@@ -146,6 +146,17 @@ def _finish(logger: Logger, env: Env, report: Report, names: Sequence[str]) -> i
     render(report, emit=logger.say, emit_skipped=logger.say)
     logger.say(hint_line(report.findings) or "No problems found.")
     return EXIT_FINDINGS if report.findings else 0
+
+
+def report_after_apply(t: Tooling, packages: Iterable[str], env: Env, *, dry_run: bool) -> None:
+    """Prints the findings as warnings with the hint line and refreshes the cache; never raises, so apply cannot fail on it."""
+    report = run_checks(CheckContext(t, tuple(sorted(packages))), ())
+    render(report, emit=t.logger.warn, emit_skipped=t.logger.info)
+    hint = hint_line(report.findings)
+    if hint:
+        t.logger.say(hint)
+    if not dry_run:
+        _store(t.logger, env, report, merge=False)
 
 
 def _fix_all(ctx: CheckContext, fixable: Sequence[Finding], stop: int | None) -> int | None:

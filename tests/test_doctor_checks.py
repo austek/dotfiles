@@ -92,11 +92,12 @@ def test_shadowing_copy_is_a_manual_finding_naming_the_rm_path(tmp_path, monkeyp
     assert not f.fixable
 
 
-def test_copy_in_a_directory_the_user_cannot_write_uses_sudo(tmp_path, monkeypatch):
+def test_copy_in_a_directory_the_user_cannot_write_says_it_needs_root(tmp_path, monkeypatch):
     ctx = _shadow_ctx(tmp_path, monkeypatch)
     real_access = os.access
     monkeypatch.setattr(doctor_checks.os, "access", lambda p, mode, **kw: mode != os.W_OK and real_access(p, mode, **kw))
-    assert check_stale_copies(ctx).findings[0].advice == f"sudo rm {tmp_path / 'bin' / 'sops'}"
+    copy = tmp_path / "bin" / "sops"
+    assert check_stale_copies(ctx).findings[0].advice == f"rm {copy} (as root: {copy.parent} is not writable)"
 
 
 def test_shadowed_by_and_off_path_cases_are_not_findings(tmp_path, monkeypatch):

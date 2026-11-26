@@ -39,6 +39,13 @@ _dfctl_completions() {
         propose)
             COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
             ;;
+        doctor)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--list-checks --json --dry-run -v --verbose -vv -vvv -y --yes -h --help" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "fix $(dfctl doctor --list-checks 2>/dev/null)" -- "$cur"))
+            fi
+            ;;
         overlay)
             if [[ "${COMP_WORDS[2]}" == "clone" ]]; then
                 if [[ "$prev" == "--dest" ]]; then
@@ -58,7 +65,7 @@ _dfctl_completions() {
             fi
             ;;
         *)
-            COMPREPLY=($(compgen -W "apply propose overlay foothold -h --help" -- "$cur"))
+            COMPREPLY=($(compgen -W "apply propose doctor overlay foothold -h --help" -- "$cur"))
             ;;
     esac
 }
