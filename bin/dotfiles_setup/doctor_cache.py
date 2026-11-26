@@ -5,6 +5,7 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from dotfiles_setup.findings import Finding
 from dotfiles_setup.fsutil import atomic_write_text
@@ -17,11 +18,16 @@ def cache_path(environ: Mapping[str, str], home: Path) -> Path:
     return stamp_path(environ, home).with_name("doctor.json")
 
 
+def _well_formed(entry: Any) -> bool:
+    return isinstance(entry, dict) and isinstance(entry.get("check"), str) and isinstance(entry.get("text"), str)
+
+
 def _stored_findings(path: Path) -> list[dict[str, str]]:
     try:
-        return list(json.loads(path.read_text())["findings"])
+        stored = json.loads(path.read_text())["findings"]
     except (OSError, ValueError, KeyError, TypeError):
         return []
+    return [entry for entry in stored if _well_formed(entry)] if isinstance(stored, list) else []
 
 
 def write_cache(

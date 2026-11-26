@@ -38,10 +38,33 @@ def test_plugin_with_errors_becomes_a_fixable_finding():
     )
 
 
-def test_same_plugin_in_two_scopes_gives_two_findings():
-    plugins = [{"id": "b@m", "scope": s, "errors": ["x"]} for s in ("user", "project")]
-    findings = check_plugin_load_errors(_ctx(_run_returning(plugins))).findings
-    assert [f.commands[0][-1] for f in findings] == ["user", "project"]
+def test_a_non_user_scope_plugin_is_manual_and_names_its_project():
+    plugins = [
+        {"id": "b@m", "scope": "user", "errors": ["x"]},
+        {"id": "b@m", "scope": "project", "projectPath": "/work/app", "errors": ["x"]},
+    ]
+    user, project = check_plugin_load_errors(_ctx(_run_returning(plugins))).findings
+    assert user.fixable
+    assert not project.fixable
+    assert "/work/app" in project.text
+    assert "In /work/app: claude plugin uninstall b@m --scope project" in project.advice
+    assert "claude plugin install b@m --scope project" in project.advice
+
+
+def test_the_same_plugin_local_to_two_projects_gives_two_distinct_findings():
+    plugins = [
+        {"id": "b@m", "scope": "local", "projectPath": p, "errors": ["x"]} for p in ("/work/a", "/work/b")
+    ]
+    first, second = check_plugin_load_errors(_ctx(_run_returning(plugins))).findings
+    assert first.text != second.text
+    assert first.affects != second.affects
+
+
+def test_a_non_user_plugin_without_a_project_path_still_gets_advice():
+    plugins = [{"id": "b@m", "scope": "local", "errors": ["x"]}]
+    (f,) = check_plugin_load_errors(_ctx(_run_returning(plugins))).findings
+    assert not f.fixable
+    assert "the project that owns it" in f.advice
 
 
 def test_healthy_plugins_give_no_findings():

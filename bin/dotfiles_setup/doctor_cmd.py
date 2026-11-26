@@ -6,6 +6,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
@@ -76,12 +77,18 @@ def build_context(logger: Logger, env: Env) -> CheckContext:
     return CheckContext(Tooling(logger, env.home, run=env.run), packages)
 
 
-def _store(logger: Logger, env: Env, report: Report, *, merge: bool) -> None:
+def _to_stderr(message: str) -> None:
+    print(f"[WARNING] {message}", file=sys.stderr)
+
+
+def _store(
+    logger: Logger, env: Env, report: Report, *, merge: bool, warn: Callable[[str], None] | None = None
+) -> None:
     results = {name: o.findings for name, o in report.outcomes.items() if o.skipped is None}
     try:
         write_cache(cache_path(os.environ, env.home), results, env.clock(), merge=merge)
     except OSError as error:
-        logger.warn(f"Could not write the doctor cache: {error}")
+        (warn or logger.warn)(f"Could not write the doctor cache: {error}")
 
 
 def _print_report(logger: Logger, report: Report, *, as_json: bool) -> None:
@@ -107,7 +114,7 @@ def run_doctor(args: argparse.Namespace, env: Env) -> int:
     if _has_unknown(logger, args.names):
         return EXIT_UNKNOWN_CHECK
     report = run_checks(build_context(logger, env), args.names)
-    _store(logger, env, report, merge=bool(args.names))
+    _store(logger, env, report, merge=bool(args.names), warn=_to_stderr if args.json else None)
     _print_report(logger, report, as_json=args.json)
     return EXIT_FINDINGS if report.findings else 0
 
@@ -131,14 +138,15 @@ def _confirmed(logger: Logger, *, yes: bool, interactive: bool, ask: Callable[[s
     return DECLINED_EXIT_CODE
 
 
-def _run_fix(t: Tooling, finding: Finding) -> None:
+def _run_fix(t: Tooling, finding: Finding) -> bool:
     for argv in finding.commands:
         t.logger.info(f"Running: {shlex.join(argv)}")
         result = t.run(list(argv), capture_output=True, text=True, stdin=subprocess.DEVNULL)
         if result.returncode != 0:
             reason = (result.stderr or result.stdout or "").strip()
             t.logger.warn(f"Could not run `{shlex.join(argv)}`: {reason}")
-            return
+            return False
+    return True
 
 
 def _finish(logger: Logger, env: Env, report: Report, names: Sequence[str]) -> int:
@@ -159,11 +167,30 @@ def report_after_apply(t: Tooling, packages: Iterable[str], env: Env, *, dry_run
         _store(t.logger, env, report, merge=False)
 
 
-def _fix_all(ctx: CheckContext, fixable: Sequence[Finding], stop: int | None) -> int | None:
-    if stop is None:
-        for finding in fixable:
-            _run_fix(ctx.t, finding)
-    return stop
+@dataclass(frozen=True)
+class FixOutcome:
+    stop: int | None = None
+    failed: int = 0
+
+
+def _apply_fixes(
+    logger: Logger, ctx: CheckContext, report: Report, fixable: Sequence[Finding],
+    args: argparse.Namespace, interactive: bool, ask: Callable[[str], str],
+) -> FixOutcome:
+    render(report, emit=logger.say, emit_skipped=logger.say)
+    if logger.dry_run_notice(f"Would run {sum(len(f.commands) for f in fixable)} fix command(s)."):
+        return FixOutcome(stop=0)
+    stop = _confirmed(logger, yes=args.yes, interactive=interactive, ask=ask)
+    if stop is not None:
+        return FixOutcome(stop=stop)
+    return FixOutcome(failed=sum(not _run_fix(ctx.t, finding) for finding in fixable))
+
+
+def _conclude(logger: Logger, env: Env, ctx: CheckContext, names: Sequence[str], failed: int) -> int:
+    code = _finish(logger, env, run_checks(ctx, names), names)
+    if failed:
+        logger.warn(f"{failed} fix(es) did not finish; see the warnings above.")
+    return EXIT_FINDINGS if failed else code
 
 
 def run_doctor_fix(
@@ -175,12 +202,7 @@ def run_doctor_fix(
     ctx = build_context(logger, env)
     report = run_checks(ctx, names)
     fixable = [f for f in report.findings if f.fixable]
-    if fixable:
-        render(report, emit=logger.say, emit_skipped=logger.say)
-        if logger.dry_run_notice(f"Would run {sum(len(f.commands) for f in fixable)} fix command(s)."):
-            return 0
-        stop = _fix_all(ctx, fixable, _confirmed(logger, yes=args.yes, interactive=interactive, ask=ask))
-        if stop is not None:
-            return stop
-        report = run_checks(ctx, names)
-    return _finish(logger, env, report, names)
+    if not fixable:
+        return _finish(logger, env, report, names)
+    outcome = _apply_fixes(logger, ctx, report, fixable, args, interactive, ask)
+    return outcome.stop if outcome.stop is not None else _conclude(logger, env, ctx, names, outcome.failed)

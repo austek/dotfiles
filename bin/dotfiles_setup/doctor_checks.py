@@ -26,17 +26,26 @@ PLUGIN_CHECK = "plugin_load_errors"
 STALE_COPIES_CHECK = "stale_copies"
 
 
+def _project_plugin_finding(plugin_id: str, scope: str, project: str | None, errors: str) -> Finding:
+    reinstall = f"claude plugin uninstall {plugin_id} --scope {scope}, then claude plugin install {plugin_id} --scope {scope}"
+    return Finding(
+        PLUGIN_CHECK,
+        f"{plugin_id} ({scope} scope, {project or 'an unknown project'}) has load errors: {errors}",
+        affects=(plugin_id, project) if project else (plugin_id,),
+        advice=f"In {project or 'the project that owns it'}: {reinstall}.",
+    )
+
+
 def _plugin_finding(plugin: dict[str, Any]) -> Finding:
-    plugin_id, scope = plugin["id"], plugin.get("scope", "user")
+    plugin_id, scope, errors = plugin["id"], plugin.get("scope", "user"), "; ".join(plugin["errors"])
+    if scope != "user":
+        return _project_plugin_finding(plugin_id, scope, plugin.get("projectPath"), errors)
     claude = ("claude", "plugin")
     return Finding(
         PLUGIN_CHECK,
-        f"{plugin_id} has load errors: {'; '.join(plugin['errors'])}",
+        f"{plugin_id} has load errors: {errors}",
         affects=(plugin_id,),
-        commands=(
-            (*claude, "uninstall", plugin_id, "--scope", scope),
-            (*claude, "install", plugin_id, "--scope", scope),
-        ),
+        commands=((*claude, "uninstall", plugin_id, "--scope", scope), (*claude, "install", plugin_id, "--scope", scope)),
     )
 
 

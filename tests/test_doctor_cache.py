@@ -3,6 +3,7 @@ import stat
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from dotfiles_setup.doctor_cache import cache_path, write_cache
 from dotfiles_setup.findings import Finding
 
@@ -47,6 +48,21 @@ def test_corrupt_cache_is_treated_as_empty_on_merge(tmp_path):
     path.write_text("{nope")
     write_cache(path, {"a": (Finding("a", "t"),)}, NOW, merge=True)
     assert len(_stored(path)["findings"]) == 1
+
+
+@pytest.mark.parametrize("document", [
+    '{"findings": [1]}',
+    '{"findings": "abc"}',
+    '{"findings": [{"check": ["x"], "text": "t"}]}',
+    '{"findings": [{"check": "keep"}]}',
+    "[]",
+])
+def test_wrong_shaped_cache_is_treated_as_empty_on_merge(tmp_path, document):
+    path = tmp_path / "dotfiles" / "doctor.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(document)
+    write_cache(path, {"b": (Finding("b", "t"),)}, NOW, merge=True)
+    assert _stored(path)["findings"] == [{"check": "b", "text": "t"}]
 
 
 def test_missing_cache_is_treated_as_empty_on_merge(tmp_path):

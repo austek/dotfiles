@@ -123,19 +123,24 @@ def test_an_unwritable_cache_directory_warns_and_keeps_the_exit_code(tmp_path, c
 
 
 def _fix_env(tmp_path, bad=("b@m",), fail=(), fixes=True):
-    state = {"bad": list(bad)}
+    state = {"bad": list(bad), "gone": set()}
     calls = []
 
     def run(argv, **_):
         calls.append(tuple(argv))
         verb = argv[2]
         if verb == "list":
-            plugins = [{"id": i, "scope": "user", "errors": ["x"]} for i in state["bad"]] + HEALTHY
+            shown = [i for i in state["bad"] if i not in state["gone"]]
+            plugins = [{"id": i, "scope": "user", "errors": ["x"]} for i in shown] + HEALTHY
             return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(plugins), stderr="")
         if (verb, argv[3]) in fail:
             return subprocess.CompletedProcess(argv, 1, stdout="", stderr="denied")
-        if verb == "install" and fixes:
-            state["bad"].remove(argv[3])
+        if verb == "uninstall":
+            state["gone"].add(argv[3])
+        if verb == "install":
+            state["gone"].discard(argv[3])
+            if fixes:
+                state["bad"].remove(argv[3])
         return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
     return Env(run=run, clock=lambda: NOW, home=tmp_path, state_dir=tmp_path / "cfg"), calls
@@ -166,6 +171,15 @@ def test_fix_stops_one_findings_commands_at_the_first_failure_but_runs_the_other
     assert _fix(env, "-y") == 1
     assert ("claude", "plugin", "install", "b@m", "--scope", "user") not in calls
     assert ("claude", "plugin", "install", "c@m", "--scope", "user") in calls
+
+
+def test_fix_that_uninstalls_but_cannot_reinstall_exits_1_even_though_the_recheck_is_clean(tmp_path, capsys):
+    env, calls = _fix_env(tmp_path, fail=(("install", "b@m"),))
+    assert _fix(env, "-y") == 1
+    out = capsys.readouterr().out
+    assert "Could not run `claude plugin install b@m --scope user`: denied" in out
+    assert "1 fix(es) did not finish" in out
+    assert ("claude", "plugin", "uninstall", "b@m", "--scope", "user") in calls
 
 
 def test_fix_never_runs_manual_findings_and_does_not_prompt(tmp_path, monkeypatch, capsys):
@@ -280,6 +294,17 @@ def test_apply_survives_a_crashing_check_and_an_unwritable_cache(tmp_path, capsy
     out = capsys.readouterr().out
     assert "check plugin_load_errors crashed" in out
     assert "Could not write the doctor cache" in out
+
+
+def test_json_stays_parseable_when_the_cache_cannot_be_written(tmp_path, capsys, monkeypatch):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file, not a directory")
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocker))
+    env, _ = _env(tmp_path, BAD)
+    assert main(["doctor", "--json"], env) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["findings"]
+    assert "Could not write the doctor cache" in captured.err
 
 
 def test_the_parser_reads_fix_as_the_first_name():
