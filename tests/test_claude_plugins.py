@@ -52,6 +52,14 @@ def test_cozempic_is_a_legacy_marketplace_whose_plugins_are_uninstalled_and_whic
     assert "remove marketplace cozempic" in labels
 
 
+def test_plan_does_not_update_builtin_plugins():
+    assert _labels(SETTINGS, {"m", "n"}, ["a@m", "c@n", "cc-plugin-privacy@builtin"]) == [
+        "refresh marketplaces",
+        "update a@m",
+        "update c@n",
+    ]
+
+
 def test_plan_orders_uninstall_remove_add_refresh_install_update():
     assert _labels(SETTINGS, {"m", "claude-skills"}, ["a@m", "b@m", "x@claude-skills"]) == [
         "uninstall b@m",

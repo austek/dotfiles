@@ -15,6 +15,7 @@ RunFn = Callable[..., Any]
 
 LEGACY_MARKETPLACES = frozenset({"claude-skills", "cozempic"})
 UPDATE_WORKERS = 4
+BUILTIN_SUFFIX = "@builtin"
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,11 @@ def _marketplace_removals(settings: Settings, registered: frozenset[str]) -> tup
 
 def _updates(settings: Settings, installed: tuple[str, ...]) -> tuple[Action, ...]:
     gone = {a.args[1] for a in _plugin_removals(settings, installed)}
-    return tuple(Action(f"update {p}", ("update", p, "--scope", "user")) for p in installed if p not in gone)
+    return tuple(
+        Action(f"update {p}", ("update", p, "--scope", "user"))
+        for p in installed
+        if p not in gone and not p.endswith(BUILTIN_SUFFIX)
+    )
 
 
 def plan_actions(settings: Settings, registered: frozenset[str], installed: tuple[str, ...]) -> tuple[Action, ...]:
