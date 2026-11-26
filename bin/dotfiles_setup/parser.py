@@ -168,6 +168,21 @@ def _build_propose_parser(sub: Any) -> None:
     sub.add_parser("propose", help=summary, description=f"{summary[0].upper()}{summary[1:]}.")
 
 
+def _build_doctor_parser(sub: Any) -> None:
+    doctor_p = sub.add_parser(
+        "doctor",
+        help="check this machine for problems; `doctor fix` applies the fixes",
+        description="Check this machine for problems. `dfctl doctor fix` reruns the checks and runs the fix commands.",
+    )
+    doctor_p.add_argument("names", nargs="*", metavar="check", help="Checks to run (default: all); `fix` first applies the fixes.")
+    doctor_p.add_argument("--list-checks", action="store_true", help="List the checks in run order.")
+    doctor_p.add_argument("--json", action="store_true", help="Print the findings as JSON.")
+    doctor_p.add_argument("--dry-run", action="store_true", help="With `fix`, print the commands without running them.")
+    doctor_p.add_argument("-y", "--yes", action="store_true", help="With `fix`, run the commands without asking. Needed when there is no terminal.")
+    _add_verbosity_flags(doctor_p)
+    doctor_p.set_defaults(verbosity=0)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dfctl",
@@ -178,6 +193,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="command")
     _build_install_parser(sub)
     _build_propose_parser(sub)
+    _build_doctor_parser(sub)
     _build_overlay_parser(sub)
     _build_private_parser(sub)
     _build_foothold_parser(sub)

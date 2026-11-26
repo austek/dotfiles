@@ -176,6 +176,22 @@ def test_install_updates_claude_plugins_after_a_successful_install(isolated_dotf
     assert len(plugin_updates) == 1
 
 
+def test_install_runs_the_doctor_checks_with_the_planned_packages_after_a_successful_install(isolated_dotfiles, doctor_reports):
+    assert main(["install", "--preset", "homelab"]) == 0
+    assert doctor_reports == [(("curl", "zsh"), False)]
+
+
+def test_a_dry_run_install_runs_the_doctor_checks_in_dry_run_mode(isolated_dotfiles, doctor_reports):
+    assert main(["install", "--preset", "homelab", "--dry-run"]) == 0
+    assert doctor_reports == [(("curl", "zsh"), True)]
+
+
+def test_a_failed_install_runs_no_doctor_checks(isolated_dotfiles, doctor_reports, monkeypatch):
+    fail_flow(monkeypatch, "boom")
+    main(["install", "--preset", "homelab"])
+    assert doctor_reports == []
+
+
 def test_install_sets_up_the_presets_footholds(isolated_dotfiles, foothold_syncs):
     assert main(["install", "--preset", "homelab"]) == 0
     assert foothold_syncs == [("main", "burst")]

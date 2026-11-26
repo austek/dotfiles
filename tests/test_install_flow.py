@@ -223,7 +223,7 @@ def test_the_link_user_tools_step_links_an_installed_tool_and_records_it(tmp_pat
     assert log.entries()[-1] == f"LINK_INSTALLED:{real.parent}|{home / '.local/bin/sonar'}"
 
 
-def test_the_report_stale_copies_step_names_a_copy_that_shadows_a_managed_binary(tmp_path, capsys):
+def test_the_report_stale_copies_step_leaves_a_shadowing_copy_to_the_doctor_check(tmp_path, capsys):
     home = tmp_path / "home"
     for directory in (".local/bin", "bin"):
         (home / directory).mkdir(parents=True)
@@ -231,7 +231,7 @@ def test_the_report_stale_copies_step_names_a_copy_that_shadows_a_managed_binary
         (home / directory / "sops").chmod(0o755)
     steps = dict(flow.build_steps(inputs(tmp_path), frozenset({"sops"}), RollbackLog(tmp_path / "log")))
     steps["report_stale_copies"]()
-    assert f"{home / 'bin/sops'} precedes {home / '.local/bin/sops'} on PATH and shadows it" in capsys.readouterr().out
+    assert "shadows it" not in capsys.readouterr().out
 
 
 def antigravity_probe(monkeypatch):
