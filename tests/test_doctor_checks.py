@@ -16,7 +16,7 @@ from dotfiles_setup.tooling import Tooling
 
 
 def _ctx(run, packages=()):
-    return CheckContext(Tooling(Logger(dry_run=False), Path("/home/nobody"), run=run), packages)
+    return CheckContext(Tooling(Logger(dry_run=False), Path.home(), run=run), packages)
 
 
 def _run_returning(plugins):
