@@ -1,8 +1,15 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
-from dotfiles_setup.doctor_checks import CHECKS, CheckContext, check_plugin_load_errors
+from dotfiles_setup import doctor_checks, release_installers
+from dotfiles_setup.doctor_checks import (
+    CHECKS,
+    CheckContext,
+    check_plugin_load_errors,
+    check_stale_copies,
+)
 from dotfiles_setup.log import Logger
 from dotfiles_setup.tooling import Tooling
 
@@ -62,6 +69,47 @@ def test_unparsable_claude_output_is_a_finding_with_advice():
     (f,) = check_plugin_load_errors(_ctx(run)).findings
     assert f.advice
     assert not f.fixable
+
+
+def _shadow_ctx(tmp_path, monkeypatch, packages=("sops",)):
+    system = tmp_path / "usr-local-bin"
+    system.mkdir()
+    monkeypatch.setattr(release_installers, "SYSTEM_BIN_DIR", system)
+    for directory in (tmp_path / ".local/bin", tmp_path / "bin"):
+        directory.mkdir(parents=True)
+        (directory / "sops").write_text("x")
+        (directory / "sops").chmod(0o755)
+    run = _run_exit(0)
+    return CheckContext(Tooling(Logger(dry_run=False), tmp_path, run=run), packages)
+
+
+def test_shadowing_copy_is_a_manual_finding_naming_the_rm_path(tmp_path, monkeypatch):
+    (f,) = check_stale_copies(_shadow_ctx(tmp_path, monkeypatch)).findings
+    copy = tmp_path / "bin" / "sops"
+    assert f.check == "stale_copies"
+    assert f"{copy} precedes {tmp_path / '.local/bin/sops'} on PATH and shadows it" in f.text
+    assert f.advice == f"rm {copy}"
+    assert not f.fixable
+
+
+def test_copy_in_a_directory_the_user_cannot_write_uses_sudo(tmp_path, monkeypatch):
+    ctx = _shadow_ctx(tmp_path, monkeypatch)
+    real_access = os.access
+    monkeypatch.setattr(doctor_checks.os, "access", lambda p, mode, **kw: mode != os.W_OK and real_access(p, mode, **kw))
+    assert check_stale_copies(ctx).findings[0].advice == f"sudo rm {tmp_path / 'bin' / 'sops'}"
+
+
+def test_shadowed_by_and_off_path_cases_are_not_findings(tmp_path, monkeypatch):
+    ctx = _shadow_ctx(tmp_path, monkeypatch)
+    (tmp_path / "bin" / "sops").unlink()
+    (release_installers.SYSTEM_BIN_DIR / "sops").write_text("old")
+    assert check_stale_copies(ctx).findings == ()
+
+
+def test_no_saved_preset_skips_the_check(tmp_path, monkeypatch):
+    out = check_stale_copies(_shadow_ctx(tmp_path, monkeypatch, packages=None))
+    assert out.findings == ()
+    assert "no saved preset" in out.skipped
 
 
 def test_registry_order_and_reserved_name():

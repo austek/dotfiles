@@ -58,29 +58,36 @@ def test_a_system_copy_is_described_neutrally_when_its_directory_is_not_on_path(
     assert lines(capsys) == [f"{legacy} also exists; it is not on PATH here."]
 
 
-def test_the_home_directories_keep_the_path_order_wording_when_path_lacks_them(tmp_path, system_dir, capsys, monkeypatch):
+def test_a_shadowing_copy_is_left_to_the_doctor_check_and_kept(tmp_path, system_dir, capsys, monkeypatch):
     monkeypatch.setenv("PATH", "/usr/bin")
     managed = put(tmp_path / ".local/bin", "sops", "new")
     stale = put(tmp_path / "bin", "sops", "old")
     stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
-    assert lines(capsys) == [f"{stale} precedes {managed} on PATH and shadows it; remove it manually."]
-
-
-@pytest.mark.parametrize("directory", ["bin", ".dotfiles/bin"])
-def test_a_copy_that_precedes_the_user_bin_dir_is_reported_as_shadowing_and_kept(tmp_path, system_dir, capsys, directory):
-    managed = put(tmp_path / ".local/bin", "sops", "new")
-    stale = put(tmp_path / directory, "sops", "old")
-    stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
-    assert lines(capsys) == [f"{stale} precedes {managed} on PATH and shadows it; remove it manually."]
+    assert lines(capsys) == []
+    assert stale_copies.shadowing_copies(tooling(tmp_path), ["sops"]) == ((stale, managed),)
     assert stale.read_text() == "old"
 
 
-def test_every_copy_gets_one_line(tmp_path, system_dir, capsys):
+@pytest.mark.parametrize("directory", ["bin", ".dotfiles/bin"])
+def test_a_copy_that_precedes_the_user_bin_dir_is_a_shadowing_copy(tmp_path, system_dir, directory):
+    managed = put(tmp_path / ".local/bin", "sops", "new")
+    stale = put(tmp_path / directory, "sops", "old")
+    assert stale_copies.shadowing_copies(tooling(tmp_path), ["sops"]) == ((stale, managed),)
+
+
+def test_a_copy_after_the_user_bin_dir_is_not_a_shadowing_copy(tmp_path, system_dir):
+    put(tmp_path / ".local/bin", "sops", "new")
+    put(system_dir, "sops", "old")
+    assert stale_copies.shadowing_copies(tooling(tmp_path), ["sops"]) == ()
+
+
+def test_only_the_copies_that_do_not_shadow_get_a_line(tmp_path, system_dir, capsys):
     put(tmp_path / ".local/bin", "sops")
     for directory in (system_dir, tmp_path / "bin", tmp_path / ".dotfiles/bin"):
         put(directory, "sops", "other")
     stale_copies.report_stale_copies(tooling(tmp_path), ["sops"])
-    assert len(lines(capsys)) == 3
+    assert len(lines(capsys)) == 1
+    assert len(stale_copies.shadowing_copies(tooling(tmp_path), ["sops"])) == 2
 
 
 def test_a_non_executable_managed_binary_is_not_a_managed_copy(tmp_path, system_dir, capsys):

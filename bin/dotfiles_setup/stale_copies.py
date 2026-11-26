@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Iterator
 from pathlib import Path
 
 from dotfiles_setup import release_installers
@@ -30,9 +30,7 @@ def _is_other_file(copy: Path, managed: Path) -> bool:
     return copy.is_file() and not copy.samefile(managed)
 
 
-def _message(copy: Path, managed: Path, shadows: bool, on_path: bool) -> str:
-    if shadows:
-        return f"{copy} precedes {managed} on PATH and shadows it; remove it manually."
+def _message(copy: Path, managed: Path, on_path: bool) -> str:
     if not on_path:
         return f"{copy} also exists; it is not on PATH here."
     return f"{copy} is now shadowed by {managed}; remove it with sudo when convenient."
@@ -43,8 +41,7 @@ def _on_path(directory: Path) -> bool:
     return os.path.normpath(directory) in entries
 
 
-def report_stale_copies(t: Tooling, names: Iterable[str]) -> None:
-    """Logs one line per other copy of each managed binary, saying whether it shadows `~/.local/bin`, is shadowed by it, or (a copy in a directory that is off `PATH`) exists and is not on PATH here."""
+def _copies(t: Tooling, names: Iterable[str]) -> Iterator[tuple[Path, Path, bool]]:
     dirs, managed_dir = search_dirs(t), user_bin_dir(t)
     rank = dirs.index(managed_dir)
     others = [(directory, position < rank) for position, directory in enumerate(dirs) if directory != managed_dir]
@@ -54,4 +51,16 @@ def report_stale_copies(t: Tooling, names: Iterable[str]) -> None:
             continue
         for directory, shadows in others:
             if _is_other_file(directory / name, managed):
-                t.logger.info(_message(directory / name, managed, shadows, _on_path(directory)))
+                yield directory / name, managed, shadows
+
+
+def shadowing_copies(t: Tooling, names: Iterable[str]) -> tuple[tuple[Path, Path], ...]:
+    """Pairs of (copy, managed binary) where the copy precedes `~/.local/bin` on `PATH`."""
+    return tuple((copy, managed) for copy, managed, shadows in _copies(t, names) if shadows)
+
+
+def report_stale_copies(t: Tooling, names: Iterable[str]) -> None:
+    """Logs one line per copy that `~/.local/bin` shadows, saying whether its directory is on `PATH`; copies that shadow it are the doctor's `stale_copies` check."""
+    for copy, managed, shadows in _copies(t, names):
+        if not shadows:
+            t.logger.info(_message(copy, managed, _on_path(copy.parent)))

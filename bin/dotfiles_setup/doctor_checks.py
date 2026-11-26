@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from dotfiles_setup import stale_copies
 from dotfiles_setup.findings import CheckOutcome, Finding
 from dotfiles_setup.tooling import COMMAND_NOT_FOUND, Tooling
 
@@ -20,6 +23,7 @@ class CheckContext:
 Check = Callable[[CheckContext], CheckOutcome]
 
 PLUGIN_CHECK = "plugin_load_errors"
+STALE_COPIES_CHECK = "stale_copies"
 
 
 def _plugin_finding(plugin: dict[str, Any]) -> Finding:
@@ -59,7 +63,24 @@ def check_plugin_load_errors(ctx: CheckContext) -> CheckOutcome:
     return CheckOutcome(tuple(_plugin_finding(p) for p in plugins if p.get("errors")))
 
 
+def _shadow_finding(copy: Path, managed: Path) -> Finding:
+    sudo = "" if os.access(copy.parent, os.W_OK) else "sudo "
+    return Finding(
+        STALE_COPIES_CHECK,
+        f"{copy} precedes {managed} on PATH and shadows it.",
+        affects=(str(copy),),
+        advice=f"{sudo}rm {copy}",
+    )
+
+
+def check_stale_copies(ctx: CheckContext) -> CheckOutcome:
+    if ctx.packages is None:
+        return CheckOutcome(skipped="no saved preset on this machine")
+    names = stale_copies.managed_names(ctx.packages)
+    return CheckOutcome(tuple(_shadow_finding(c, m) for c, m in stale_copies.shadowing_copies(ctx.t, names)))
+
+
 CHECKS: dict[str, Check] = {
-    "stale_copies": lambda ctx: CheckOutcome(),
+    STALE_COPIES_CHECK: check_stale_copies,
     PLUGIN_CHECK: check_plugin_load_errors,
 }
