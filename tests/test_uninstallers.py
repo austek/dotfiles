@@ -13,10 +13,12 @@ UV_LIST = "serena-agent v1.0\n- serena\n"
 class Machine:
     def __init__(self, answers=None):
         self.commands = []
+        self.envs = []
         self.answers = answers or {}
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
+        self.envs.append(kwargs.get("env"))
         for prefix, (code, out) in self.answers.items():
             if argv[: len(prefix)] == list(prefix):
                 return SimpleNamespace(returncode=code, stdout=out, stderr="")
@@ -145,6 +147,17 @@ def test_remove_deletes_the_directory_tree_under_home(tmp_path):
     (tmp_path / ".serena/language_servers/x").write_text("x")
     assert un.remove(make(tmp_path), "serena") is True
     assert not (tmp_path / ".serena").exists()
+
+
+def test_mcp_removal_targets_the_main_config_even_when_an_account_dir_is_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/elsewhere")
+    monkeypatch.setenv("UNINSTALL_TEST_MARKER", "kept")
+    (tmp_path / ".claude.json").write_text('{"mcpServers": {"serena": {}}}')
+    machine = Machine()
+    assert un.remove_action(make(tmp_path, machine), un.ClaudeMcp("serena")) is True
+    env = machine.envs[machine.commands.index(["claude", "mcp", "remove", "serena", "--scope", "user"])]
+    assert "CLAUDE_CONFIG_DIR" not in env
+    assert env["UNINSTALL_TEST_MARKER"] == "kept"
 
 
 def test_home_path_is_present_for_a_regular_file_and_remove_deletes_it(tmp_path):

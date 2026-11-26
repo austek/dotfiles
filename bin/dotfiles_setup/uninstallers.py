@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -128,7 +129,8 @@ def remove_action(t: Tooling, action: Action) -> bool:
         case PipxTool(name=name):
             return t.run(["pipx", "uninstall", name], capture_output=True).returncode == 0
         case ClaudeMcp(name=name):
-            return t.run(["claude", "mcp", "remove", name, "--scope", "user"], capture_output=True).returncode == 0
+            main_config = {key: value for key, value in os.environ.items() if key != "CLAUDE_CONFIG_DIR"}
+            return t.run(["claude", "mcp", "remove", name, "--scope", "user"], capture_output=True, env=main_config).returncode == 0
         case HomePath(relative=relative):
             return _remove_path(t.home, t.home / relative)
 
@@ -138,5 +140,8 @@ def remove(t: Tooling, name: str) -> bool:
     actions = REGISTRY.get(name)
     if actions is None:
         return False
-    results = [remove_action(t, action) for action in actions if is_present(t, action)]
-    return all(results)
+    succeeded = True
+    for action in actions:
+        if is_present(t, action):
+            succeeded = remove_action(t, action) and succeeded
+    return succeeded
