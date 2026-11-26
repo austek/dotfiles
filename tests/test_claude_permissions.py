@@ -64,10 +64,6 @@ def test_plain_rg_does_not_prompt(command):
     assert not _hook().matches(command, patterns)
 
 
-def test_cozempic_auto_update_is_disabled():
-    assert SETTINGS["env"]["COZEMPIC_NO_AUTO_UPDATE"] == "1"
-
-
 def _path_list():
     result = path_dirs.load(ROOT, None)
     assert isinstance(result, Ok), result
@@ -75,7 +71,7 @@ def _path_list():
 
 
 def test_settings_carry_no_path_of_their_own_because_it_comes_from_the_single_list():
-    assert "PATH" not in SETTINGS["env"]
+    assert "PATH" not in SETTINGS.get("env", {})
 
 
 def test_path_is_portable_and_keeps_the_system_directories():

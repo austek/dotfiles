@@ -1,9 +1,4 @@
 {
-  "env": {
-    "COZEMPIC_NO_AUTO_INIT": "1",
-    "COZEMPIC_NO_AUTO_UPDATE": "1",
-    "COZEMPIC_NO_GLOBAL_INIT": "1"
-  },
   "permissions": {
     "additionalDirectories": [
       "/tmp",
@@ -50,7 +45,6 @@
       "Read",
       "mcp__claude-in-chrome__*",
       "mcp__idea__*",
-      "mcp__serena__*",
       "mcp__sonarqube__*"
     ],
     "ask": [
@@ -118,26 +112,6 @@
             "command": "python3 \"$HOME/.claude/hooks/block-dangerous-rm.py\""
           }
         ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "serena-hooks remind 2>/dev/null || true"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "serena-hooks activate 2>/dev/null || true"
-          }
-        ]
       }
     ],
     "Stop": [
@@ -174,7 +148,6 @@
     "code-craftsmanship@wondelai-skills": true,
     "code-modernization@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
-    "cozempic@cozempic": true,
     "dev-utilities@ustekai-skills": true,
     "feature-dev@claude-plugins-official": true,
     "language-personas@ustekai-skills": true,
@@ -186,12 +159,6 @@
     "superpowers@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "cozempic": {
-      "source": {
-        "source": "github",
-        "repo": "Ruya-AI/cozempic"
-      }
-    },
     "wondelai-skills": {
       "source": {
         "source": "github",

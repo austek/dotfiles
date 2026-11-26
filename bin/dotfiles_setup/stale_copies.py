@@ -11,7 +11,7 @@ from dotfiles_setup.tooling import Tooling
 from dotfiles_setup.user_links import USER_LINKS
 
 VENDOR_PACKAGES = frozenset({"uv", "ruff", "auditr", "cargo-deny", "cargo-audit", "coderabbit"})
-ALWAYS_MANAGED = frozenset({"rtk", "cozempic"})
+ALWAYS_MANAGED = frozenset({"rtk"})
 
 
 def search_dirs(t: Tooling) -> tuple[Path, ...]:

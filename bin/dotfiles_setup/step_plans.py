@@ -15,8 +15,10 @@ from dotfiles_setup import (
     removals,
     system_check,
     system_steps,
+    uninstallers,
 )
 from dotfiles_setup.plan_types import StepPlan, unknown_step
+from dotfiles_setup.result import Err, Ok
 from dotfiles_setup.rollback import RollbackLog
 from dotfiles_setup.system_steps import SystemContext
 from dotfiles_setup.tooling import Tooling
@@ -47,7 +49,7 @@ STEP_ROWS = {
     "enable_gpaste_extension": POST_APT_TOOLS, "install_github_bins": GITHUB_DEBS,
     "configure_docker_group": "docker group", "configure_dotfiles": "dotfiles links",
     "refresh_zsh_completion_cache": "zsh completion cache", "ensure_secrets_env": "secrets.env",
-    "retire_claude_profile": "claude profile", "configure_claude_tools": CLAUDE_TOOLS,
+    "retire_claude_profile": "claude profile", "uninstall_tools": "uninstall", "configure_claude_tools": CLAUDE_TOOLS,
     "report_stale_copies": CLAUDE_TOOLS, "change_shell": "login shell",
     "set_default_terminal": "default terminal", "disable_ibus_unicode_hotkey": "ibus hotkey",
 }
@@ -102,6 +104,17 @@ def _removals_plan(pending: Sequence[str], system: str, prune: bool) -> StepPlan
     return StepPlan("removals", 0, 0, remove=removable if prune else (), held=() if prune else removable)
 
 
+def _uninstall_plan(t: Tooling, dotfiles_dir: Path, overlay_root: Path | None, prune: bool) -> StepPlan:
+    match uninstallers.load(dotfiles_dir, overlay_root):
+        case Err(error=message):
+            return StepPlan("uninstall", 0, 0, note=message)
+        case Ok(value=names):
+            found = uninstallers.pending(t, names)
+            bad = uninstallers.unknown(names)
+            note = f"not in the uninstall registry: {', '.join(bad)}" if bad else None
+            return StepPlan("uninstall", 0, 0, remove=found if prune else (), held=() if prune else found, note=note)
+
+
 def _overlay_plan() -> StepPlan | None:
     legacy, new = overlay.LEGACY_OVERLAY_ROOT, overlay.DEFAULT_OVERLAY_ROOT
     match overlay_migrate.pending_migration():
@@ -129,6 +142,7 @@ def build_step_plans(
         _flatpak_plan(t, wanted, upgrade),
         _debs_plan(ctx, system),
         _removals_plan(pending, system, prune),
+        _uninstall_plan(t, dotfiles_dir, overlay_root, prune),
         *config_plans.system_rows(ctx, installed, system),
         *config_plans.user_rows(t, dotfiles_dir, wanted, overlay_root, preset_name, upgrade),
         *(unknown_step(step, note) for step, note in UNKNOWN_ROWS.items()),

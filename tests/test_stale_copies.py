@@ -161,13 +161,13 @@ def test_the_managed_names_cover_release_binaries_links_and_vendor_tools():
     })
     assert names == {
         "sops", "istioctl", "aws", "jetbrains-toolbox", "sonar", "uv", "ruff", "auditr", "cargo-deny", "cargo-audit",
-        "coderabbit", "rtk", "cozempic",
+        "coderabbit", "rtk",
     }
 
 
 def test_unwanted_packages_add_no_names_beyond_the_always_managed_ones():
-    assert stale_copies.managed_names({"vim"}) == {"rtk", "cozempic"}
+    assert stale_copies.managed_names({"vim"}) == {"rtk"}
 
 
 def test_a_package_without_a_user_level_binary_adds_no_name():
-    assert stale_copies.managed_names({"zoom"}) == {"rtk", "cozempic"}
+    assert stale_copies.managed_names({"zoom"}) == {"rtk"}

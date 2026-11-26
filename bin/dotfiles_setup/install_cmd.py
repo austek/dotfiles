@@ -113,7 +113,7 @@ def _flow_inputs(
     return install_flow.FlowInputs(
         t, plan.dotfiles_dir, plan.preset.name, plan.wanted, plan.overlay_root,
         args.force, plan.stamp, euid=env.euid(), system=args.system,
-        upgrade=args.upgrade, removals=approved, interactive=sys.stdin.isatty(), plans=plans,
+        upgrade=args.upgrade, removals=approved, interactive=sys.stdin.isatty(), plans=plans, prune=args.prune,
     )
 
 
@@ -154,7 +154,6 @@ def _approve_and_run(
             logger.error(message)
             return install_flow.INTERRUPTED_EXIT_CODE
         case Ok(value=approved):
-            # Before the steps: the cozempic install creates ~/.claude/settings.json when it is absent.
             _write_claude_settings(logger, claude_settings, env)
             inputs = _flow_inputs(t, env, plan, args, approved, plans)
             return _run_flow(args, env, plan, claude_settings, path_entries, inputs)

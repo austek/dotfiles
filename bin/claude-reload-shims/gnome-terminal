@@ -1,3 +1,0 @@
-#!/bin/sh
-# No-op: claude-reload prepends this directory so cozempic reload opens no window.
-exit 0

@@ -65,190 +65,25 @@ def test_rtk_dry_run_downloads_nothing(tmp_path, on_path):
     assert downloads == []
 
 
-def test_cozempic_is_installed_through_pipx(tmp_path, on_path):
-    on_path.add("pipx")
+def test_dfctl_no_longer_installs_or_configures_cozempic():
+    assert not hasattr(ct, "configure_cozempic_cli")
+    assert not hasattr(ct, "_report_cozempic")
+    assert not hasattr(ct, "_tool_env")
+
+
+def test_the_base_settings_carry_no_cozempic_entries():
+    settings = json.loads((Path(__file__).resolve().parent.parent / "claude/.claude/settings.json").read_text())
+    assert [key for key in settings.get("env", {}) if key.startswith("COZEMPIC_")] == []
+    assert "cozempic@cozempic" not in settings["enabledPlugins"]
+    assert "cozempic" not in settings["extraKnownMarketplaces"]
+
+
+def test_version_checks_run_with_the_inherited_environment(tmp_path, on_path):
+    on_path.add("rtk")
     machine = Machine()
     t, _ = make(tmp_path, machine)
-    ct.configure_cozempic_cli(t)
-    assert machine.ran("pipx", "install", "--quiet", "cozempic")
-
-
-def test_cozempic_without_pipx_installs_nothing(tmp_path, on_path):
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_cozempic_cli(t)
-    assert machine.commands == []
-
-
-def test_cozempic_already_installed_is_left_alone(tmp_path, on_path):
-    on_path.update({"cozempic", "pipx"})
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_cozempic_cli(t)
-    assert not machine.ran("pipx")
-
-
-def test_the_cozempic_version_check_disables_global_init_and_keeps_the_environment(tmp_path, on_path, monkeypatch):
-    monkeypatch.setenv("COZEMPIC_TEST_MARKER", "kept")
-    on_path.update({"cozempic", "pipx"})
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_cozempic_cli(t)
-    env = machine.envs[machine.commands.index(["cozempic", "--version"])]
-    assert env["COZEMPIC_NO_GLOBAL_INIT"] == "1"
-    assert env["COZEMPIC_TEST_MARKER"] == "kept"
-
-
-def test_the_post_install_cozempic_report_disables_global_init(tmp_path, on_path):
-    on_path.add("cozempic")
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct._report_cozempic(t)
-    assert machine.envs[machine.commands.index(["/usr/bin/cozempic", "--version"])]["COZEMPIC_NO_GLOBAL_INIT"] == "1"
-
-
-def test_other_binaries_do_not_get_the_cozempic_variable(tmp_path, on_path):
-    on_path.update({"pipx", "serena", "rtk"})
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct._version_of(t, "serena")
     ct._version_of(t, "rtk")
-    assert all("COZEMPIC_NO_GLOBAL_INIT" not in (env or {}) for env in machine.envs)
-
-
-def test_the_base_settings_disable_cozempic_global_init():
-    settings = Path(__file__).resolve().parent.parent / "claude/.claude/settings.json"
-    assert json.loads(settings.read_text())["env"]["COZEMPIC_NO_GLOBAL_INIT"] == "1"
-
-
-def test_serena_is_skipped_on_homelab(tmp_path, on_path):
-    on_path.add("pipx")
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_serena(t, "homelab")
-    assert machine.commands == []
-
-
-def test_serena_without_pipx_installs_nothing(tmp_path, on_path):
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_serena(t, "work")
-    assert machine.commands == []
-
-
-def test_a_failed_serena_install_stops_before_init_and_registration(tmp_path, on_path):
-    on_path.update({"pipx", "claude"})
-    machine = Machine({("pipx", "install"): (1, "")})
-    t, _ = make(tmp_path, machine)
-    ct.configure_serena(t, "work")
-    assert not machine.ran("serena")
-    assert not machine.ran("claude")
-
-
-def test_serena_is_installed_initialised_and_registered(tmp_path, on_path):
-    on_path.update({"pipx", "claude"})
-    machine = Machine({("claude", "mcp", "get"): (1, "")})
-    t, _ = make(tmp_path, machine)
-    ct.configure_serena(t, "personal")
-    assert machine.ran(*ct.SERENA_INSTALL)
-    assert machine.ran("serena", "init")
-    assert machine.ran("claude", "mcp", "add", "--scope", "user", "serena")
-
-
-@pytest.mark.parametrize(("pipx_version", "fetches"), [("1.4.3\n", False), ("1.5.0\n", True), ("1.8.0\n", True), ("", True)])
-def test_serena_fetches_a_missing_python_only_where_pipx_accepts_the_flag(tmp_path, on_path, pipx_version, fetches):
-    on_path.update({"pipx", "claude"})
-    machine = Machine({("pipx", "--version"): (0, pipx_version), ("claude", "mcp", "get"): (1, "")})
-    t, _ = make(tmp_path, machine)
-    ct.configure_serena(t, "personal")
-    install = next(c for c in machine.commands if c[:2] == ["pipx", "install"])
-    assert ("--fetch-missing-python" in install) is fetches
-    assert install[-2:] == ["serena-agent", "--pip-args=--pre"]
-
-
-def test_an_initialised_and_registered_serena_is_left_alone(tmp_path, on_path):
-    on_path.update({"pipx", "serena", "claude"})
-    config = tmp_path / ".serena/serena_config.yml"
-    config.parent.mkdir(parents=True)
-    config.write_text("")
-    machine = Machine({("serena", "--version"): (0, "serena 1\nextra\n")})
-    t, _ = make(tmp_path, machine)
-    ct.configure_serena(t, "work")
-    assert not machine.ran("serena", "init")
-    assert not machine.ran("claude", "mcp", "add")
-
-
-def test_serena_without_the_claude_cli_skips_registration(tmp_path, on_path):
-    on_path.update({"pipx", "serena"})
-    machine = Machine()
-    t, _ = make(tmp_path, machine)
-    ct.configure_serena(t, "work")
-    assert not machine.ran("claude")
-
-
-def jdtls(tmp_path, text):
-    path = tmp_path / ".local/share/pipx/venvs/serena-agent/lib/solidlsp/language_servers/eclipse_jdtls.py"
-    path.parent.mkdir(parents=True)
-    path.write_text(text)
-    return path
-
-
-def test_the_gradle_9_patch_is_applied_with_a_backup(tmp_path, on_path):
-    on_path.update({"pipx", "serena"})
-    path = jdtls(tmp_path, f"x = {ct.JDTLS_ENABLED}\n")
-    t, _ = make(tmp_path, Machine())
-    ct.configure_serena(t, "work")
-    assert ct.JDTLS_DISABLED in path.read_text()
-    assert ct.JDTLS_ENABLED in path.with_name(path.name + ".bak").read_text()
-
-
-def test_an_already_patched_file_is_not_rewritten(tmp_path, on_path):
-    on_path.update({"pipx", "serena"})
-    path = jdtls(tmp_path, f"x = {ct.JDTLS_DISABLED}\n")
-    t, _ = make(tmp_path, Machine())
-    ct.configure_serena(t, "work")
-    assert not path.with_name(path.name + ".bak").exists()
-
-
-def test_the_patch_follows_the_serena_executable_into_a_uv_tool_venv(tmp_path, monkeypatch):
-    venv = tmp_path / ".local/share/uv/tools/serena-agent"
-    path = venv / "lib/solidlsp/language_servers/eclipse_jdtls.py"
-    path.parent.mkdir(parents=True)
-    path.write_text(f"x = {ct.JDTLS_ENABLED}\n")
-    (venv / "pyvenv.cfg").write_text("")
-    (venv / "bin").mkdir()
-    (venv / "bin/serena").write_text("")
-    link = tmp_path / ".local/bin/serena"
-    link.parent.mkdir(parents=True)
-    link.symlink_to(venv / "bin/serena")
-    monkeypatch.setattr("shutil.which", lambda name, path=None: str(link) if name in {"serena", "pipx"} else None)
-    t, _ = make(tmp_path, Machine())
-    ct.configure_serena(t, "work")
-    assert ct.JDTLS_DISABLED in path.read_text()
-
-
-def test_an_installed_serena_is_configured_and_patched_without_pipx(tmp_path, on_path):
-    on_path.update({"serena", "claude"})
-    path = jdtls(tmp_path, f"x = {ct.JDTLS_ENABLED}\n")
-    t, _ = make(tmp_path, Machine())
-    ct.configure_serena(t, "work")
-    assert ct.JDTLS_DISABLED in path.read_text()
-
-
-def test_a_missing_jdtls_file_only_warns(tmp_path, on_path, capsys):
-    on_path.update({"pipx", "serena"})
-    t, _ = make(tmp_path, Machine())
-    ct.configure_serena(t, "work")
-    out = capsys.readouterr()
-    assert "eclipse_jdtls.py not found in the Serena venv" in out.out + out.err
-
-
-def test_the_patch_is_not_applied_in_a_dry_run(tmp_path, on_path):
-    on_path.update({"pipx", "serena"})
-    path = jdtls(tmp_path, f"x = {ct.JDTLS_ENABLED}\n")
-    t, _ = make(tmp_path, Machine(), dry_run=True)
-    ct.configure_serena(t, "work")
-    assert ct.JDTLS_ENABLED in path.read_text()
+    assert machine.envs == [None]
 
 
 def make_nvm_node(tmp_path, *versions):
@@ -314,8 +149,7 @@ def test_a_failed_caveman_npm_install_stops(tmp_path, on_path):
 def test_the_claude_tools_run_in_order(tmp_path, monkeypatch):
     order = []
     t, _ = make(tmp_path, Machine())
-    for name in ("configure_rtk_cli", "configure_cozempic_cli", "configure_caveman_proxy"):
+    for name in ("configure_rtk_cli", "configure_caveman_proxy"):
         monkeypatch.setattr(ct, name, lambda t, name=name: order.append(name))
-    monkeypatch.setattr(ct, "configure_serena", lambda t, preset: order.append(f"serena:{preset}"))
-    ct.configure_claude_tools(t, "work")
-    assert order == ["configure_rtk_cli", "configure_cozempic_cli", "serena:work", "configure_caveman_proxy"]
+    ct.configure_claude_tools(t)
+    assert order == ["configure_rtk_cli", "configure_caveman_proxy"]

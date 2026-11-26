@@ -60,6 +60,7 @@ def converged(monkeypatch):
     monkeypatch.setattr("dotfiles_setup.system_check.snapd_reason", lambda installed: None)
     monkeypatch.setattr("dotfiles_setup.system_steps.docker_group_pending", lambda ctx: False)
     monkeypatch.setattr("dotfiles_setup.zsh_cache.pending", lambda home: False)
+    monkeypatch.setattr("dotfiles_setup.uninstallers.pending", lambda t, names: ())
 
 
 @pytest.fixture

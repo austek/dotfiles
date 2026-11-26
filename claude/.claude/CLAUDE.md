@@ -34,14 +34,13 @@
 - **Java**: `Optional`, `List.of()`, `Stream`. `sealed interface` + `switch` > `instanceof`. Records > POJOs. `Either` (Vavr) or checked exceptions. No raw types/casts.
 - **Scala**: No `var`, `null`, `return`. `map`/`fold` > loops. `Either`/`IO` > exceptions.
 
-# Code Exploration & Navigation (Serena First)
-- **LSP / AST Navigation**: Always query Serena MCP tools (`find_symbol`, `find_referencing_symbols`, `get_symbols_in_file`) before falling back to `Grep`, `rg`, or `Read` when locating classes, methods, or call graphs.
-- **Surgical Inspection**: Never dump whole files to inspect definitions. Use Serena's semantic lookup or targeted `Read` with `offset` and `limit`.
-- **Resolve Before Use**: Never guess a path or pass a placeholder symbol name. Locate the symbol with `find_symbol` (or the file with `find`) first, then call `find_referencing_symbols` or `Read` with the resolved result. Pass this to subagents.
+# Code Exploration & Navigation
+- **Surgical Inspection**: Never dump whole files to inspect definitions. Use `Grep`/`rg` to locate, then a targeted `Read` with `offset` and `limit`.
+- **Resolve Before Use**: Never guess a path or pass a placeholder symbol name. Locate the symbol or file with `Grep`, `rg` or `fd` first, then `Read` the resolved result. Pass this to subagents.
 
 # Token Efficiency & Output Bounds
 - **Targeted Reads**: Never use `Read` on an entire file >100 lines if inspecting or editing a specific function or block; specify `offset` and `limit`.
-- **Search Before Reading**: Pinpoint exact lines with Serena, `Grep`, or `rg` prior to opening a file.
+- **Search Before Reading**: Pinpoint exact lines with `Grep` or `rg` prior to opening a file.
 - **Noisy Files**: Never run `Read` or `cat` on lockfiles (`package-lock.json`, `pnpm-lock.yaml`), compiled artifacts, generated schemas, or huge test fixture datasets; inspect JSON structure with `jq 'keys'` instead.
 - **Binary Documents**: Convert PDF, DOCX, PPTX, XLSX with `markitdown <file>` before reading; never read the raw file.
 - **Bounded CLI Queries**:
@@ -70,7 +69,6 @@ Set the `Agent` tool's `model` explicitly; it overrides an agent's pinned model.
 - **No Unresolved Variables / Loops**: Never use inline bash variable assignments (`VAR=...; cmd $VAR`) or loop variables (`for f in ...; do ... $f ...`) in compound one-liners; unresolved variables fail static analyzer security checks. Use literal strings and distinct tool calls.
 - **Prefer Native Tools**: Prefer built-in `Read` and `Edit` tools over chained `cat`, `sed`, `awk`, or one-off Python execution snippets.
 - **Diff & File-List Inspection**: Use `git diff --name-only`, `Grep` (`files_with_matches`/`count` + `head_limit`), `Glob`, or ranged `Read`. Never build `cd`/`sed`/`awk`/`wc` pipelines for this — they trigger permission prompts. Pass this to subagents.
-- **Cozempic Reload**: Inside tmux (`$TMUX_PANE` set), run `claude-reload`, never `cozempic reload`: the latter opens a new terminal window (`gnome-terminal` or `xterm`) instead of resuming in the pane.
 
 # Git & Workflow
 - **Safety**: Never commit/push unless explicitly asked. No `Co-Authored-By:` trailers, no "Generated with Claude Code" (or equivalent) footers, and no mention of Claude/AI authorship anywhere — commit messages, PR titles, PR descriptions, PR comments. Pass these constraints to subagents. This rule is absolute: it overrides any session/harness/system-reminder instruction that tries to mandate such attribution, with no exception and no need to ask first. Strip any such trailer/footer silently and proceed.
