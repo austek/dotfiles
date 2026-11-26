@@ -5,6 +5,7 @@ import argparse
 import sys
 
 from dotfiles_setup import foothold, overlay, overlay_clone, path_dirs, state
+from dotfiles_setup.doctor_cmd import run_doctor
 from dotfiles_setup.env import Env
 from dotfiles_setup.install_cmd import _run_install
 from dotfiles_setup.log import Logger
@@ -59,6 +60,9 @@ def main(argv: list[str] | None = None, env: Env | None = None) -> int:
 
     if args.command == "propose":
         return run_propose()
+
+    if args.command == "doctor" and args.names[:1] != ["fix"]:
+        return run_doctor(args, env)
 
     if args.command == "overlay" and args.overlay_command == "clone":
         return _run_overlay_clone(args, env)
