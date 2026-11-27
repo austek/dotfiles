@@ -48,11 +48,9 @@
       "mcp__sonarqube__*"
     ],
     "ask": [
-      "Bash(gh pr merge*)",
       "Bash(git clean -f*)",
       "Bash(git reset --hard*)",
       "Bash(rg *--pre*)",
-      "Bash(rtk gh pr merge*)",
       "Bash(rtk git clean -f*)",
       "Bash(rtk git reset --hard*)"
     ],
